@@ -1,7 +1,7 @@
 # cloud-vinyl — Architektur-Designdokument
 
-**Version:** 0.1-draft  
-**Datum:** 2026-03-08  
+**Version:** 0.1-draft
+**Datum:** 2026-03-08
 **Status:** In Diskussion
 
 ---

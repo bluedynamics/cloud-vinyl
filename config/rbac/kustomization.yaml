@@ -25,4 +25,3 @@ resources:
 - vinylcache_admin_role.yaml
 - vinylcache_editor_role.yaml
 - vinylcache_viewer_role.yaml
-
