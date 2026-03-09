@@ -1,0 +1,8 @@
+apiVersion: vinyl.bluedynamics.eu/v1alpha1
+kind: VinylCache
+metadata:
+  name: my-cache
+status:
+  phase: Ready
+  (conditions[?type == 'Ready'].status | [0]): "True"
+  (conditions[?type == 'VCLSynced'].status | [0]): "True"

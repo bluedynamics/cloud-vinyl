@@ -1,0 +1,9 @@
+
+sub vcl_miss {
+{{ if .Spec.VCL.Snippets.VCLMiss }}
+    # --- custom vcl_miss snippet ---
+    {{ .Spec.VCL.Snippets.VCLMiss }}
+    # --- end custom vcl_miss snippet ---
+{{ end }}
+    return(fetch);
+}

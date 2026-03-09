@@ -1,0 +1,38 @@
+apiVersion: vinyl.bluedynamics.eu/v1alpha1
+kind: VinylCache
+metadata:
+  name: my-cache
+spec:
+  replicas: 3
+  image: ghcr.io/bluedynamics/cloud-vinyl-varnish:dev
+  backends:
+    - name: echo
+      serviceRef:
+        name: echo-backend
+      port: 80
+      probe:
+        url: /
+        interval: 5s
+        timeout: 1s
+        threshold: 2
+        window: 5
+  director:
+    type: shard
+    shard:
+      warmup: 0.1
+      rampup: 30s
+      by: HASH
+      healthy: CHOSEN
+  cluster:
+    enabled: true
+  invalidation:
+    purge:
+      soft: true
+    xkey:
+      softPurge: true
+  debounce:
+    duration: 2s
+  retry:
+    maxAttempts: 3
+    backoffBase: 2s
+    backoffMax: 30s

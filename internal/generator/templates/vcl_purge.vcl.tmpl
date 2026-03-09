@@ -1,0 +1,9 @@
+
+sub vcl_purge {
+{{ if .Spec.VCL.Snippets.VCLPurge }}
+    # --- custom vcl_purge snippet ---
+    {{ .Spec.VCL.Snippets.VCLPurge }}
+    # --- end custom vcl_purge snippet ---
+{{ end }}
+    return(synth(200, "Purged"));
+}

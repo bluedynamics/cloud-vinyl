@@ -1,0 +1,85 @@
+name: E2E Chainsaw Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  e2e:
+    name: Chainsaw E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          config: e2e/setup/kind-config.yaml
+          cluster_name: cloud-vinyl-e2e
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build operator image
+        run: |
+          docker build -f Dockerfile.operator \
+            -t ghcr.io/bluedynamics/cloud-vinyl-operator:dev .
+          kind load docker-image ghcr.io/bluedynamics/cloud-vinyl-operator:dev \
+            --name cloud-vinyl-e2e
+
+      - name: Build agent image
+        run: |
+          docker build -f Dockerfile.agent \
+            -t ghcr.io/bluedynamics/cloud-vinyl-varnish:dev .
+          kind load docker-image ghcr.io/bluedynamics/cloud-vinyl-varnish:dev \
+            --name cloud-vinyl-e2e
+
+      - uses: azure/setup-helm@v4
+
+      - name: Install cert-manager
+        run: bash e2e/setup/install-cert-manager.sh
+
+      - name: Install cloud-vinyl operator
+        env:
+          OPERATOR_IMAGE: ghcr.io/bluedynamics/cloud-vinyl-operator:dev
+        run: bash e2e/setup/install-operator.sh
+
+      - name: Install chainsaw
+        run: go install github.com/kyverno/chainsaw@v0.2.12
+
+      - name: Run E2E tests (parallel)
+        run: |
+          chainsaw test \
+            --test-dir e2e/tests \
+            --parallel 3 \
+            --report-format junit \
+            --report-name e2e-results \
+            --exclude-test-regex "(ha-operator|drift-detection)"
+
+      - name: Run sequential E2E tests
+        run: |
+          chainsaw test \
+            --test-dir e2e/tests \
+            --parallel 1 \
+            --report-format junit \
+            --report-name e2e-results-sequential \
+            --include-test-regex "(ha-operator|drift-detection)"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: |
+            e2e-results.xml
+            e2e-results-sequential.xml

@@ -1,0 +1,32 @@
+{{- if .Values.webhook.certManager.enabled -}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "cloud-vinyl.fullname" . }}-webhook-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cloud-vinyl.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "cloud-vinyl.webhookTLSSecret" . }}
+  issuerRef:
+    name: {{ include "cloud-vinyl.fullname" . }}-selfsigned
+    kind: Issuer
+  dnsNames:
+    - {{ include "cloud-vinyl.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
+    - {{ include "cloud-vinyl.fullname" . }}-webhook.{{ .Release.Namespace }}.svc.cluster.local
+{{- else if and .Values.webhook.tls.cert .Values.webhook.tls.key -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "cloud-vinyl.webhookTLSSecret" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cloud-vinyl.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ .Values.webhook.tls.cert }}
+  tls.key: {{ .Values.webhook.tls.key }}
+  {{- if .Values.webhook.tls.caCert }}
+  ca.crt: {{ .Values.webhook.tls.caCert }}
+  {{- end }}
+{{- end }}

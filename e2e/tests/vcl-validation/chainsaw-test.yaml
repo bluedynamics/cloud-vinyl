@@ -1,0 +1,71 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: vcl-validation
+spec:
+  description: |
+    Verify the admission webhook applies defaults correctly and validates
+    VinylCache resources. Tests defaulting webhook (soft purge default)
+    and that valid resources are accepted.
+  timeouts:
+    apply: 10s
+    assert: 60s
+    delete: 30s
+    exec: 30s
+  steps:
+    - name: deploy-backend
+      try:
+        - apply:
+            file: ../../fixtures/backends/echo-service.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-backend
+              status:
+                readyReplicas: 1
+
+    - name: accept-valid-vinylcache
+      description: A valid VinylCache must be accepted by the webhook.
+      try:
+        - apply:
+            file: vinylcache-valid.yaml
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: valid-test
+
+    - name: verify-defaults-applied
+      description: Defaulting webhook must set spec.invalidation.purge.soft=true.
+      try:
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: valid-test
+              spec:
+                (invalidation.purge.soft): true
+
+    - name: verify-director-default
+      description: Defaulting webhook must set spec.director.type=shard.
+      try:
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: valid-test
+              spec:
+                director:
+                  type: shard
+
+    - name: cleanup
+      try:
+        - delete:
+            file: vinylcache-valid.yaml
+        - delete:
+            file: ../../fixtures/backends/echo-service.yaml

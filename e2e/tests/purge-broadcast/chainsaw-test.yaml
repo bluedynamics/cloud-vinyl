@@ -1,0 +1,56 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: purge-broadcast
+spec:
+  description: |
+    Verify a 3-replica VinylCache with invalidation configured reaches Ready
+    phase and the operator correctly reconciles all resources.
+  timeouts:
+    apply: 10s
+    assert: 120s
+    delete: 60s
+    exec: 30s
+  steps:
+    - name: deploy-backend
+      try:
+        - apply:
+            file: ../../fixtures/backends/echo-service.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-backend
+              status:
+                readyReplicas: 1
+
+    - name: create-cluster
+      try:
+        - apply:
+            file: ../../fixtures/vinylcaches/standard.yaml
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              status:
+                phase: Ready
+
+    - name: verify-invalidation-service
+      description: Verify the invalidation service is created.
+      try:
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: my-cache-invalidation
+
+    - name: cleanup
+      try:
+        - delete:
+            file: ../../fixtures/vinylcaches/standard.yaml
+        - delete:
+            file: ../../fixtures/backends/echo-service.yaml

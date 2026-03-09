@@ -1,0 +1,25 @@
+
+sub vcl_backend_response {
+    # Prevent caching of zero-TTL objects; use uncacheable flag instead
+    if (beresp.ttl <= 0s && beresp.http.Cache-Control !~ "max-age") {
+        set beresp.ttl = 120s;
+        set beresp.uncacheable = true;
+    }
+
+    # Ensure a grace period for stale-while-revalidate
+    if (beresp.grace < 24h) {
+        set beresp.grace = 24h;
+    }
+{{- if .HasXkey }}
+
+    # Copy URL and Host for BAN lurker friendliness (ban-lurker cannot access req.*)
+    set beresp.http.x-url = bereq.url;
+    set beresp.http.x-host = bereq.http.host;
+{{- end }}
+{{ if .Spec.VCL.Snippets.VCLBackendResponse }}
+    # --- custom vcl_backend_response snippet ---
+    {{ .Spec.VCL.Snippets.VCLBackendResponse }}
+    # --- end custom vcl_backend_response snippet ---
+{{ end }}
+    return(deliver);
+}

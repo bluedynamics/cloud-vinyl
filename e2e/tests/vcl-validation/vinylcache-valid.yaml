@@ -1,0 +1,12 @@
+apiVersion: vinyl.bluedynamics.eu/v1alpha1
+kind: VinylCache
+metadata:
+  name: valid-test
+spec:
+  replicas: 1
+  image: ghcr.io/bluedynamics/cloud-vinyl-varnish:dev
+  backends:
+    - name: echo
+      serviceRef:
+        name: echo-backend
+      port: 80

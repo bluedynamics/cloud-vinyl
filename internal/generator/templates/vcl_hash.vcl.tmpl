@@ -1,0 +1,15 @@
+
+sub vcl_hash {
+    hash_data(req.url);
+    if (req.http.host) {
+        hash_data(req.http.host);
+    } else {
+        hash_data(server.ip);
+    }
+{{ if .Spec.VCL.Snippets.VCLHash }}
+    # --- custom vcl_hash snippet ---
+    {{ .Spec.VCL.Snippets.VCLHash }}
+    # --- end custom vcl_hash snippet ---
+{{ end }}
+    return(lookup);
+}

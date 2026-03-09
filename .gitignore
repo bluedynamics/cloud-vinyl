@@ -1,0 +1,45 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/*
+/operator
+/agent
+Dockerfile.cross
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Go workspace file
+go.work
+
+# Kubernetes Generated files - skip generated files, except for vendored files
+!vendor/**/zz_generated.*
+
+# editor and IDE paraphernalia
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Kubeconfig might contain secrets
+*.kubeconfig
+
+# kubebuilder / controller-runtime
+testbin/
+zz_generated.*
+!api/v1alpha1/zz_generated.deepcopy.go
+
+# Sphinx docs build output (also see docs/.gitignore)
+docs/_build/
+docs/html/
+
+# OS
+.DS_Store
+Thumbs.db

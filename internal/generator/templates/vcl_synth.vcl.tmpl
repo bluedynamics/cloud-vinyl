@@ -1,0 +1,9 @@
+
+sub vcl_synth {
+{{ if .Spec.VCL.Snippets.VCLSynth }}
+    # --- custom vcl_synth snippet ---
+    {{ .Spec.VCL.Snippets.VCLSynth }}
+    # --- end custom vcl_synth snippet ---
+{{ end }}
+    return(deliver);
+}

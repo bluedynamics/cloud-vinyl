@@ -1,0 +1,97 @@
+suite: Operator Deployment Tests
+templates:
+  - deployment.yaml
+tests:
+  - it: should create a Deployment
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: should use the operator image with appVersion tag by default
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/bluedynamics/cloud-vinyl-operator:0.1.0
+
+  - it: should use a custom tag when set
+    set:
+      image.operator.tag: v1.2.3
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/bluedynamics/cloud-vinyl-operator:v1.2.3
+
+  - it: should set non-root security context on pod
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+
+  - it: should set correct runAsUser
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 65532
+
+  - it: should set readOnlyRootFilesystem on container
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+
+  - it: should set allowPrivilegeEscalation=false
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+
+  - it: should include leader-elect flag when enabled
+    set:
+      leaderElection.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--leader-elect=true"
+
+  - it: should not include leader-elect flag when disabled
+    set:
+      leaderElection.enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--leader-elect=true"
+
+  - it: should set replica count
+    set:
+      replicaCount: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: should expose metrics port 8080
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 8080
+            protocol: TCP
+
+  - it: should expose webhook port 9443
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: webhook
+            containerPort: 9443
+            protocol: TCP
+
+  - it: should mount webhook certs volume
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: webhook-certs
+            mountPath: /tmp/k8s-webhook-server/serving-certs
+            readOnly: true

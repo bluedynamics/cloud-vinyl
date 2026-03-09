@@ -1,0 +1,61 @@
+
+sub vcl_recv {
+    # Security: strip Proxy header to prevent SSRF (httpoxy CVE-2016-5385)
+    unset req.http.proxy;
+
+    # Normalize Host header: lowercase and strip port
+    set req.http.Host = std.tolower(regsub(req.http.Host, ":[0-9]+$", ""));
+
+    # Sort query string for better cache hit ratio
+    set req.url = std.querysort(req.url);
+{{- if .HasCluster }}
+
+    # Cluster routing: strip spoofed X-Vinyl-Shard from untrusted clients
+    if (req.http.X-Vinyl-Shard && !(client.ip ~ vinyl_cluster_peers)) {
+        unset req.http.X-Vinyl-Shard;
+    }
+    # Route to responsible peer; if already routed, proceed to cache lookup
+    if (!req.http.X-Vinyl-Shard) {
+        set req.http.X-Vinyl-Shard = "1";
+        set req.backend_hint = {{ .DirectorName }}.backend(by=URL);
+        return(pass);
+    }
+    unset req.http.X-Vinyl-Shard;
+{{- end }}
+{{- if .HasProxyProtocol }}
+
+    # PROXY Protocol: extract real client IP from X-Forwarded-For
+    if (req.http.X-Forwarded-For) {
+        set req.http.X-Real-IP = regsub(req.http.X-Forwarded-For, ",.*$", "");
+    }
+{{- end }}
+
+    # PURGE handling
+    if (req.method == "PURGE") {
+        if (!client.ip ~ vinyl_purge_allowed) {
+            return(synth(403, "Forbidden"));
+        }
+{{- if .HasXkey }}
+        if (req.http.X-Xkey-Purge) {
+            set req.http.n-gone = xkey.purge(req.http.X-Xkey-Purge);
+            return(synth(200, "Purged " + req.http.n-gone + " objects"));
+        }
+        if (req.http.X-Xkey-Softpurge) {
+            set req.http.n-gone = xkey.softpurge(req.http.X-Xkey-Softpurge);
+            return(synth(200, "Softpurged " + req.http.n-gone + " objects"));
+        }
+{{- end }}
+        return(purge);
+    }
+
+    # Only handle GET and HEAD for caching (pass everything else)
+    if (req.method != "GET" && req.method != "HEAD") {
+        return(pass);
+    }
+{{ if .Spec.VCL.Snippets.VCLRecv }}
+    # --- custom vcl_recv snippet ---
+    {{ .Spec.VCL.Snippets.VCLRecv }}
+    # --- end custom vcl_recv snippet ---
+{{ end }}
+    return(hash);
+}

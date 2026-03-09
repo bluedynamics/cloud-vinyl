@@ -1,0 +1,78 @@
+suite: cert-manager TLS Tests
+tests:
+  - it: Certificate should be rendered when cert-manager enabled
+    template: certificate.yaml
+    set:
+      webhook.certManager.enabled: true
+    asserts:
+      - isKind:
+          of: Certificate
+
+  - it: Certificate should reference correct secret name
+    template: certificate.yaml
+    set:
+      webhook.certManager.enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.secretName
+          pattern: ".*-webhook-tls$"
+
+  - it: Certificate should not be rendered when cert-manager disabled and no manual TLS
+    template: certificate.yaml
+    set:
+      webhook.certManager.enabled: false
+      webhook.tls.cert: ""
+      webhook.tls.key: ""
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Secret TLS should be created when manual TLS values set
+    template: certificate.yaml
+    set:
+      webhook.certManager.enabled: false
+      webhook.tls.cert: "dGxzY2VydA=="
+      webhook.tls.key: "dGxza2V5"
+    asserts:
+      - isKind:
+          of: Secret
+
+  - it: Issuer should be rendered when cert-manager enabled
+    template: issuer.yaml
+    set:
+      webhook.certManager.enabled: true
+    asserts:
+      - isKind:
+          of: Issuer
+
+  - it: Issuer should not be rendered when cert-manager disabled
+    template: issuer.yaml
+    set:
+      webhook.certManager.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: ValidatingWebhook should have cert-manager annotation when enabled
+    template: validatingwebhook.yaml
+    set:
+      webhook.certManager.enabled: true
+    asserts:
+      - isNotEmpty:
+          path: metadata.annotations["cert-manager.io/inject-ca-from"]
+
+  - it: ValidatingWebhook should not have cert-manager annotation when disabled
+    template: validatingwebhook.yaml
+    set:
+      webhook.certManager.enabled: false
+    asserts:
+      - isNull:
+          path: metadata.annotations
+
+  - it: MutatingWebhook should have cert-manager annotation when enabled
+    template: mutatingwebhook.yaml
+    set:
+      webhook.certManager.enabled: true
+    asserts:
+      - isNotEmpty:
+          path: metadata.annotations["cert-manager.io/inject-ca-from"]

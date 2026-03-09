@@ -1,0 +1,14 @@
+acl vinyl_purge_allowed {
+    "127.0.0.1";  // localhost always allowed
+{{- if .Spec.Invalidation.Purge }}{{ range .Spec.Invalidation.Purge.AllowedSources }}
+    "{{ . }}";
+{{- end }}{{ end }}
+}
+{{- if .HasCluster }}
+
+acl vinyl_cluster_peers {
+{{- range .PeerDefs }}
+    "{{ .IP }}";
+{{- end }}
+}
+{{- end }}

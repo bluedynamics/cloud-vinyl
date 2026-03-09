@@ -1,0 +1,82 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: basic-lifecycle
+spec:
+  description: |
+    Full CRUD lifecycle of a VinylCache: create, wait for Ready,
+    update spec, delete and verify cleanup.
+  timeouts:
+    apply: 10s
+    assert: 120s
+    delete: 60s
+    exec: 30s
+  steps:
+    - name: deploy-backend
+      description: Deploy the echo backend that Varnish will proxy to.
+      try:
+        - apply:
+            file: ../../fixtures/backends/echo-service.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-backend
+              status:
+                readyReplicas: 1
+
+    - name: create-vinylcache
+      description: Create a minimal single-replica VinylCache.
+      try:
+        - apply:
+            file: ../../fixtures/vinylcaches/minimal.yaml
+        - assert:
+            file: expected-resources.yaml
+
+    - name: wait-ready
+      description: Wait until the VinylCache reaches phase=Ready and VCLSynced=True.
+      try:
+        - assert:
+            file: expected-ready.yaml
+
+    - name: update-spec
+      description: Patch the debounce duration to trigger a new reconcile.
+      try:
+        - patch:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              spec:
+                debounce:
+                  duration: "1s"
+        - assert:
+            file: expected-ready.yaml
+
+    - name: delete-vinylcache
+      description: Delete the VinylCache and verify managed resources are cleaned up.
+      try:
+        - delete:
+            ref:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              name: my-cache
+        - script:
+            timeout: 60s
+            content: |
+              for i in $(seq 1 30); do
+                if ! kubectl get statefulset -n ${NAMESPACE} my-cache >/dev/null 2>&1; then
+                  echo "StatefulSet deleted"
+                  exit 0
+                fi
+                sleep 2
+              done
+              echo "StatefulSet still exists after 60s"
+              exit 1
+
+    - name: cleanup-backend
+      try:
+        - delete:
+            file: ../../fixtures/backends/echo-service.yaml

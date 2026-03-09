@@ -1,0 +1,81 @@
+suite: RBAC Tests
+tests:
+  - it: ClusterRole should be created
+    template: clusterrole.yaml
+    asserts:
+      - isKind:
+          of: ClusterRole
+
+  - it: ClusterRole should contain VinylCache permissions
+    template: clusterrole.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["vinyl.bluedynamics.eu"]
+            resources: ["vinylcaches"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  - it: ClusterRole should contain StatefulSet permissions
+    template: clusterrole.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["apps"]
+            resources: ["statefulsets"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  - it: ClusterRole should contain NetworkPolicy permissions
+    template: clusterrole.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["networking.k8s.io"]
+            resources: ["networkpolicies"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  - it: ClusterRole should contain EndpointSlice permissions
+    template: clusterrole.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["discovery.k8s.io"]
+            resources: ["endpointslices"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  - it: ClusterRoleBinding should be created
+    template: clusterrolebinding.yaml
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+
+  - it: ClusterRoleBinding should reference ServiceAccount
+    template: clusterrolebinding.yaml
+    asserts:
+      - equal:
+          path: subjects[0].kind
+          value: ServiceAccount
+
+  - it: ClusterRoleBinding should reference the correct namespace
+    template: clusterrolebinding.yaml
+    asserts:
+      - equal:
+          path: subjects[0].namespace
+          value: NAMESPACE
+
+  - it: ServiceAccount should be created by default
+    template: serviceaccount.yaml
+    asserts:
+      - isKind:
+          of: ServiceAccount
+
+  - it: ServiceAccount should not be created when create=false
+    template: serviceaccount.yaml
+    set:
+      serviceAccount.create: false
+    asserts:
+      - hasDocuments:
+          count: 0

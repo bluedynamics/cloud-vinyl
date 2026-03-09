@@ -1,0 +1,62 @@
+suite: Webhook Tests
+tests:
+  - it: ValidatingWebhookConfiguration should be created
+    template: validatingwebhook.yaml
+    asserts:
+      - isKind:
+          of: ValidatingWebhookConfiguration
+
+  - it: ValidatingWebhook should target correct path
+    template: validatingwebhook.yaml
+    asserts:
+      - equal:
+          path: webhooks[0].clientConfig.service.path
+          value: /validate-vinyl-bluedynamics-eu-v1alpha1-vinylcache
+
+  - it: ValidatingWebhook should have failurePolicy=Fail
+    template: validatingwebhook.yaml
+    asserts:
+      - equal:
+          path: webhooks[0].failurePolicy
+          value: Fail
+
+  - it: ValidatingWebhook should have sideEffects=None
+    template: validatingwebhook.yaml
+    asserts:
+      - equal:
+          path: webhooks[0].sideEffects
+          value: None
+
+  - it: MutatingWebhookConfiguration should be created
+    template: mutatingwebhook.yaml
+    asserts:
+      - isKind:
+          of: MutatingWebhookConfiguration
+
+  - it: MutatingWebhook should target correct path
+    template: mutatingwebhook.yaml
+    asserts:
+      - equal:
+          path: webhooks[0].clientConfig.service.path
+          value: /mutate-vinyl-bluedynamics-eu-v1alpha1-vinylcache
+
+  - it: MutatingWebhook should have failurePolicy=Fail
+    template: mutatingwebhook.yaml
+    asserts:
+      - equal:
+          path: webhooks[0].failurePolicy
+          value: Fail
+
+  - it: Service for webhook should expose port 443
+    template: service.yaml
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: Service
+      - contains:
+          path: spec.ports
+          content:
+            name: webhook
+            port: 443
+            targetPort: 9443
+            protocol: TCP

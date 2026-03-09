@@ -1,0 +1,71 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: drift-detection
+spec:
+  description: |
+    Verify the operator periodically reconciles VinylCache and maintains
+    VCLSynced=True. Patches to the spec trigger re-reconciliation.
+  timeouts:
+    apply: 10s
+    assert: 120s
+    delete: 60s
+    exec: 30s
+  steps:
+    - name: deploy-backend
+      try:
+        - apply:
+            file: ../../fixtures/backends/echo-service.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-backend
+              status:
+                readyReplicas: 1
+
+    - name: create-vinylcache
+      try:
+        - apply:
+            file: ../../fixtures/vinylcaches/minimal.yaml
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              status:
+                phase: Ready
+                (conditions[?type == 'VCLSynced'].status | [0]): "True"
+
+    - name: trigger-reconcile
+      description: |
+        Patch the VinylCache to trigger a new reconcile cycle.
+        The operator should re-sync and keep VCLSynced=True.
+      try:
+        - patch:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              spec:
+                debounce:
+                  duration: "2s"
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              status:
+                phase: Ready
+                (conditions[?type == 'VCLSynced'].status | [0]): "True"
+
+    - name: cleanup
+      try:
+        - delete:
+            file: ../../fixtures/vinylcaches/minimal.yaml
+        - delete:
+            file: ../../fixtures/backends/echo-service.yaml

@@ -1,0 +1,17 @@
+apiVersion: v2
+name: cloud-vinyl
+description: Kubernetes operator for Varnish Cache clusters (cloud-vinyl)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - varnish
+  - cache
+  - operator
+  - kubernetes
+home: https://github.com/bluedynamics/cloud-vinyl
+sources:
+  - https://github.com/bluedynamics/cloud-vinyl
+maintainers:
+  - name: bluedynamics
+    url: https://github.com/bluedynamics

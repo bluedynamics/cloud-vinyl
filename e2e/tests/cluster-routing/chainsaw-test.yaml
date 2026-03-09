@@ -1,0 +1,58 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cluster-routing
+spec:
+  description: |
+    3-replica cluster with shard director: verify the StatefulSet is created
+    with 3 replicas and the VinylCache reaches Ready phase with VCLSynced=True.
+  timeouts:
+    apply: 10s
+    assert: 120s
+    delete: 60s
+    exec: 30s
+  steps:
+    - name: deploy-backend
+      try:
+        - apply:
+            file: ../../fixtures/backends/echo-service.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-backend
+              status:
+                readyReplicas: 1
+
+    - name: create-3-replica-cluster
+      try:
+        - apply:
+            file: ../../fixtures/vinylcaches/standard.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: my-cache
+              spec:
+                replicas: 3
+
+    - name: wait-ready
+      try:
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              status:
+                phase: Ready
+                (conditions[?type == 'Ready'].status | [0]): "True"
+
+    - name: cleanup
+      try:
+        - delete:
+            file: ../../fixtures/vinylcaches/standard.yaml
+        - delete:
+            file: ../../fixtures/backends/echo-service.yaml

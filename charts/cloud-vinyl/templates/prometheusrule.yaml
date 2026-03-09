@@ -1,0 +1,94 @@
+{{- if .Values.monitoring.prometheusRules.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "cloud-vinyl.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cloud-vinyl.labels" . | nindent 4 }}
+    app.kubernetes.io/part-of: cloud-vinyl
+spec:
+  groups:
+    - name: cloud-vinyl
+      rules:
+        - alert: VinylCacheVCLSyncFailed
+          expr: 'rate(vinyl_vcl_push_total{result="error"}[5m]) > 0'
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "VCL sync failed on {{ "{{" }} $labels.cache {{ "}}" }}"
+            description: "VCL push errors detected on cache {{ "{{" }} $labels.cache {{ "}}" }} in namespace {{ "{{" }} $labels.namespace {{ "}}" }}."
+        - alert: VinylCachePartialVCLSync
+          expr: 'vinyl_partial_failure_total > 0'
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Partial VCL sync on {{ "{{" }} $labels.cache {{ "}}" }}"
+            description: "Some pods in cache {{ "{{" }} $labels.cache {{ "}}" }} did not receive the latest VCL."
+        - alert: VinylCacheAllPodsUnreachable
+          expr: 'rate(vinyl_vcl_push_total{result="error"}[5m]) > 0 and vinyl_reconcile_total{result="error"} > 0'
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "All Varnish pods unreachable for {{ "{{" }} $labels.cache {{ "}}" }}"
+            description: "Cannot reach any Varnish pod in cache {{ "{{" }} $labels.cache {{ "}}" }}. Cache is not serving requests correctly."
+        - alert: VinylCacheBackendUnhealthy
+          expr: 'vinyl_backend_health == 0'
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Backend {{ "{{" }} $labels.backend {{ "}}" }} unhealthy"
+            description: "Backend {{ "{{" }} $labels.backend {{ "}}" }} for cache {{ "{{" }} $labels.cache {{ "}}" }} is reporting unhealthy."
+        - alert: VinylCacheLowHitRatio
+          expr: 'vinyl_cache_hit_ratio < 0.5'
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Low cache hit ratio on {{ "{{" }} $labels.cache {{ "}}" }}"
+            description: "Cache hit ratio for {{ "{{" }} $labels.cache {{ "}}" }} has been below 50% for 15 minutes."
+        - alert: VinylCacheHighInvalidationRate
+          expr: 'rate(vinyl_invalidation_total[5m]) > 100'
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High invalidation rate on {{ "{{" }} $labels.cache {{ "}}" }}"
+            description: "More than 100 invalidation requests per second on cache {{ "{{" }} $labels.cache {{ "}}" }}."
+        - alert: VinylCacheReconcileErrors
+          expr: 'rate(vinyl_reconcile_total{result="error"}[5m]) > 0'
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Reconcile errors for {{ "{{" }} $labels.cache {{ "}}" }}"
+            description: "The operator is experiencing reconcile errors for VinylCache {{ "{{" }} $labels.cache {{ "}}" }}."
+        - alert: VinylCacheOperatorDown
+          expr: 'absent(vinyl_reconcile_total)'
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "cloud-vinyl operator is down"
+            description: "No reconcile metrics reported. The cloud-vinyl operator may be down."
+        - alert: VinylCacheVCLDrift
+          expr: 'vinyl_vcl_versions_loaded > 2'
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "VCL drift detected on {{ "{{" }} $labels.cache {{ "}}" }}"
+            description: "More than 2 VCL versions loaded on {{ "{{" }} $labels.cache {{ "}}" }}. Manual intervention may have occurred."
+        - alert: VinylCacheBroadcastFailures
+          expr: 'rate(vinyl_broadcast_total{result="error"}[5m]) > 0.1'
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Broadcast failures on {{ "{{" }} $labels.cache {{ "}}" }} pods"
+            description: "More than 10% of broadcast requests to Varnish pods are failing for cache {{ "{{" }} $labels.cache {{ "}}" }}."
+{{- end }}

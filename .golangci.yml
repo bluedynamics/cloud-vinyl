@@ -1,0 +1,77 @@
+version: "2"
+run:
+  allow-parallel-runners: true
+linters:
+  default: none
+  enable:
+    - copyloopvar
+    - dupl
+    - errcheck
+    - ginkgolinter
+    - goconst
+    - gocyclo
+    - govet
+    - ineffassign
+    - lll
+    - modernize
+    - misspell
+    - nakedret
+    - prealloc
+    - revive
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - gosec
+  settings:
+    revive:
+      rules:
+        - name: comment-spacings
+        - name: import-shadowing
+        - name: exported
+          severity: warning
+    modernize:
+      disable:
+        - omitzero
+    gosec:
+      excludes:
+        - G204  # subprocess launched with variable
+        - G304  # file inclusion via variable — expected for config/secret file reads
+        - G104  # errors unhandled — covered more precisely by errcheck linter
+        - G115  # integer overflow conversion — false positive in range-safe contexts
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - lll
+        path: api/*
+      - linters:
+          - dupl
+          - lll
+        path: internal/*
+      - linters:
+          - gosec
+          - errcheck
+        path: _test\.go
+      # Deferred Close/Flush calls: errors are unactionable in defer context
+      - linters:
+          - errcheck
+        text: "Error return value of .*(Close|Flush).* is not checked"
+      # Repeated test constants: goconst in test files adds noise
+      - linters:
+          - goconst
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

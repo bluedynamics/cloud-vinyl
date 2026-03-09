@@ -1,0 +1,9 @@
+
+sub vcl_pass {
+{{ if .Spec.VCL.Snippets.VCLPass }}
+    # --- custom vcl_pass snippet ---
+    {{ .Spec.VCL.Snippets.VCLPass }}
+    # --- end custom vcl_pass snippet ---
+{{ end }}
+    return(fetch);
+}

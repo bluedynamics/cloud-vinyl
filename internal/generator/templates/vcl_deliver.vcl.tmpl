@@ -1,0 +1,14 @@
+
+sub vcl_deliver {
+{{- if .HasXkey }}
+    # Strip internal BAN-support headers before sending to client
+    unset resp.http.x-url;
+    unset resp.http.x-host;
+{{- end }}
+{{ if .Spec.VCL.Snippets.VCLDeliver }}
+    # --- custom vcl_deliver snippet ---
+    {{ .Spec.VCL.Snippets.VCLDeliver }}
+    # --- end custom vcl_deliver snippet ---
+{{ end }}
+    return(deliver);
+}

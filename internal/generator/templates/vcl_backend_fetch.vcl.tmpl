@@ -1,0 +1,9 @@
+
+sub vcl_backend_fetch {
+{{ if .Spec.VCL.Snippets.VCLBackendFetch }}
+    # --- custom vcl_backend_fetch snippet ---
+    {{ .Spec.VCL.Snippets.VCLBackendFetch }}
+    # --- end custom vcl_backend_fetch snippet ---
+{{ end }}
+    return(fetch);
+}

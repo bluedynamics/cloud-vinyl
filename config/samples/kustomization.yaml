@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- vinyl_v1alpha1_vinylcache.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

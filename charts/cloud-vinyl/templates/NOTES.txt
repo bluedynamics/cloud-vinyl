@@ -1,0 +1,29 @@
+cloud-vinyl operator has been installed.
+
+Operator namespace: {{ .Release.Namespace }}
+Operator deployment: {{ include "cloud-vinyl.fullname" . }}
+
+To verify the operator is running:
+  kubectl get deployment -n {{ .Release.Namespace }} {{ include "cloud-vinyl.fullname" . }}
+
+To create a VinylCache cluster, apply a VinylCache resource:
+  kubectl apply -f https://raw.githubusercontent.com/bluedynamics/cloud-vinyl/main/config/samples/vinyl_v1alpha1_vinylcache.yaml
+
+To check the CRD is installed:
+  kubectl get crd vinylcaches.vinyl.bluedynamics.eu
+
+{{- if .Values.webhook.certManager.enabled }}
+TLS certificates are managed by cert-manager.
+Ensure cert-manager is running before using admission webhooks:
+  kubectl get pods -n cert-manager
+{{- else }}
+TLS is configured manually. Ensure webhook.tls.cert and webhook.tls.key are valid.
+{{- end }}
+
+{{- if .Values.monitoring.prometheusRules.enabled }}
+
+PrometheusRule with 10 alerts has been deployed.
+{{- end }}
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+ServiceMonitor for Prometheus scraping has been deployed.
+{{- end }}

@@ -1,0 +1,70 @@
+suite: Monitoring Tests
+tests:
+  - it: PrometheusRule should not be rendered when disabled
+    template: prometheusrule.yaml
+    set:
+      monitoring.prometheusRules.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: PrometheusRule should be rendered when enabled
+    template: prometheusrule.yaml
+    set:
+      monitoring.prometheusRules.enabled: true
+    asserts:
+      - isKind:
+          of: PrometheusRule
+
+  - it: PrometheusRule should contain exactly 10 alert rules
+    template: prometheusrule.yaml
+    set:
+      monitoring.prometheusRules.enabled: true
+    asserts:
+      - lengthEqual:
+          path: spec.groups[0].rules
+          count: 10
+
+  - it: PrometheusRule should have correct group name
+    template: prometheusrule.yaml
+    set:
+      monitoring.prometheusRules.enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].name
+          value: cloud-vinyl
+
+  - it: ServiceMonitor should not be rendered when disabled
+    template: servicemonitor.yaml
+    set:
+      monitoring.serviceMonitor.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: ServiceMonitor should be rendered when enabled
+    template: servicemonitor.yaml
+    set:
+      monitoring.serviceMonitor.enabled: true
+    asserts:
+      - isKind:
+          of: ServiceMonitor
+
+  - it: ServiceMonitor should use configured interval
+    template: servicemonitor.yaml
+    set:
+      monitoring.serviceMonitor.enabled: true
+      monitoring.serviceMonitor.interval: 60s
+    asserts:
+      - equal:
+          path: spec.endpoints[0].interval
+          value: 60s
+
+  - it: ServiceMonitor should use metrics port
+    template: servicemonitor.yaml
+    set:
+      monitoring.serviceMonitor.enabled: true
+    asserts:
+      - equal:
+          path: spec.endpoints[0].port
+          value: metrics

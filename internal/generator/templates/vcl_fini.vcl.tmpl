@@ -1,0 +1,9 @@
+
+sub vcl_fini {
+{{ if .Spec.VCL.Snippets.VCLFini }}
+    # --- custom vcl_fini snippet ---
+    {{ .Spec.VCL.Snippets.VCLFini }}
+    # --- end custom vcl_fini snippet ---
+{{ end }}
+    return(ok);
+}

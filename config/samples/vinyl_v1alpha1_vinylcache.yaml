@@ -1,0 +1,9 @@
+apiVersion: vinyl.bluedynamics.eu/v1alpha1
+kind: VinylCache
+metadata:
+  labels:
+    app.kubernetes.io/name: cloud-vinyl
+    app.kubernetes.io/managed-by: kustomize
+  name: vinylcache-sample
+spec:
+  # TODO(user): Add fields here

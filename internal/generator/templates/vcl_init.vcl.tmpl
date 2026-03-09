@@ -1,0 +1,24 @@
+
+sub vcl_init {
+{{- if .HasCluster }}
+    new {{ .DirectorName }} = directors.shard();
+{{- range .PeerDefs }}
+    {{ $.DirectorName }}.add_backend({{ .Name }});
+{{- end }}
+{{- if .Spec.Director.Shard }}
+{{- if .Spec.Director.Shard.Warmup }}
+    {{ $.DirectorName }}.set_warmup({{ deref .Spec.Director.Shard.Warmup }});
+{{- end }}
+{{- if .Spec.Director.Shard.Rampup.Duration }}
+    {{ $.DirectorName }}.set_rampup({{ fmtDuration .Spec.Director.Shard.Rampup.Duration }});
+{{- end }}
+{{- end }}
+    {{ .DirectorName }}.reconfigure();
+{{- end }}
+{{ if .Spec.VCL.Snippets.VCLInit }}
+    # --- custom vcl_init snippet ---
+    {{ .Spec.VCL.Snippets.VCLInit }}
+    # --- end custom vcl_init snippet ---
+{{ end }}
+    return(ok);
+}

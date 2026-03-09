@@ -1,0 +1,107 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: scaling
+spec:
+  description: |
+    Scale-up from 1→3 replicas and scale-down 3→1: verify the StatefulSet
+    spec is updated and the VinylCache reaches Ready phase after each change.
+  timeouts:
+    apply: 10s
+    assert: 120s
+    delete: 60s
+    exec: 30s
+  steps:
+    - name: deploy-backend
+      try:
+        - apply:
+            file: ../../fixtures/backends/echo-service.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-backend
+              status:
+                readyReplicas: 1
+
+    - name: start-single-replica
+      try:
+        - apply:
+            file: ../../fixtures/vinylcaches/minimal.yaml
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              status:
+                phase: Ready
+
+    - name: scale-to-3
+      description: Scale to 3 replicas; StatefulSet spec should be updated.
+      try:
+        - patch:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              spec:
+                replicas: 3
+                cluster:
+                  enabled: true
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: my-cache
+              spec:
+                replicas: 3
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              status:
+                phase: Ready
+                (conditions[?type == 'VCLSynced'].status | [0]): "True"
+
+    - name: scale-to-1
+      description: Scale back down to 1 replica.
+      try:
+        - patch:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              spec:
+                replicas: 1
+                cluster:
+                  enabled: false
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: my-cache
+              spec:
+                replicas: 1
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              status:
+                phase: Ready
+
+    - name: cleanup
+      try:
+        - delete:
+            file: ../../fixtures/vinylcaches/minimal.yaml
+        - delete:
+            file: ../../fixtures/backends/echo-service.yaml

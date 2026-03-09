@@ -1,0 +1,35 @@
+{{ range .BackendDefs }}
+backend {{ .Name }} {
+    .host = "{{ .IP }}";
+    .port = "{{ .Port }}";
+{{- if .ProbeURL }}
+    .probe = {
+        .url = "{{ .ProbeURL }}";
+        .interval = 5s;
+        .timeout = 2s;
+        .window = 5;
+        .threshold = 3;
+    }
+{{- end }}
+{{- if .ConnectTimeout }}
+    .connect_timeout = {{ .ConnectTimeout }};
+{{- end }}
+{{- if .FirstByteTimeout }}
+    .first_byte_timeout = {{ .FirstByteTimeout }};
+{{- end }}
+{{- if .BetweenBytesTimeout }}
+    .between_bytes_timeout = {{ .BetweenBytesTimeout }};
+{{- end }}
+{{- if .MaxConnections }}
+    .max_connections = {{ .MaxConnections }};
+{{- end }}
+}
+{{ end }}
+{{- if .HasCluster }}
+{{ range .PeerDefs }}
+backend {{ .Name }} {
+    .host = "{{ .IP }}";
+    .port = "{{ .Port }}";
+}
+{{ end }}
+{{- end }}

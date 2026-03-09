@@ -1,0 +1,28 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "cloud-vinyl.fullname" . }}-validating
+  labels:
+    {{- include "cloud-vinyl.labels" . | nindent 4 }}
+  {{- if .Values.webhook.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "cloud-vinyl.fullname" . }}-webhook-cert
+  {{- end }}
+webhooks:
+  - name: vvinylcache-v1alpha1.kb.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: {{ include "cloud-vinyl.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-vinyl-bluedynamics-eu-v1alpha1-vinylcache
+      {{- if and (not .Values.webhook.certManager.enabled) .Values.webhook.tls.caCert }}
+      caBundle: {{ .Values.webhook.tls.caCert }}
+      {{- end }}
+    failurePolicy: Fail
+    rules:
+      - apiGroups: ["vinyl.bluedynamics.eu"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["vinylcaches"]
+    sideEffects: None

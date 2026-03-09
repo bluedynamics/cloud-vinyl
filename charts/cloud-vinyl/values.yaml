@@ -1,0 +1,96 @@
+# Default values for cloud-vinyl.
+
+# Number of operator replicas. Values >1 require leaderElection.enabled: true.
+replicaCount: 1
+
+image:
+  operator:
+    repository: ghcr.io/bluedynamics/cloud-vinyl-operator
+    # Defaults to Chart appVersion when empty.
+    tag: ""
+    pullPolicy: IfNotPresent
+  varnish:
+    repository: ghcr.io/bluedynamics/cloud-vinyl-varnish
+    tag: "7.6"
+    pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Create a dedicated ServiceAccount for the operator.
+  create: true
+  annotations: {}
+  # Override the generated name.
+  name: ""
+
+# Resource requests/limits for the operator container.
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+# Leader-election (recommended when replicaCount > 1).
+leaderElection:
+  enabled: true
+
+# Operator command-line flags.
+operatorFlags:
+  metricsAddr: ":8080"
+  probeAddr: ":8081"
+  agentClientTimeout: "30s"
+
+# Webhook TLS configuration.
+# Exactly one of certManager.enabled or manual TLS must be configured.
+webhook:
+  certManager:
+    # Use cert-manager to manage TLS (recommended). cert-manager must be installed.
+    enabled: true
+  tls:
+    # Base64-encoded CA certificate (used when certManager.enabled: false).
+    caCert: ""
+    # Base64-encoded TLS certificate.
+    cert: ""
+    # Base64-encoded TLS private key.
+    key: ""
+
+# Monitoring opt-in.
+monitoring:
+  prometheusRules:
+    # Deploy a PrometheusRule with 10 pre-defined alerts (architektur.md §8.5).
+    enabled: false
+  serviceMonitor:
+    # Deploy a ServiceMonitor for Prometheus Operator scraping.
+    enabled: false
+    interval: "30s"
+    scrapeTimeout: "10s"
+    additionalLabels: {}
+
+# Install the VinylCache CRD as part of this chart.
+# Set to false for GitOps workflows where CRDs are managed separately.
+installCRDs: true
+
+# Pod scheduling constraints.
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Pod-level security context (non-root by default, §1.2).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container-level security context.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL

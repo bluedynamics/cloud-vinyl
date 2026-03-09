@@ -1,0 +1,3 @@
+# Chainsaw asserts absence: the StatefulSet must no longer exist after VinylCache deletion.
+# This file is used with a script step that polls for resource absence.
+# (chainsaw does not have a built-in "assert not exists" assert — we use a script instead)

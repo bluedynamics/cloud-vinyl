@@ -1,0 +1,9 @@
+
+sub vcl_pipe {
+{{ if .Spec.VCL.Snippets.VCLPipe }}
+    # --- custom vcl_pipe snippet ---
+    {{ .Spec.VCL.Snippets.VCLPipe }}
+    # --- end custom vcl_pipe snippet ---
+{{ end }}
+    return(pipe);
+}

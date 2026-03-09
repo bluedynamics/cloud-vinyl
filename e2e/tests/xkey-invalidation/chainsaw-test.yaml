@@ -1,0 +1,64 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: xkey-invalidation
+spec:
+  description: |
+    Verify a VinylCache with xkey invalidation configured reaches Ready
+    phase and all expected resources are created.
+  timeouts:
+    apply: 10s
+    assert: 120s
+    delete: 60s
+    exec: 30s
+  steps:
+    - name: deploy-backend
+      try:
+        - apply:
+            file: ../../fixtures/backends/echo-service.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-backend
+              status:
+                readyReplicas: 1
+
+    - name: create-vinylcache-with-xkey
+      try:
+        - apply:
+            file: ../../fixtures/vinylcaches/full-featured.yaml
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              status:
+                phase: Ready
+
+    - name: verify-resources
+      description: Verify all expected resources are created.
+      try:
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: my-cache
+              spec:
+                replicas: 3
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: my-cache-traffic
+
+    - name: cleanup
+      try:
+        - delete:
+            file: ../../fixtures/vinylcaches/full-featured.yaml
+        - delete:
+            file: ../../fixtures/backends/echo-service.yaml
