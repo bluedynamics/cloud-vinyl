@@ -18,7 +18,7 @@ spec:
         - script:
             timeout: 60s
             content: |
-              helm upgrade cloud-vinyl ./charts/cloud-vinyl \
+              helm upgrade cloud-vinyl ../../../charts/cloud-vinyl \
                 --namespace cloud-vinyl-system \
                 --reuse-values \
                 --set replicaCount=2 \
@@ -96,7 +96,7 @@ spec:
         - script:
             timeout: 60s
             content: |
-              helm upgrade cloud-vinyl ./charts/cloud-vinyl \
+              helm upgrade cloud-vinyl ../../../charts/cloud-vinyl \
                 --namespace cloud-vinyl-system \
                 --reuse-values \
                 --set replicaCount=1 \
