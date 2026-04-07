@@ -9,9 +9,10 @@ image:
     # Defaults to Chart appVersion when empty.
     tag: ""
     pullPolicy: IfNotPresent
-  varnish:
-    repository: ghcr.io/bluedynamics/cloud-vinyl-varnish
-    tag: "7.6"
+  agent:
+    repository: ghcr.io/bluedynamics/cloud-vinyl-agent
+    # Defaults to Chart appVersion when empty.
+    tag: ""
     pullPolicy: IfNotPresent
 
 imagePullSecrets: []

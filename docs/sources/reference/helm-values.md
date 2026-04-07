@@ -19,9 +19,9 @@ All configurable values for the `cloud-vinyl` Helm chart.
 | `image.operator.repository` | string | `ghcr.io/bluedynamics/cloud-vinyl-operator` | Operator image repository. |
 | `image.operator.tag` | string | `""` | Operator image tag. Defaults to Chart `appVersion`. |
 | `image.operator.pullPolicy` | string | `IfNotPresent` | Image pull policy. |
-| `image.varnish.repository` | string | `ghcr.io/bluedynamics/cloud-vinyl-varnish` | Varnish image repository. |
-| `image.varnish.tag` | string | `7.6` | Varnish image tag. Pin explicitly for production. |
-| `image.varnish.pullPolicy` | string | `IfNotPresent` | Image pull policy. |
+| `image.agent.repository` | string | `ghcr.io/bluedynamics/cloud-vinyl-agent` | vinyl-agent sidecar image repository. |
+| `image.agent.tag` | string | `""` | Agent image tag. Defaults to Chart `appVersion`. |
+| `image.agent.pullPolicy` | string | `IfNotPresent` | Image pull policy. |
 
 ## serviceAccount
 

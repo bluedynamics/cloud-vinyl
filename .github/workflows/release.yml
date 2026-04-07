@@ -27,11 +27,11 @@ jobs:
             platform: linux/arm64
             runner: ubuntu-24.04-arm
           - dockerfile: Dockerfile.agent
-            image: ghcr.io/bluedynamics/cloud-vinyl-varnish
+            image: ghcr.io/bluedynamics/cloud-vinyl-agent
             platform: linux/amd64
             runner: ubuntu-latest
           - dockerfile: Dockerfile.agent
-            image: ghcr.io/bluedynamics/cloud-vinyl-varnish
+            image: ghcr.io/bluedynamics/cloud-vinyl-agent
             platform: linux/arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
@@ -71,7 +71,7 @@ jobs:
       matrix:
         include:
           - image: ghcr.io/bluedynamics/cloud-vinyl-operator
-          - image: ghcr.io/bluedynamics/cloud-vinyl-varnish
+          - image: ghcr.io/bluedynamics/cloud-vinyl-agent
     runs-on: ubuntu-latest
     steps:
       - name: Log in to GHCR
