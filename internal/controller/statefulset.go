@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"os"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -94,9 +95,15 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 
 		// Build agent sidecar container.
 		agentSecretName := "vinyl-agent-" + vc.Name
+		// Agent image: use AGENT_IMAGE env var (set by Helm chart from operator image),
+		// falling back to the varnish image for backward compatibility.
+		agentImage := os.Getenv("AGENT_IMAGE")
+		if agentImage == "" {
+			agentImage = vc.Spec.Image
+		}
 		agentContainer := corev1.Container{
 			Name:  "vinyl-agent",
-			Image: vc.Spec.Image, // same image spec string; agent image may differ in practice
+			Image: agentImage,
 			Ports: []corev1.ContainerPort{
 				{Name: "agent", ContainerPort: agentPort, Protocol: corev1.ProtocolTCP},
 			},
