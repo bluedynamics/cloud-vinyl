@@ -59,9 +59,15 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 		maps.Copy(podLabels, vc.Spec.Pod.Labels)
 
 		// Build Varnish container.
+		// The stock varnish image entrypoint passes extra args to varnishd.
+		// We need -T (admin CLI) and -S (shared secret) for the agent sidecar.
 		varnishContainer := corev1.Container{
 			Name:  "varnish",
 			Image: vc.Spec.Image,
+			Args: []string{
+				"-T", "127.0.0.1:6082",
+				"-S", "/etc/varnish/secret",
+			},
 			Ports: []corev1.ContainerPort{
 				{Name: "http", ContainerPort: varnishPort, Protocol: corev1.ProtocolTCP},
 			},
