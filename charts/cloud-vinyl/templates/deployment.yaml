@@ -41,7 +41,7 @@ spec:
             - name: VARNISH_IMAGE
               value: "{{ .Values.image.varnish.repository }}:{{ .Values.image.varnish.tag }}"
             - name: AGENT_IMAGE
-              value: {{ include "cloud-vinyl.operatorImage" . }}
+              value: "{{ .Values.image.varnish.repository }}:{{ .Values.image.varnish.tag }}"
           ports:
             - name: metrics
               containerPort: 8080
