@@ -45,7 +45,10 @@ It wraps the Vinyl Cache admin interface (port 6082) and exposes:
 - `GET /vcl/active` — return the hash of the currently active VCL.
 - `POST /ban` — issue a ban command.
 
-Communication between the operator and vinyl-agent is authenticated with a pod-scoped token stored in a Kubernetes Secret.
+Communication between the operator and vinyl-agent is authenticated with a Bearer token.
+The token is stored in a per-namespace Kubernetes Secret (`cloud-vinyl-agent-token`),
+shared by all VinylCache instances in the same namespace. The operator reads the token
+from the Secret before each push request.
 
 ### Purge/BAN proxy
 

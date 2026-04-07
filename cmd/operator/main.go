@@ -183,10 +183,13 @@ func main() {
 	}
 
 	if err := (&controller.VinylCacheReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		Generator:   generator.New(),
-		AgentClient: &controller.HTTPAgentClient{HTTPClient: &http.Client{}},
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Generator: generator.New(),
+		AgentClient: &controller.HTTPAgentClient{
+			HTTPClient: &http.Client{},
+			K8sClient:  mgr.GetClient(),
+		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "VinylCache")
 		os.Exit(1)
