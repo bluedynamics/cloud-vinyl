@@ -68,6 +68,11 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 				"-T", "127.0.0.1:6082",
 				"-S", "/etc/varnish/secret",
 			},
+			Env: []corev1.EnvVar{
+				// Override the stock varnish image default port (80) to match
+				// the containerPort and Service definitions.
+				{Name: "VARNISH_HTTP_PORT", Value: fmt.Sprintf("%d", varnishPort)},
+			},
 			Ports: []corev1.ContainerPort{
 				{Name: "http", ContainerPort: varnishPort, Protocol: corev1.ProtocolTCP},
 			},
