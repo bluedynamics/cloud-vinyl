@@ -23,11 +23,12 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
@@ -53,8 +54,26 @@ var _ = Describe("VinylCache Controller", func() {
 		vinylcache := &vinylv1alpha1.VinylCache{}
 
 		BeforeEach(func() {
+			By("creating the backend service")
+			svc := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-service",
+					Namespace: "default",
+				},
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
+						{Port: 8080, Protocol: corev1.ProtocolTCP},
+					},
+					Selector: map[string]string{"app": "test"},
+				},
+			}
+			err := k8sClient.Get(ctx, client.ObjectKeyFromObject(svc), &corev1.Service{})
+			if err != nil && errors.IsNotFound(err) {
+				Expect(k8sClient.Create(ctx, svc)).To(Succeed())
+			}
+
 			By("creating the custom resource for the Kind VinylCache")
-			err := k8sClient.Get(ctx, typeNamespacedName, vinylcache)
+			err = k8sClient.Get(ctx, typeNamespacedName, vinylcache)
 			if err != nil && errors.IsNotFound(err) {
 				resource := &vinylv1alpha1.VinylCache{
 					ObjectMeta: metav1.ObjectMeta{
@@ -63,10 +82,11 @@ var _ = Describe("VinylCache Controller", func() {
 					},
 					Spec: vinylv1alpha1.VinylCacheSpec{
 						Replicas: 1,
-						Image:    "ghcr.io/bluedynamics/cloud-vinyl-varnish:latest",
+						Image:    "varnish:7.6",
 						Backends: []vinylv1alpha1.BackendSpec{
 							{
 								Name:       "backend",
+								Port:       8080,
 								ServiceRef: vinylv1alpha1.ServiceRef{Name: "test-service"},
 							},
 						},
