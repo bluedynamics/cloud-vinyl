@@ -64,6 +64,13 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 			Ports: []corev1.ContainerPort{
 				{Name: "http", ContainerPort: varnishPort, Protocol: corev1.ProtocolTCP},
 			},
+			VolumeMounts: []corev1.VolumeMount{
+				{
+					Name:      "agent-token",
+					MountPath: "/run/vinyl",
+					ReadOnly:  true,
+				},
+			},
 			SecurityContext: &corev1.SecurityContext{
 				RunAsNonRoot:             boolPtr(true),
 				ReadOnlyRootFilesystem:   boolPtr(true),
