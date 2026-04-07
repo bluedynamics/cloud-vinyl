@@ -18,11 +18,14 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -128,9 +131,16 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		activeHash = vc.Status.ActiveVCL.Hash
 	}
 
+	// Resolve backend endpoints from Kubernetes Services.
+	endpoints, err := r.resolveBackendEndpoints(ctx, vc)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	genResult, err := r.Generator.Generate(generator.Input{
 		Spec:      &vc.Spec,
 		Peers:     peers,
+		Endpoints: endpoints,
 		Namespace: vc.Namespace,
 		Name:      vc.Name,
 	})
@@ -149,6 +159,64 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// 12. Update status and requeue for drift detection.
 	r.updateStatus(ctx, vc, genResult, peers)
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+}
+
+// resolveBackendEndpoints resolves Kubernetes Service endpoints for each backend
+// defined in the VinylCache spec. Returns a map of backend name -> endpoints.
+func (r *VinylCacheReconciler) resolveBackendEndpoints(ctx context.Context, vc *v1alpha1.VinylCache) (map[string][]generator.Endpoint, error) {
+	log := logf.FromContext(ctx)
+	endpoints := make(map[string][]generator.Endpoint)
+
+	for _, backend := range vc.Spec.Backends {
+		svcName := backend.ServiceRef.Name
+		svc := &corev1.Service{}
+		if err := r.Get(ctx, types.NamespacedName{Name: svcName, Namespace: vc.Namespace}, svc); err != nil {
+			return nil, fmt.Errorf("getting service %s for backend %s: %w", svcName, backend.Name, err)
+		}
+
+		// Resolve ready endpoints via EndpointSlices.
+		sliceList := &discoveryv1.EndpointSliceList{}
+		if err := r.List(ctx, sliceList,
+			client.InNamespace(vc.Namespace),
+			client.MatchingLabels(map[string]string{
+				discoveryv1.LabelServiceName: svcName,
+			}),
+		); err != nil {
+			return nil, fmt.Errorf("listing EndpointSlices for service %s: %w", svcName, err)
+		}
+
+		port := int(backend.Port)
+		if port == 0 {
+			// Use the first port from the Service if not specified.
+			if len(svc.Spec.Ports) > 0 {
+				port = int(svc.Spec.Ports[0].Port)
+			}
+		}
+
+		var backendEPs []generator.Endpoint
+		for _, slice := range sliceList.Items {
+			for _, ep := range slice.Endpoints {
+				ready := ep.Conditions.Ready == nil || *ep.Conditions.Ready
+				if !ready {
+					continue
+				}
+				for _, addr := range ep.Addresses {
+					backendEPs = append(backendEPs, generator.Endpoint{
+						IP:   addr,
+						Port: port,
+					})
+				}
+			}
+		}
+
+		if len(backendEPs) == 0 {
+			log.Info("Backend has no ready endpoints", "backend", backend.Name, "service", svcName)
+		}
+
+		endpoints[backend.Name] = backendEPs
+	}
+
+	return endpoints, nil
 }
 
 // podToVinylCache maps a Pod event to the owning VinylCache reconcile request.
