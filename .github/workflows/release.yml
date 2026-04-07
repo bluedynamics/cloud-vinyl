@@ -58,6 +58,7 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
+          provenance: false
           tags: ${{ matrix.image }}:${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.platform_tag }}
 
   docker-manifest:
