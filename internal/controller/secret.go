@@ -46,12 +46,15 @@ func (r *VinylCacheReconciler) reconcileSecret(ctx context.Context, vc *v1alpha1
 		return fmt.Errorf("getting agent Secret: %w", err)
 	}
 
-	// Generate a 32-byte random token.
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
+	// Generate random tokens: one for agent auth, one for varnish admin CLI.
+	agentRaw := make([]byte, 32)
+	if _, err := rand.Read(agentRaw); err != nil {
 		return fmt.Errorf("generating agent token: %w", err)
 	}
-	token := hex.EncodeToString(raw)
+	varnishRaw := make([]byte, 32)
+	if _, err := rand.Read(varnishRaw); err != nil {
+		return fmt.Errorf("generating varnish secret: %w", err)
+	}
 
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -63,7 +66,8 @@ func (r *VinylCacheReconciler) reconcileSecret(ctx context.Context, vc *v1alpha1
 		},
 		Type: corev1.SecretTypeOpaque,
 		Data: map[string][]byte{
-			"agent-token": []byte(token),
+			"agent-token":    []byte(hex.EncodeToString(agentRaw)),
+			"varnish-secret": []byte(hex.EncodeToString(varnishRaw)),
 		},
 	}
 	if err := ctrl.SetControllerReference(vc, secret, r.Scheme); err != nil {

@@ -72,6 +72,12 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 					ReadOnly:  true,
 				},
 				{
+					Name:      "varnish-secret",
+					MountPath: "/etc/varnish/secret",
+					SubPath:   "varnish-secret",
+					ReadOnly:  true,
+				},
+				{
 					Name:      "varnish-workdir",
 					MountPath: "/var/lib/varnish",
 				},
@@ -125,6 +131,12 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 					MountPath: "/run/vinyl",
 					ReadOnly:  true,
 				},
+				{
+					Name:      "varnish-secret",
+					MountPath: "/etc/varnish/secret",
+					SubPath:   "varnish-secret",
+					ReadOnly:  true,
+				},
 			},
 			SecurityContext: &corev1.SecurityContext{
 				RunAsNonRoot:             boolPtr(true),
@@ -141,6 +153,17 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 						SecretName: agentSecretName,
 						Items: []corev1.KeyToPath{
 							{Key: "agent-token", Path: "agent-token"},
+						},
+					},
+				},
+			},
+			{
+				Name: "varnish-secret",
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: agentSecretName,
+						Items: []corev1.KeyToPath{
+							{Key: "varnish-secret", Path: "varnish-secret"},
 						},
 					},
 				},
