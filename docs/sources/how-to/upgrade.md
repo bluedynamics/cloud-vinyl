@@ -3,7 +3,7 @@
 ## Upgrade the operator
 
 ```bash
-helm upgrade cloud-vinyl oci://ghcr.io/bluedynamics/cloud-vinyl-chart \
+helm upgrade cloud-vinyl oci://ghcr.io/bluedynamics/charts/cloud-vinyl \
   --namespace cloud-vinyl-system \
   --reuse-values \
   --wait --timeout 120s

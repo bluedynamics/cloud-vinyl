@@ -23,7 +23,7 @@ helm install cert-manager jetstack/cert-manager \
 ## Install cloud-vinyl
 
 ```bash
-helm install cloud-vinyl oci://ghcr.io/bluedynamics/cloud-vinyl-chart \
+helm install cloud-vinyl oci://ghcr.io/bluedynamics/charts/cloud-vinyl \
   --namespace cloud-vinyl-system --create-namespace \
   --set webhook.certManager.enabled=true \
   --wait --timeout 120s
@@ -49,7 +49,7 @@ openssl req -x509 -newkey rsa:4096 -keyout webhook.key -out webhook.crt \
 Install with manual TLS:
 
 ```bash
-helm install cloud-vinyl oci://ghcr.io/bluedynamics/cloud-vinyl-chart \
+helm install cloud-vinyl oci://ghcr.io/bluedynamics/charts/cloud-vinyl \
   --namespace cloud-vinyl-system --create-namespace \
   --set webhook.certManager.enabled=false \
   --set webhook.tls.cert="$(base64 -w0 webhook.crt)" \

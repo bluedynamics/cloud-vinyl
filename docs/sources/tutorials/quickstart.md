@@ -26,7 +26,7 @@ helm install cert-manager jetstack/cert-manager \
 ## 3. Install cloud-vinyl
 
 ```bash
-helm install cloud-vinyl oci://ghcr.io/bluedynamics/cloud-vinyl-chart \
+helm install cloud-vinyl oci://ghcr.io/bluedynamics/charts/cloud-vinyl \
   --namespace cloud-vinyl-system --create-namespace \
   --set webhook.certManager.enabled=true --wait
 ```
