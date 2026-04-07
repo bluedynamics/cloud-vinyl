@@ -71,6 +71,14 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 					MountPath: "/run/vinyl",
 					ReadOnly:  true,
 				},
+				{
+					Name:      "varnish-workdir",
+					MountPath: "/var/lib/varnish",
+				},
+				{
+					Name:      "varnish-tmp",
+					MountPath: "/tmp",
+				},
 			},
 			SecurityContext: &corev1.SecurityContext{
 				RunAsNonRoot:             boolPtr(true),
@@ -136,6 +144,14 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 						},
 					},
 				},
+			},
+			{
+				Name:         "varnish-workdir",
+				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+			},
+			{
+				Name:         "varnish-tmp",
+				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 			},
 		}
 
