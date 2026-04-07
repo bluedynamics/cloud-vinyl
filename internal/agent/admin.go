@@ -66,9 +66,11 @@ func (c *varnishAdminClient) connect(ctx context.Context) (net.Conn, *bufio.Read
 		return nil, nil, fmt.Errorf("expected auth challenge (107), got %d", code)
 	}
 
-	// Compute response
+	// Compute auth response per Varnish CLI protocol (cli_auth.c):
+	// SHA256(challenge + "\n" + secret_file_content + challenge + "\n")
+	// Note: NO newline between secret and second challenge occurrence.
 	challenge = strings.TrimSpace(challenge)
-	hash := sha256.Sum256([]byte(challenge + "\n" + c.secret + "\n" + challenge + "\n"))
+	hash := sha256.Sum256([]byte(challenge + "\n" + c.secret + challenge + "\n"))
 	hexHash := fmt.Sprintf("%x", hash)
 
 	// Authenticate
