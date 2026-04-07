@@ -13,7 +13,7 @@
     "image": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["operator", "varnish"],
+      "required": ["operator", "agent"],
       "properties": {
         "operator": {
           "type": "object",
@@ -24,7 +24,7 @@
             "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"]}
           }
         },
-        "varnish": {
+        "agent": {
           "type": "object",
           "additionalProperties": false,
           "properties": {

@@ -139,6 +139,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 			},
 		}
 
+		uid := int64(65532)
 		podSpec := corev1.PodSpec{
 			Containers:        []corev1.Container{varnishContainer, agentContainer},
 			Volumes:           volumes,
@@ -146,6 +147,11 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 			Tolerations:       vc.Spec.Pod.Tolerations,
 			Affinity:          vc.Spec.Pod.Affinity,
 			PriorityClassName: vc.Spec.Pod.PriorityClass,
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsUser:  &uid,
+				RunAsGroup: &uid,
+				FSGroup:    &uid,
+			},
 		}
 
 		sts.Spec = appsv1.StatefulSetSpec{

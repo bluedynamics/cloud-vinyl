@@ -38,10 +38,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
-            - name: VARNISH_IMAGE
-              value: "{{ .Values.image.varnish.repository }}:{{ .Values.image.varnish.tag }}"
             - name: AGENT_IMAGE
-              value: {{ include "cloud-vinyl.operatorImage" . }}
+              value: "{{ .Values.image.agent.repository }}:{{ .Values.image.agent.tag | default .Chart.AppVersion }}"
           ports:
             - name: metrics
               containerPort: 8080
