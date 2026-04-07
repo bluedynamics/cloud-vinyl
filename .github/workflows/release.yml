@@ -10,15 +10,27 @@ permissions:
   packages: write
 
 jobs:
-  docker-images:
-    runs-on: ubuntu-latest
+  docker-build:
     strategy:
       matrix:
         include:
           - dockerfile: Dockerfile.operator
             image: ghcr.io/bluedynamics/cloud-vinyl-operator
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - dockerfile: Dockerfile.operator
+            image: ghcr.io/bluedynamics/cloud-vinyl-operator
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
           - dockerfile: Dockerfile.agent
             image: ghcr.io/bluedynamics/cloud-vinyl-varnish
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - dockerfile: Dockerfile.agent
+            image: ghcr.io/bluedynamics/cloud-vinyl-varnish
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -31,20 +43,55 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version from tag
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Extract metadata
+        id: meta
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PLATFORM_TAG="${{ matrix.platform }}"
+          PLATFORM_TAG="${PLATFORM_TAG//\//-}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "platform_tag=${PLATFORM_TAG}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push
+      - name: Build and push per-arch image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ matrix.image }}:${{ steps.version.outputs.version }}
-            ${{ matrix.image }}:latest
+          tags: ${{ matrix.image }}:${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.platform_tag }}
+
+  docker-manifest:
+    needs: docker-build
+    strategy:
+      matrix:
+        include:
+          - image: ghcr.io/bluedynamics/cloud-vinyl-operator
+          - image: ghcr.io/bluedynamics/cloud-vinyl-varnish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version
+        id: meta
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push multi-arch manifest
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          IMAGE="${{ matrix.image }}"
+          docker manifest create "${IMAGE}:${VERSION}" \
+            "${IMAGE}:${VERSION}-linux-amd64" \
+            "${IMAGE}:${VERSION}-linux-arm64"
+          docker manifest push "${IMAGE}:${VERSION}"
+          docker manifest create "${IMAGE}:latest" \
+            "${IMAGE}:${VERSION}-linux-amd64" \
+            "${IMAGE}:${VERSION}-linux-arm64"
+          docker manifest push "${IMAGE}:latest"
 
   release:
     runs-on: ubuntu-latest
@@ -63,7 +110,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   helm-chart:
-    needs: docker-images
+    needs: docker-manifest
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
