@@ -3,6 +3,7 @@ package agent
 import (
 	"crypto/sha256"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -24,7 +25,6 @@ func TestVarnishAuthHash(t *testing.T) {
 	expectedHex := fmt.Sprintf("%x", expected)
 
 	// Compute like our Go code (must match)
-	// This is the same formula from admin.go connect()
 	got := sha256.Sum256([]byte(challenge + "\n" + secret + challenge + "\n"))
 	gotHex := fmt.Sprintf("%x", got)
 
@@ -53,5 +53,44 @@ func TestVarnishAuthHashWithTrailingNewline(t *testing.T) {
 
 	if fmt.Sprintf("%x", hashNoNL) == fmt.Sprintf("%x", hashWithNL) {
 		t.Error("secrets with/without trailing newline should produce different hashes")
+	}
+}
+
+// TestChallengeExtractionFromBanner verifies that the challenge is correctly
+// extracted from the Varnish admin banner body, which contains the 32-char
+// challenge followed by additional text like "Authentication required."
+func TestChallengeExtractionFromBanner(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		expected string
+	}{
+		{
+			name:     "clean challenge",
+			body:     "yhofkkqiecaocvgrnhsvzipiknnomzcc",
+			expected: "yhofkkqiecaocvgrnhsvzipiknnomzcc",
+		},
+		{
+			name:     "challenge with auth required text",
+			body:     "yhofkkqiecaocvgrnhsvzipiknnomzcc\n\nAuthentication required.\n",
+			expected: "yhofkkqiecaocvgrnhsvzipiknnomzcc",
+		},
+		{
+			name:     "challenge with trailing whitespace",
+			body:     "yhofkkqiecaocvgrnhsvzipiknnomzcc  \n\nAuthentication required.\n",
+			expected: "yhofkkqiecaocvgrnhsvzipiknnomzcc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Same extraction logic as admin.go connect()
+			lines := strings.SplitN(strings.TrimSpace(tt.body), "\n", 2)
+			challenge := strings.TrimSpace(lines[0])
+
+			if challenge != tt.expected {
+				t.Errorf("expected challenge %q, got %q", tt.expected, challenge)
+			}
+		})
 	}
 }

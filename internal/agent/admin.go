@@ -69,7 +69,11 @@ func (c *varnishAdminClient) connect(ctx context.Context) (net.Conn, *bufio.Read
 	// Compute auth response per Varnish CLI protocol (cli_auth.c):
 	// SHA256(challenge + "\n" + secret_file_content + challenge + "\n")
 	// Note: NO newline between secret and second challenge occurrence.
-	challenge = strings.TrimSpace(challenge)
+	// The banner body contains the 32-char challenge followed by
+	// additional text ("Authentication required.") — extract only
+	// the first 32 characters.
+	lines := strings.SplitN(strings.TrimSpace(challenge), "\n", 2)
+	challenge = strings.TrimSpace(lines[0])
 	hash := sha256.Sum256([]byte(challenge + "\n" + c.secret + challenge + "\n"))
 	hexHash := fmt.Sprintf("%x", hash)
 
