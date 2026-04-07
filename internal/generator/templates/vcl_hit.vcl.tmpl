@@ -22,5 +22,5 @@ sub vcl_hit {
     {{ .Spec.VCL.Snippets.VCLHit }}
     # --- end custom vcl_hit snippet ---
 {{ end }}
-    return(miss);
+    return(restart);
 }
