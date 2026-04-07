@@ -44,7 +44,7 @@ jobs:
           kind load docker-image ghcr.io/bluedynamics/cloud-vinyl-varnish:dev \
             --name cloud-vinyl-e2e
 
-      - uses: azure/setup-helm@v4.3
+      - uses: azure/setup-helm@v5
 
       - name: Install cert-manager
         run: bash e2e/setup/install-cert-manager.sh
