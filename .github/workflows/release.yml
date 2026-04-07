@@ -127,7 +127,7 @@ jobs:
           sed -i "s/^version:.*/version: ${VERSION}/" charts/cloud-vinyl/Chart.yaml
           sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" charts/cloud-vinyl/Chart.yaml
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v4.3
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
