@@ -32,7 +32,7 @@ import (
 
 // reconcileNetworkPolicies creates or updates the three NetworkPolicies for a VinylCache.
 func (r *VinylCacheReconciler) reconcileNetworkPolicies(ctx context.Context, vc *v1alpha1.VinylCache) error {
-	if err := r.reconcileIntraClusterNetworkPolicy(ctx, vc); err != nil {
+	if err := r.reconcileTrafficNetworkPolicy(ctx, vc); err != nil {
 		return err
 	}
 	if err := r.reconcileInvalidationNetworkPolicy(ctx, vc); err != nil {
@@ -44,12 +44,14 @@ func (r *VinylCacheReconciler) reconcileNetworkPolicies(ctx context.Context, vc 
 	return nil
 }
 
-// reconcileIntraClusterNetworkPolicy allows pods with app=vc.Name to reach each
-// other on port 8080 (HTTP) and 6082 (Varnish management CLI).
-func (r *VinylCacheReconciler) reconcileIntraClusterNetworkPolicy(ctx context.Context, vc *v1alpha1.VinylCache) error {
+// reconcileTrafficNetworkPolicy allows all ingress to the Varnish HTTP port (8080).
+// Varnish is an HTTP cache and must be reachable by Ingress controllers, Services,
+// and any upstream client. Cluster peers also need port 8080 for shard routing.
+// Port 6082 (admin CLI) is localhost-only and not exposed.
+func (r *VinylCacheReconciler) reconcileTrafficNetworkPolicy(ctx context.Context, vc *v1alpha1.VinylCache) error {
 	np := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      vc.Name + "-intra-cluster",
+			Name:      vc.Name + "-traffic",
 			Namespace: vc.Namespace,
 		},
 	}
@@ -62,7 +64,6 @@ func (r *VinylCacheReconciler) reconcileIntraClusterNetworkPolicy(ctx context.Co
 		np.Labels = map[string]string{labelVinylCacheName: vc.Name}
 
 		httpPort := intstr.FromInt32(varnishPort)
-		mgmtPort := intstr.FromInt32(6082)
 		proto := corev1.ProtocolTCP
 
 		np.Spec = networkingv1.NetworkPolicySpec{
@@ -72,16 +73,9 @@ func (r *VinylCacheReconciler) reconcileIntraClusterNetworkPolicy(ctx context.Co
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
 				{
-					From: []networkingv1.NetworkPolicyPeer{
-						{
-							PodSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{"app": vc.Name},
-							},
-						},
-					},
+					// Empty From = allow from all sources.
 					Ports: []networkingv1.NetworkPolicyPort{
 						{Port: &httpPort, Protocol: &proto},
-						{Port: &mgmtPort, Protocol: &proto},
 					},
 				},
 			},
@@ -89,7 +83,7 @@ func (r *VinylCacheReconciler) reconcileIntraClusterNetworkPolicy(ctx context.Co
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("reconciling intra-cluster NetworkPolicy: %w", err)
+		return fmt.Errorf("reconciling traffic NetworkPolicy: %w", err)
 	}
 	return nil
 }
