@@ -10,7 +10,11 @@ permissions:
   packages: write
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   docker-build:
+    needs: ci
     strategy:
       matrix:
         include:
@@ -95,6 +99,7 @@ jobs:
           docker manifest push "${IMAGE}:latest"
 
   release:
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
