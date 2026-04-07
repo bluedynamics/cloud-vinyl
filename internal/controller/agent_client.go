@@ -23,6 +23,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -30,24 +34,25 @@ const (
 	agentPort = 9090
 	// varnishPort is the main HTTP port on which Varnish accepts traffic.
 	varnishPort = 8080
+	// agentSecretName is the fixed Secret name used in every namespace.
+	agentSecretName = "cloud-vinyl-agent-token" //nolint:gosec // Secret name, not a credential
 )
 
 // AgentClient abstracts the vinyl-agent HTTP API.
 type AgentClient interface {
 	// PushVCL pushes a named VCL program to the agent running on podIP.
-	PushVCL(ctx context.Context, podIP string, name, vcl string) error
+	// The namespace is used to resolve the per-namespace agent token.
+	PushVCL(ctx context.Context, namespace, podIP, name, vcl string) error
 
 	// ActiveVCLHash returns the SHA-256 hash of the VCL currently active on podIP.
-	ActiveVCLHash(ctx context.Context, podIP string) (string, error)
+	ActiveVCLHash(ctx context.Context, namespace, podIP string) (string, error)
 }
 
 // HTTPAgentClient implements AgentClient using the vinyl-agent HTTP API.
-//
-// POST http://<podIP>:9090/vcl/push   {"name": name, "vcl": vcl}
-// GET  http://<podIP>:9090/vcl/active → {"hash": "..."}
+// It reads the agent token per-namespace from Kubernetes Secrets.
 type HTTPAgentClient struct {
 	HTTPClient *http.Client
-	Token      string
+	K8sClient  client.Reader
 }
 
 type pushVCLRequest struct {
@@ -59,8 +64,27 @@ type activeVCLResponse struct {
 	Hash string `json:"hash"`
 }
 
+// readToken reads the agent-token from the per-namespace Secret.
+func (c *HTTPAgentClient) readToken(ctx context.Context, namespace string) (string, error) {
+	secret := &corev1.Secret{}
+	key := types.NamespacedName{Name: agentSecretName, Namespace: namespace}
+	if err := c.K8sClient.Get(ctx, key, secret); err != nil {
+		return "", fmt.Errorf("reading agent secret %s/%s: %w", namespace, agentSecretName, err)
+	}
+	token, ok := secret.Data["agent-token"]
+	if !ok {
+		return "", fmt.Errorf("agent secret %s/%s missing 'agent-token' key", namespace, agentSecretName)
+	}
+	return string(token), nil
+}
+
 // PushVCL sends a VCL push request to the agent on the given pod IP.
-func (c *HTTPAgentClient) PushVCL(ctx context.Context, podIP string, name, vcl string) error {
+func (c *HTTPAgentClient) PushVCL(ctx context.Context, namespace, podIP, name, vcl string) error {
+	token, err := c.readToken(ctx, namespace)
+	if err != nil {
+		return err
+	}
+
 	body, err := json.Marshal(pushVCLRequest{Name: name, VCL: vcl})
 	if err != nil {
 		return fmt.Errorf("marshaling push request: %w", err)
@@ -72,9 +96,7 @@ func (c *HTTPAgentClient) PushVCL(ctx context.Context, podIP string, name, vcl s
 		return fmt.Errorf("creating push request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -91,15 +113,18 @@ func (c *HTTPAgentClient) PushVCL(ctx context.Context, podIP string, name, vcl s
 }
 
 // ActiveVCLHash returns the hash of the currently active VCL on the given pod.
-func (c *HTTPAgentClient) ActiveVCLHash(ctx context.Context, podIP string) (string, error) {
+func (c *HTTPAgentClient) ActiveVCLHash(ctx context.Context, namespace, podIP string) (string, error) {
+	token, err := c.readToken(ctx, namespace)
+	if err != nil {
+		return "", err
+	}
+
 	url := fmt.Sprintf("http://%s:%d/vcl/active", podIP, agentPort)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("creating active-vcl request: %w", err)
 	}
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

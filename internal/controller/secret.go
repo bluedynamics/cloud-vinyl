@@ -26,18 +26,17 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 )
 
-// reconcileSecret creates (if absent) or preserves the agent-token Secret.
+// reconcileSecret ensures the per-namespace agent Secret exists.
+// The Secret is shared by all VinylCaches in the same namespace.
+// It is NOT owned by any single VinylCache so it survives individual CR deletion.
 // The token is never rotated — idempotent by design.
 func (r *VinylCacheReconciler) reconcileSecret(ctx context.Context, vc *v1alpha1.VinylCache) error {
-	secretName := "vinyl-agent-" + vc.Name
-
 	existing := &corev1.Secret{}
-	err := r.Get(ctx, types.NamespacedName{Name: secretName, Namespace: vc.Namespace}, existing)
+	err := r.Get(ctx, types.NamespacedName{Name: agentSecretName, Namespace: vc.Namespace}, existing)
 	if err == nil {
 		// Secret already exists — do not rotate the token.
 		return nil
@@ -58,10 +57,10 @@ func (r *VinylCacheReconciler) reconcileSecret(ctx context.Context, vc *v1alpha1
 
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
+			Name:      agentSecretName,
 			Namespace: vc.Namespace,
 			Labels: map[string]string{
-				labelVinylCacheName: vc.Name,
+				"app.kubernetes.io/managed-by": "cloud-vinyl",
 			},
 		},
 		Type: corev1.SecretTypeOpaque,
@@ -70,9 +69,7 @@ func (r *VinylCacheReconciler) reconcileSecret(ctx context.Context, vc *v1alpha1
 			"varnish-secret": []byte(hex.EncodeToString(varnishRaw)),
 		},
 	}
-	if err := ctrl.SetControllerReference(vc, secret, r.Scheme); err != nil {
-		return fmt.Errorf("setting OwnerReference on Secret: %w", err)
-	}
+	// No OwnerReference — the Secret is shared across VinylCaches in the namespace.
 
 	if err := r.Create(ctx, secret); err != nil {
 		return fmt.Errorf("creating agent Secret: %w", err)

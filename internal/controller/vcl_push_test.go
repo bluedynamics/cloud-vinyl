@@ -35,14 +35,14 @@ type mockAgentClient struct {
 	activeHash string
 }
 
-func (m *mockAgentClient) PushVCL(_ context.Context, _, _, _ string) error {
+func (m *mockAgentClient) PushVCL(_ context.Context, _, _, _, _ string) error {
 	m.mu.Lock()
 	m.pushCalled++
 	m.mu.Unlock()
 	return m.pushErr
 }
 
-func (m *mockAgentClient) ActiveVCLHash(_ context.Context, _ string) (string, error) {
+func (m *mockAgentClient) ActiveVCLHash(_ context.Context, _, _ string) (string, error) {
 	return m.activeHash, nil
 }
 
@@ -86,21 +86,15 @@ func TestPushVCL_AllPodsSuccess(t *testing.T) {
 }
 
 func TestPushVCL_PartialFailure(t *testing.T) {
-	callCount := 0
-	partialMock := &mockAgentClient{}
-	// Override with a custom implementation that fails for 1 of 2 pods.
-	// We achieve this via a wrapper that counts calls and alternates errors.
 	customMock := &countingMock{failOn: []int{0}, total: 2}
-
 	r := makeReconcilerWithMock(customMock)
+
 	peers := makePeers(2)
 	err := r.pushVCL(context.Background(), makeVC(), makeResult(), peers)
 	// Partial failure: not all pods failed, so no error returned.
 	if err != nil {
 		t.Fatalf("expected nil error on partial failure, got: %v", err)
 	}
-	_ = callCount
-	_ = partialMock
 }
 
 func TestPushVCL_AllPodsFailure_ReturnsError(t *testing.T) {
@@ -122,7 +116,7 @@ type countingMock struct {
 	called int
 }
 
-func (c *countingMock) PushVCL(_ context.Context, _, _, _ string) error {
+func (c *countingMock) PushVCL(_ context.Context, _, _, _, _ string) error {
 	c.mu.Lock()
 	idx := c.called
 	c.called++
@@ -133,6 +127,6 @@ func (c *countingMock) PushVCL(_ context.Context, _, _, _ string) error {
 	return nil
 }
 
-func (c *countingMock) ActiveVCLHash(_ context.Context, _ string) (string, error) {
+func (c *countingMock) ActiveVCLHash(_ context.Context, _, _ string) (string, error) {
 	return "", nil
 }

@@ -114,7 +114,6 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 		}
 
 		// Build agent sidecar container.
-		agentSecretName := "vinyl-agent-" + vc.Name
 		// Agent image: use AGENT_IMAGE env var (set by Helm chart from operator image),
 		// falling back to the varnish image for backward compatibility.
 		agentImage := os.Getenv("AGENT_IMAGE")

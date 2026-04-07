@@ -81,7 +81,7 @@ func (r *VinylCacheReconciler) pushVCL(
 					case <-time.After(backoff):
 					}
 				}
-				err := r.AgentClient.PushVCL(ctx, p.IP, vclName, result.VCL)
+				err := r.AgentClient.PushVCL(ctx, vc.Namespace, p.IP, vclName, result.VCL)
 				if err == nil {
 					results[idx] = pushResult{peer: p, err: nil}
 					return
