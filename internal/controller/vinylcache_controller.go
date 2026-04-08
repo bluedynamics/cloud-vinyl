@@ -114,6 +114,11 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
+	// 9b. Reconcile bootstrap VCL ConfigMap.
+	if err := r.reconcileConfigMap(ctx, vc); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// 10. Debounce check.
 	if remaining := r.debounceRemaining(vc); remaining > 0 {
 		return ctrl.Result{RequeueAfter: remaining}, nil
@@ -214,6 +219,7 @@ func (r *VinylCacheReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{}).
+		Owns(&corev1.ConfigMap{}).
 		Watches(
 			&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.podToVinylCache),

@@ -98,6 +98,12 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 					Name:      "varnish-tmp",
 					MountPath: "/tmp",
 				},
+				{
+					Name:      "bootstrap-vcl",
+					MountPath: "/etc/varnish/default.vcl",
+					SubPath:   "default.vcl",
+					ReadOnly:  true,
+				},
 			},
 			Lifecycle: &corev1.Lifecycle{
 				PreStop: &corev1.LifecycleHandler{
@@ -205,6 +211,16 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 			{
 				Name:         "varnish-tmp",
 				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+			},
+			{
+				Name: "bootstrap-vcl",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: vc.Name + "-bootstrap-vcl",
+						},
+					},
+				},
 			},
 		}
 
