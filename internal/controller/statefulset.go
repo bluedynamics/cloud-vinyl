@@ -25,6 +25,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -65,6 +66,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 			Name:  "varnish",
 			Image: vc.Spec.Image,
 			Args: []string{
+				"-j", "none",
 				"-T", "127.0.0.1:6082",
 				"-S", "/etc/varnish/secret",
 			},
@@ -95,6 +97,19 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 				{
 					Name:      "varnish-tmp",
 					MountPath: "/tmp",
+				},
+				{
+					Name:      "bootstrap-vcl",
+					MountPath: "/etc/varnish/default.vcl",
+					SubPath:   "default.vcl",
+					ReadOnly:  true,
+				},
+			},
+			Lifecycle: &corev1.Lifecycle{
+				PreStop: &corev1.LifecycleHandler{
+					Exec: &corev1.ExecAction{
+						Command: []string{"sleep", "5"},
+					},
 				},
 			},
 			SecurityContext: &corev1.SecurityContext{
@@ -148,6 +163,17 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 					ReadOnly:  true,
 				},
 			},
+			ReadinessProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					HTTPGet: &corev1.HTTPGetAction{
+						Path: "/health",
+						Port: intstr.FromInt32(agentPort),
+					},
+				},
+				InitialDelaySeconds: 5,
+				PeriodSeconds:       5,
+				FailureThreshold:    6,
+			},
 			SecurityContext: &corev1.SecurityContext{
 				RunAsNonRoot:             boolPtr(true),
 				ReadOnlyRootFilesystem:   boolPtr(true),
@@ -185,6 +211,16 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 			{
 				Name:         "varnish-tmp",
 				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+			},
+			{
+				Name: "bootstrap-vcl",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: vc.Name + "-bootstrap-vcl",
+						},
+					},
+				},
 			},
 		}
 

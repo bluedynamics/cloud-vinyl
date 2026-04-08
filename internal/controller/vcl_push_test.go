@@ -60,7 +60,7 @@ func makeVC() *v1alpha1.VinylCache {
 }
 
 func makeResult() *generator.Result {
-	return &generator.Result{VCL: "vcl 4.1; backend default { .host = \"127.0.0.1\"; }", Hash: "abc123"}
+	return &generator.Result{VCL: "vcl 4.1; backend default { .host = \"127.0.0.1\"; }", Hash: "abc123def456789012345678901234567890123456789012345678901234"}
 }
 
 func makePeers(n int) []generator.PeerBackend {
