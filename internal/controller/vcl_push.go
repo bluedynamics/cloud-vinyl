@@ -56,7 +56,7 @@ func (r *VinylCacheReconciler) pushVCL(
 		backoffBase = vc.Spec.Retry.BackoffBase.Duration
 	}
 
-	vclName := fmt.Sprintf("%s-%s", vc.Namespace, vc.Name)
+	vclName := fmt.Sprintf("%s-%s-%s", vc.Namespace, vc.Name, result.Hash[:8])
 
 	type pushResult struct {
 		peer generator.PeerBackend
