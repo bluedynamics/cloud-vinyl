@@ -95,3 +95,12 @@ securityContext:
   capabilities:
     drop:
       - ALL
+
+# ArgoCD integration.
+argocd:
+  resourceCustomizations:
+    # Deploy a ConfigMap with a custom health check for VinylCache resources.
+    # ArgoCD picks this up automatically via the app.kubernetes.io/part-of: argocd label.
+    enabled: false
+  # Namespace where ArgoCD is installed.
+  namespace: argocd

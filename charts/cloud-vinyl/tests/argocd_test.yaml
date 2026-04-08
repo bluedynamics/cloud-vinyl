@@ -1,0 +1,49 @@
+suite: ArgoCD Health Check Tests
+templates:
+  - argocd-health.yaml
+tests:
+  - it: should not render when argocd.resourceCustomizations.enabled is false
+    set:
+      argocd:
+        resourceCustomizations:
+          enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render ConfigMap when argocd.resourceCustomizations.enabled is true
+    set:
+      argocd:
+        resourceCustomizations:
+          enabled: true
+        namespace: argocd
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.namespace
+          value: argocd
+      - isSubset:
+          path: metadata.labels
+          content:
+            app.kubernetes.io/part-of: argocd
+
+  - it: should contain VinylCache health check Lua script
+    set:
+      argocd:
+        resourceCustomizations:
+          enabled: true
+    asserts:
+      - exists:
+          path: data["resource.customizations.health.vinyl.bluedynamics.eu_VinylCache"]
+
+  - it: should use custom namespace when set
+    set:
+      argocd:
+        resourceCustomizations:
+          enabled: true
+        namespace: custom-argocd
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: custom-argocd

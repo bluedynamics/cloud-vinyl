@@ -1,0 +1,30 @@
+{{- if .Values.argocd.resourceCustomizations.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cloud-vinyl.fullname" . }}-argocd-health
+  namespace: {{ .Values.argocd.namespace | default "argocd" }}
+  labels:
+    app.kubernetes.io/part-of: argocd
+    {{- include "cloud-vinyl.labels" . | nindent 4 }}
+data:
+  resource.customizations.health.vinyl.bluedynamics.eu_VinylCache: |
+    hs = {}
+    if obj.status ~= nil and obj.status.conditions ~= nil then
+      for _, c in ipairs(obj.status.conditions) do
+        if c.type == "Ready" and c.status == "True" then
+          hs.status = "Healthy"
+          hs.message = c.message
+          return hs
+        end
+        if c.type == "Ready" and c.status == "False" then
+          hs.status = "Degraded"
+          hs.message = c.message
+          return hs
+        end
+      end
+    end
+    hs.status = "Progressing"
+    hs.message = "Waiting for VinylCache to become ready"
+    return hs
+{{- end }}

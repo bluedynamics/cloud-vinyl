@@ -145,6 +145,20 @@
     },
     "affinity": {"type": "object"},
     "podSecurityContext": {"type": "object"},
-    "securityContext": {"type": "object"}
+    "securityContext": {"type": "object"},
+    "argocd": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resourceCustomizations": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"}
+          }
+        },
+        "namespace": {"type": "string"}
+      }
+    }
   }
 }
