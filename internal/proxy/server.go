@@ -6,27 +6,43 @@ import (
 	"time"
 )
 
+// TokenProvider returns the agent Bearer token for a given namespace.
+type TokenProvider interface {
+	GetToken(namespace string) string
+}
+
+// NoopTokenProvider returns empty tokens (no auth).
+type NoopTokenProvider struct{}
+
+// GetToken always returns an empty string (no auth).
+func (n *NoopTokenProvider) GetToken(_ string) string { return "" }
+
 // Server is the Purge/BAN broadcast proxy HTTP server, listening on port 8090.
 type Server struct {
-	addr        string
-	router      Router
-	podMap      PodIPProvider
-	broadcaster Broadcaster
-	acl         map[string]*ACL // per-cache ACLs, keyed by "namespace/cacheName"
-	rateLimiter RateLimiter
+	addr          string
+	router        Router
+	podMap        PodIPProvider
+	broadcaster   Broadcaster
+	tokenProvider TokenProvider
+	acl           map[string]*ACL // per-cache ACLs, keyed by "namespace/cacheName"
+	rateLimiter   RateLimiter
 }
 
 // NewServer creates a new Server with the given dependencies.
 // acl and rateLimiter may be nil; nil acl allows all sources, nil rateLimiter
 // disables rate limiting.
-func NewServer(addr string, router Router, pods PodIPProvider, b Broadcaster) *Server {
+func NewServer(addr string, router Router, pods PodIPProvider, b Broadcaster, tp TokenProvider) *Server {
+	if tp == nil {
+		tp = &NoopTokenProvider{}
+	}
 	return &Server{
-		addr:        addr,
-		router:      router,
-		podMap:      pods,
-		broadcaster: b,
-		acl:         make(map[string]*ACL),
-		rateLimiter: &NoopRateLimiter{},
+		addr:          addr,
+		router:        router,
+		podMap:        pods,
+		broadcaster:   b,
+		tokenProvider: tp,
+		acl:           make(map[string]*ACL),
+		rateLimiter:   &NoopRateLimiter{},
 	}
 }
 
@@ -80,9 +96,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "PURGE":
 		s.handlePurge(w, r, pods)
 	case r.Method == "BAN":
-		s.handleBAN(w, r, pods)
+		s.handleBAN(w, r, pods, namespace)
 	case r.Method == http.MethodPost && r.URL.Path == "/ban":
-		s.handleBAN(w, r, pods)
+		s.handleBAN(w, r, pods, namespace)
 	case r.Method == http.MethodPost && r.URL.Path == "/purge/xkey":
 		s.handleXkey(w, r, pods)
 	default:

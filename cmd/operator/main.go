@@ -19,12 +19,12 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"net/http"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
-	"net/http"
-
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -40,6 +40,7 @@ import (
 	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 	"github.com/bluedynamics/cloud-vinyl/internal/controller"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
+	"github.com/bluedynamics/cloud-vinyl/internal/proxy"
 	webhookv1alpha1 "github.com/bluedynamics/cloud-vinyl/internal/webhook/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
@@ -182,6 +183,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	// --- Invalidation proxy (runs on all replicas, not just leader) ---
+	proxyRouter := proxy.NewRegisteredRouter()
+	proxyPodMap := proxy.NewPodMap()
+	broadcaster := proxy.NewHTTPBroadcaster(10 * time.Second)
+	tokenProvider := controller.NewK8sTokenProvider(mgr.GetClient())
+	proxyServer := proxy.NewServer(":8090", proxyRouter, proxyPodMap, broadcaster, tokenProvider)
+
+	// Start proxy in background goroutine.
+	go func() {
+		setupLog.Info("Starting invalidation proxy", "addr", ":8090")
+		if err := proxyServer.Start(ctrl.SetupSignalHandler()); err != nil {
+			setupLog.Error(err, "Invalidation proxy failed")
+		}
+	}()
+
 	if err := (&controller.VinylCacheReconciler{
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
@@ -190,6 +206,8 @@ func main() {
 			HTTPClient: &http.Client{},
 			K8sClient:  mgr.GetClient(),
 		},
+		ProxyRouter: proxyRouter,
+		ProxyPodMap: proxyPodMap,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "VinylCache")
 		os.Exit(1)

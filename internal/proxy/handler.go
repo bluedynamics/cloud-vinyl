@@ -43,7 +43,7 @@ func (s *Server) handlePurge(w http.ResponseWriter, r *http.Request, pods []stri
 
 // handleBAN handles BAN requests (both BAN method and POST /ban).
 // It validates the ban expression and broadcasts it to the agent API on each pod.
-func (s *Server) handleBAN(w http.ResponseWriter, r *http.Request, pods []string) {
+func (s *Server) handleBAN(w http.ResponseWriter, r *http.Request, pods []string, namespace string) {
 	var expression string
 
 	switch r.Method {
@@ -77,10 +77,14 @@ func (s *Server) handleBAN(w http.ResponseWriter, r *http.Request, pods []string
 
 	podAddrs := withPort(pods, agentPort)
 	bodyBytes, _ := json.Marshal(banRESTRequest{Expression: expression})
+	headers := map[string]string{"Content-Type": "application/json"}
+	if token := s.tokenProvider.GetToken(namespace); token != "" {
+		headers["Authorization"] = "Bearer " + token
+	}
 	req := BroadcastRequest{
 		Method:  http.MethodPost,
 		Path:    "/ban",
-		Headers: map[string]string{"Content-Type": "application/json"},
+		Headers: headers,
 		Body:    bodyBytes,
 	}
 
