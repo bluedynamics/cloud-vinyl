@@ -71,7 +71,7 @@ func (r *VinylCacheReconciler) reconcileHeadlessService(ctx context.Context, vc 
 			Selector:  map[string]string{"app": vc.Name},
 			Ports: []corev1.ServicePort{
 				{
-					Name:       "http",
+					Name:       "cache-http",
 					Port:       varnishPort,
 					TargetPort: intstr.FromInt32(varnishPort),
 					Protocol:   corev1.ProtocolTCP,
@@ -122,7 +122,7 @@ func (r *VinylCacheReconciler) reconcileTrafficService(ctx context.Context, vc *
 			Selector: map[string]string{"app": vc.Name},
 			Ports: []corev1.ServicePort{
 				{
-					Name:       "http",
+					Name:       "cache-http",
 					Port:       varnishPort,
 					TargetPort: intstr.FromInt32(varnishPort),
 					Protocol:   corev1.ProtocolTCP,

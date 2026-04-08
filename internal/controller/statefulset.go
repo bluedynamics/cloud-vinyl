@@ -76,7 +76,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 				{Name: "VARNISH_HTTP_PORT", Value: fmt.Sprintf("%d", varnishPort)},
 			},
 			Ports: []corev1.ContainerPort{
-				{Name: "http", ContainerPort: varnishPort, Protocol: corev1.ProtocolTCP},
+				{Name: "cache-http", ContainerPort: varnishPort, Protocol: corev1.ProtocolTCP},
 			},
 			VolumeMounts: []corev1.VolumeMount{
 				{
