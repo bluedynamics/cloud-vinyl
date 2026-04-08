@@ -36,7 +36,7 @@ func newTestServer(mb *MockBroadcaster) *Server {
 	pm := NewPodMap()
 	pm.Update("production", "my-cache", []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"})
 
-	return NewServer(":8090", router, pm, mb)
+	return NewServer(":8090", router, pm, mb, nil)
 }
 
 func okResult() BroadcastResult {
@@ -276,7 +276,7 @@ func TestNoPods(t *testing.T) {
 	})
 	// PodMap deliberately empty.
 	pm := NewPodMap()
-	srv := NewServer(":8090", router, pm, mb)
+	srv := NewServer(":8090", router, pm, mb, nil)
 
 	req := httptest.NewRequest("PURGE", "/product/123", nil)
 	req.Host = "my-cache-invalidation.production"

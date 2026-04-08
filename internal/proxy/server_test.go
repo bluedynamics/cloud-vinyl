@@ -18,7 +18,7 @@ func TestServerStartStop(t *testing.T) {
 	pm := NewPodMap()
 	pm.Update("production", "my-cache", []string{"10.0.0.1"})
 
-	srv := NewServer("127.0.0.1:0", router, pm, mb)
+	srv := NewServer("127.0.0.1:0", router, pm, mb, nil)
 
 	// Use a fixed port in test range.
 	srv.addr = "127.0.0.1:19876"
@@ -57,7 +57,7 @@ func TestNewServer_Defaults(t *testing.T) {
 	pm := NewPodMap()
 	mb := &MockBroadcaster{}
 
-	srv := NewServer(":8090", router, pm, mb)
+	srv := NewServer(":8090", router, pm, mb, nil)
 
 	assert.NotNil(t, srv)
 	assert.Equal(t, ":8090", srv.addr)
