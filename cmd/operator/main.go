@@ -183,6 +183,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Signal handler context — must be created exactly once (controller-runtime panics otherwise).
+	ctx := ctrl.SetupSignalHandler()
+
 	// --- Invalidation proxy (runs on all replicas, not just leader) ---
 	proxyRouter := proxy.NewRegisteredRouter()
 	proxyPodMap := proxy.NewPodMap()
@@ -193,7 +196,7 @@ func main() {
 	// Start proxy in background goroutine.
 	go func() {
 		setupLog.Info("Starting invalidation proxy", "addr", ":8090")
-		if err := proxyServer.Start(ctrl.SetupSignalHandler()); err != nil {
+		if err := proxyServer.Start(ctx); err != nil {
 			setupLog.Error(err, "Invalidation proxy failed")
 		}
 	}()
@@ -231,7 +234,7 @@ func main() {
 	}
 
 	setupLog.Info("Starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
