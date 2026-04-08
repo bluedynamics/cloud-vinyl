@@ -35,6 +35,7 @@ import (
 
 	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
+	"github.com/bluedynamics/cloud-vinyl/internal/proxy"
 )
 
 const (
@@ -52,6 +53,9 @@ type VinylCacheReconciler struct {
 	// OperatorIP is the operator pod's own IP address, used to populate the
 	// invalidation EndpointSlice. Set from the POD_IP environment variable.
 	OperatorIP string
+	// Proxy integration (optional — nil when proxy is disabled).
+	ProxyRouter *proxy.RegisteredRouter
+	ProxyPodMap *proxy.PodMap
 }
 
 // +kubebuilder:rbac:groups=vinyl.bluedynamics.eu,resources=vinylcaches,verbs=get;list;watch;create;update;patch;delete
@@ -128,6 +132,18 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	peers, err := r.collectReadyPeers(ctx, vc)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+
+	// Update proxy routing and pod map.
+	if r.ProxyRouter != nil {
+		r.ProxyRouter.Register(vc.Namespace, vc.Name)
+	}
+	if r.ProxyPodMap != nil {
+		var podIPs []string
+		for _, p := range peers {
+			podIPs = append(podIPs, p.IP)
+		}
+		r.ProxyPodMap.Update(vc.Namespace, vc.Name, podIPs)
 	}
 
 	activeHash := ""
