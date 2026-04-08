@@ -65,6 +65,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 			Name:  "varnish",
 			Image: vc.Spec.Image,
 			Args: []string{
+				"-j", "none",
 				"-T", "127.0.0.1:6082",
 				"-S", "/etc/varnish/secret",
 			},
