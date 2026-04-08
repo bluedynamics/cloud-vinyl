@@ -182,14 +182,23 @@ func (h *Handler) PurgeXkey(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, xkeyPurgeResponse{Status: "ok", Purged: purged})
 }
 
-// Health handles GET /health (no auth required)
+// Health handles GET /health (no auth required).
+// Returns 503 until the operator pushes real VCL (active VCL name != "boot").
+// This drives the Kubernetes readiness probe — pods are not Ready until
+// the operator successfully pushes VCL.
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	_, err := h.admin.ActiveVCL(ctx)
+	name, err := h.admin.ActiveVCL(ctx)
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "error", "varnish": "not responding"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "varnish": "running"})
+	// "boot" is the default VCL name loaded at varnish startup.
+	// The pod is not ready until the operator pushes a named VCL.
+	if name == "boot" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "initializing", "varnish": "waiting for VCL push"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "varnish": "running", "vcl": name})
 }

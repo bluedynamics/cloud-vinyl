@@ -212,7 +212,10 @@ func TestValidateVCL_WrongMethod_Returns405(t *testing.T) {
 }
 
 func TestHealth_VarnishRunning_Returns200(t *testing.T) {
-	h, _ := newTestHandler() // default mock returns "boot", nil
+	h, mock := newTestHandler()
+	mock.activeVCLFn = func(ctx context.Context) (string, error) {
+		return "operator-pushed-vcl", nil
+	}
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rr := httptest.NewRecorder()
 	h.Health(rr, req)
@@ -232,6 +235,34 @@ func TestHealth_VarnishDown_Returns503(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.Health(rr, req)
 	assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
+}
+
+func TestHealth_BootstrapVCL_Returns503(t *testing.T) {
+	h, mock := newTestHandler()
+	mock.activeVCLFn = func(ctx context.Context) (string, error) {
+		return "boot", nil
+	}
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rr := httptest.NewRecorder()
+	h.Health(rr, req)
+	assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	assert.Equal(t, "initializing", resp["status"])
+}
+
+func TestHealth_OperatorVCL_Returns200(t *testing.T) {
+	h, mock := newTestHandler()
+	mock.activeVCLFn = func(ctx context.Context) (string, error) {
+		return "aaf-prod-cache-abc12345", nil
+	}
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rr := httptest.NewRecorder()
+	h.Health(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	assert.Equal(t, "ok", resp["status"])
 }
 
 func TestPurgeXkey_EmptyKeys_Returns400(t *testing.T) {

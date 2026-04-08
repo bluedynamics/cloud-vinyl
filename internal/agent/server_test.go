@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,8 +20,12 @@ func newTestServer(t *testing.T) (*agent.Server, *mockAdmin) {
 }
 
 func TestServer_HealthEndpoint_NoAuth(t *testing.T) {
-	// Use the handler directly via httptest to avoid binding a real port
+	// Use the handler directly via httptest to avoid binding a real port.
+	// Set a non-boot VCL so the readiness check passes.
 	mock := &mockAdmin{}
+	mock.activeVCLFn = func(ctx context.Context) (string, error) {
+		return "operator-pushed-vcl", nil
+	}
 	xkey := agent.NewXkeyPurger("http://127.0.0.1:8080")
 	h := agent.NewHandler(mock, xkey)
 
