@@ -176,8 +176,14 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 	}
 
-	// 12. Update status and requeue for drift detection.
+	// 12. Update status and requeue.
 	r.updateStatus(ctx, vc, genResult, peers)
+
+	// Requeue quickly if not all replicas are ready yet.
+	if int32(len(peers)) < vc.Spec.Replicas {
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+	// All replicas ready — requeue for drift detection.
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
 
