@@ -27,6 +27,7 @@ spec:
     enabled: true
   invalidation:
     purge:
+      enabled: true
       soft: true
   debounce:
     duration: 2s

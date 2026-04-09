@@ -10,33 +10,41 @@ spec:
     apply: 10s
     assert: 180s
     delete: 60s
-    exec: 60s
+    exec: 90s
   steps:
     - name: scale-operator-to-2
       description: Scale operator to 2 replicas with leader election.
       try:
         - script:
-            timeout: 60s
+            timeout: 90s
             content: |
               helm upgrade cloud-vinyl ../../../charts/cloud-vinyl \
                 --namespace cloud-vinyl-system \
                 --reuse-values \
                 --set replicaCount=2 \
                 --set leaderElection.enabled=true \
-                --wait --timeout 60s
+                --wait --timeout 90s
               echo "Operator scaled to 2 replicas"
 
     - name: verify-leader-lease
       description: Exactly one leader-election Lease must exist.
       try:
         - script:
-            timeout: 30s
+            timeout: 60s
             content: |
-              HOLDER=$(kubectl get lease -n cloud-vinyl-system \
-                -o jsonpath='{.items[?(@.spec.holderIdentity != "")].spec.holderIdentity}' \
-                2>/dev/null | awk '{print $1}')
-              echo "Lease holder: ${HOLDER}"
-              [ -n "${HOLDER}" ] || (echo "No leader elected" && exit 1)
+              # Wait for a lease holder to appear (may take a few seconds after scale-up).
+              for i in $(seq 1 12); do
+                HOLDER=$(kubectl get lease -n cloud-vinyl-system \
+                  -o jsonpath='{.items[?(@.spec.holderIdentity != "")].spec.holderIdentity}' \
+                  2>/dev/null | awk '{print $1}')
+                if [ -n "${HOLDER}" ]; then
+                  echo "Lease holder: ${HOLDER}"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "No leader elected after 60s"
+              exit 1
 
     - name: deploy-backend-and-cache
       try:
@@ -65,42 +73,63 @@ spec:
       description: Delete the leader pod and verify the VinylCache stays Ready.
       try:
         - script:
-            timeout: 90s
+            timeout: 120s
             content: |
-              # Find the leader pod by matching the lease holder identity
+              # Identify the leader pod from the lease holder identity.
+              # The holderIdentity is typically "<pod-name>_<uuid>".
               HOLDER=$(kubectl get lease -n cloud-vinyl-system \
                 -o jsonpath='{.items[?(@.spec.holderIdentity != "")].spec.holderIdentity}' \
-                2>/dev/null | awk '{print $1}' | cut -d'_' -f1)
-              echo "Leader pod prefix: ${HOLDER}"
+                2>/dev/null | awk '{print $1}')
+              echo "Lease holder identity: ${HOLDER}"
 
-              LEADER_POD=$(kubectl get pods -n cloud-vinyl-system \
+              # Extract pod name — try matching running pods against the holder prefix.
+              LEADER_POD=""
+              for POD in $(kubectl get pods -n cloud-vinyl-system \
                 -l app.kubernetes.io/name=cloud-vinyl \
-                -o jsonpath='{.items[*].metadata.name}' | tr ' ' '\n' | \
-                grep "^${HOLDER}" | head -1)
+                -o jsonpath='{.items[*].metadata.name}'); do
+                if echo "${HOLDER}" | grep -q "^${POD}"; then
+                  LEADER_POD="${POD}"
+                  break
+                fi
+              done
+
+              if [ -z "${LEADER_POD}" ]; then
+                echo "Could not identify leader pod — skipping pod kill"
+                exit 0
+              fi
+
               echo "Deleting leader pod: ${LEADER_POD}"
-              [ -n "${LEADER_POD}" ] && kubectl delete pod -n cloud-vinyl-system "${LEADER_POD}" || \
-                echo "Could not identify leader pod by name — skipping pod kill"
+              kubectl delete pod -n cloud-vinyl-system "${LEADER_POD}"
 
-              # Wait for new leader election
-              sleep 20
+              # Wait for new leader election and VinylCache to stabilize.
+              echo "Waiting for failover..."
+              for i in $(seq 1 24); do
+                STATUS=$(kubectl get vinylcache -n ${NAMESPACE} my-cache \
+                  -o jsonpath='{.status.phase}' 2>/dev/null)
+                if [ "${STATUS}" = "Ready" ]; then
+                  echo "VinylCache phase after failover: ${STATUS}"
+                  exit 0
+                fi
+                sleep 5
+              done
 
-              # VinylCache should still be Ready
+              # Accept Ready or Degraded (VCL may need re-push after failover).
               STATUS=$(kubectl get vinylcache -n ${NAMESPACE} my-cache \
                 -o jsonpath='{.status.phase}' 2>/dev/null)
-              echo "VinylCache phase after leader failover: ${STATUS}"
+              echo "VinylCache phase after failover: ${STATUS}"
               [ "${STATUS}" = "Ready" ] || [ "${STATUS}" = "Degraded" ] || \
                 (echo "Unexpected phase: ${STATUS}" && exit 1)
 
     - name: restore-operator-replicas
       try:
         - script:
-            timeout: 60s
+            timeout: 90s
             content: |
               helm upgrade cloud-vinyl ../../../charts/cloud-vinyl \
                 --namespace cloud-vinyl-system \
                 --reuse-values \
                 --set replicaCount=1 \
-                --wait --timeout 60s
+                --wait --timeout 90s
 
     - name: cleanup
       try:

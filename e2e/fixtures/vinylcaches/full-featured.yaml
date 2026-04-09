@@ -27,8 +27,10 @@ spec:
     enabled: true
   invalidation:
     purge:
+      enabled: true
       soft: true
     xkey:
+      enabled: true
       softPurge: true
   debounce:
     duration: 2s

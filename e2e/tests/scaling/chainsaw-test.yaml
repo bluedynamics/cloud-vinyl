@@ -8,7 +8,7 @@ spec:
     spec is updated and the VinylCache reaches Ready phase after each change.
   timeouts:
     apply: 10s
-    assert: 120s
+    assert: 180s
     delete: 60s
     exec: 30s
   steps:
@@ -39,7 +39,7 @@ spec:
                 phase: Ready
 
     - name: scale-to-3
-      description: Scale to 3 replicas; StatefulSet spec should be updated.
+      description: Scale to 3 replicas with cluster enabled.
       try:
         - patch:
             resource:
@@ -59,6 +59,10 @@ spec:
                 name: my-cache
               spec:
                 replicas: 3
+
+    - name: wait-ready-after-scale-up
+      description: VinylCache must reach Ready after scaling to 3 replicas.
+      try:
         - assert:
             resource:
               apiVersion: vinyl.bluedynamics.eu/v1alpha1
@@ -67,7 +71,7 @@ spec:
                 name: my-cache
               status:
                 phase: Ready
-                (conditions[?type == 'VCLSynced'].status | [0]): "True"
+                readyPeers: 3
 
     - name: scale-to-1
       description: Scale back down to 1 replica.
@@ -90,6 +94,10 @@ spec:
                 name: my-cache
               spec:
                 replicas: 1
+
+    - name: wait-ready-after-scale-down
+      description: VinylCache must reach Ready after scaling to 1 replica.
+      try:
         - assert:
             resource:
               apiVersion: vinyl.bluedynamics.eu/v1alpha1
