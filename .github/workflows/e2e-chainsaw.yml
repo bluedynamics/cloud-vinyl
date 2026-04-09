@@ -71,8 +71,6 @@ jobs:
           chainsaw test \
             --test-dir e2e/tests \
             --parallel 3 \
-            --report-format junit \
-            --report-name e2e-results \
             --exclude-test-regex "(ha-operator|drift-detection)"
 
       - name: Run sequential E2E tests
@@ -80,8 +78,6 @@ jobs:
           chainsaw test \
             --test-dir e2e/tests \
             --parallel 1 \
-            --report-format junit \
-            --report-name e2e-results-sequential \
             --include-test-regex "(ha-operator|drift-detection)"
 
       - name: Debug - operator logs
@@ -95,12 +91,3 @@ jobs:
           kubectl get pods -A | grep -E "chainsaw|cloud-vinyl" || true
           echo "=== Events ==="
           kubectl get events -A --sort-by='.lastTimestamp' | tail -50 || true
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-results
-          path: |
-            e2e-results.xml
-            e2e-results-sequential.xml
