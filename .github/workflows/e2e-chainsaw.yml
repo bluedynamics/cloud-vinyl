@@ -44,12 +44,10 @@ jobs:
           kind load docker-image ghcr.io/bluedynamics/cloud-vinyl-agent:dev \
             --name cloud-vinyl-e2e
 
-      - name: Pull and load varnish image
+      - name: Pre-pull varnish image into Kind
         run: |
           docker pull varnish:7.6
-          docker tag varnish:7.6 ghcr.io/bluedynamics/cloud-vinyl-varnish:dev
-          kind load docker-image ghcr.io/bluedynamics/cloud-vinyl-varnish:dev \
-            --name cloud-vinyl-e2e
+          kind load docker-image varnish:7.6 --name cloud-vinyl-e2e
 
       - uses: azure/setup-helm@v5
 

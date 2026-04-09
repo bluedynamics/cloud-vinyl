@@ -4,7 +4,7 @@ metadata:
   name: invalid-cidr-test
 spec:
   replicas: 1
-  image: ghcr.io/bluedynamics/cloud-vinyl-varnish:dev
+  image: varnish:7.6
   backends:
     - name: echo
       serviceRef:
