@@ -40,7 +40,14 @@ jobs:
       - name: Build agent image
         run: |
           docker build -f Dockerfile.agent \
-            -t ghcr.io/bluedynamics/cloud-vinyl-varnish:dev .
+            -t ghcr.io/bluedynamics/cloud-vinyl-agent:dev .
+          kind load docker-image ghcr.io/bluedynamics/cloud-vinyl-agent:dev \
+            --name cloud-vinyl-e2e
+
+      - name: Pull and load varnish image
+        run: |
+          docker pull varnish:7.6
+          docker tag varnish:7.6 ghcr.io/bluedynamics/cloud-vinyl-varnish:dev
           kind load docker-image ghcr.io/bluedynamics/cloud-vinyl-varnish:dev \
             --name cloud-vinyl-e2e
 
@@ -52,6 +59,7 @@ jobs:
       - name: Install cloud-vinyl operator
         env:
           OPERATOR_IMAGE: ghcr.io/bluedynamics/cloud-vinyl-operator:dev
+          AGENT_IMAGE: ghcr.io/bluedynamics/cloud-vinyl-agent:dev
         run: bash e2e/setup/install-operator.sh
 
       - name: Install chainsaw
