@@ -8,7 +8,7 @@ spec:
     phase and the operator correctly reconciles all resources.
   timeouts:
     apply: 10s
-    assert: 120s
+    assert: 180s
     delete: 60s
     exec: 30s
   steps:

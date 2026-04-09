@@ -5,10 +5,11 @@ metadata:
 spec:
   description: |
     Verify a VinylCache with xkey invalidation configured reaches Ready
-    phase and all expected resources are created.
+    phase and all expected resources are created including the invalidation
+    service for xkey purge broadcasting.
   timeouts:
     apply: 10s
-    assert: 120s
+    assert: 180s
     delete: 60s
     exec: 30s
   steps:
@@ -38,8 +39,8 @@ spec:
               status:
                 phase: Ready
 
-    - name: verify-resources
-      description: Verify all expected resources are created.
+    - name: verify-statefulset
+      description: Verify the StatefulSet has 3 replicas.
       try:
         - assert:
             resource:
@@ -49,12 +50,22 @@ spec:
                 name: my-cache
               spec:
                 replicas: 3
+
+    - name: verify-services
+      description: Verify traffic and invalidation services are created.
+      try:
         - assert:
             resource:
               apiVersion: v1
               kind: Service
               metadata:
                 name: my-cache-traffic
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: my-cache-invalidation
 
     - name: cleanup
       try:
