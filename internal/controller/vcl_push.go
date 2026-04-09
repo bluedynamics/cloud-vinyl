@@ -86,6 +86,12 @@ func (r *VinylCacheReconciler) pushVCL(
 					results[idx] = pushResult{peer: p, err: nil}
 					return
 				}
+				// VCL with this name already loaded — treat as success (idempotent).
+				if strings.Contains(err.Error(), "Already a VCL named") {
+					log.Info("VCL already loaded, skipping", "pod", p.Name, "vcl", vclName)
+					results[idx] = pushResult{peer: p, err: nil}
+					return
+				}
 				lastErr = err
 				// Do not retry VCL compilation errors.
 				if strings.Contains(err.Error(), "VCL compilation failed") {
