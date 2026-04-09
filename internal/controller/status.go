@@ -57,12 +57,28 @@ func (r *VinylCacheReconciler) updateStatus(
 	vc.Status.ReadyPeers = int32(len(peers))
 	vc.Status.TotalPeers = vc.Spec.Replicas
 
-	setCondition(vc, v1alpha1.ConditionVCLSynced, metav1.ConditionTrue, "VCLPushed", "VCL successfully pushed to all ready pods")
+	allReplicasReady := int32(len(peers)) >= vc.Spec.Replicas
+
+	// VCLSynced reflects whether VCL was pushed to all available peers (not blocked).
+	// It stays True even when waiting for more replicas to start.
+	setCondition(vc, v1alpha1.ConditionVCLSynced, metav1.ConditionTrue, "VCLPushed",
+		fmt.Sprintf("VCL pushed to %d/%d pods", len(peers), vc.Spec.Replicas))
 	setCondition(vc, v1alpha1.ConditionBackendsAvailable, metav1.ConditionTrue, "BackendsConfigured", "backend configuration applied")
-	setCondition(vc, v1alpha1.ConditionProgressing, metav1.ConditionFalse, "ReconcileComplete", "reconciliation complete")
+
+	if allReplicasReady {
+		setCondition(vc, v1alpha1.ConditionProgressing, metav1.ConditionFalse, "ReconcileComplete", "reconciliation complete")
+	} else {
+		setCondition(vc, v1alpha1.ConditionProgressing, metav1.ConditionTrue, "WaitingForReplicas",
+			fmt.Sprintf("waiting for %d/%d replicas to become ready", len(peers), vc.Spec.Replicas))
+	}
 
 	vc.Status.Phase = calculatePhase(vc)
-	setCondition(vc, v1alpha1.ConditionReady, metav1.ConditionTrue, "AllReady", "VinylCache is ready")
+	if allReplicasReady {
+		setCondition(vc, v1alpha1.ConditionReady, metav1.ConditionTrue, "AllReady", "VinylCache is ready")
+	} else {
+		setCondition(vc, v1alpha1.ConditionReady, metav1.ConditionFalse, "NotAllReady",
+			fmt.Sprintf("%d/%d replicas ready", len(peers), vc.Spec.Replicas))
+	}
 
 	if err := r.Status().Update(ctx, vc); err != nil {
 		log.Error(err, "updating VinylCache status")
@@ -83,17 +99,18 @@ func (r *VinylCacheReconciler) setErrorStatus(ctx context.Context, vc *v1alpha1.
 	}
 }
 
-// calculatePhase derives the overall phase from the current conditions.
+// calculatePhase derives the overall phase from the current conditions and replica state.
 //
-//   - Ready:    VCLSynced=True and BackendsAvailable=True (operator reconciled successfully)
-//   - Degraded: VCLSynced=False (VCL push failed)
+//   - Ready:    VCLSynced=True and BackendsAvailable=True and all replicas ready
+//   - Degraded: VCLSynced=False (VCL push failed or partial)
 //   - Error:    set explicitly via setErrorStatus
-//   - Pending:  initial state before first successful reconcile
+//   - Pending:  initial state or waiting for replicas
 func calculatePhase(vc *v1alpha1.VinylCache) string {
 	vclSynced := findConditionStatus(vc, v1alpha1.ConditionVCLSynced)
 	backendsAvailable := findConditionStatus(vc, v1alpha1.ConditionBackendsAvailable)
 
-	if vclSynced == metav1.ConditionTrue && backendsAvailable == metav1.ConditionTrue {
+	if vclSynced == metav1.ConditionTrue && backendsAvailable == metav1.ConditionTrue &&
+		vc.Status.ReadyPeers >= vc.Status.TotalPeers {
 		return v1alpha1.PhaseReady
 	}
 	if vclSynced == metav1.ConditionFalse {

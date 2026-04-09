@@ -40,9 +40,14 @@ jobs:
       - name: Build agent image
         run: |
           docker build -f Dockerfile.agent \
-            -t ghcr.io/bluedynamics/cloud-vinyl-varnish:dev .
-          kind load docker-image ghcr.io/bluedynamics/cloud-vinyl-varnish:dev \
+            -t ghcr.io/bluedynamics/cloud-vinyl-agent:dev .
+          kind load docker-image ghcr.io/bluedynamics/cloud-vinyl-agent:dev \
             --name cloud-vinyl-e2e
+
+      - name: Pre-pull varnish image into Kind
+        run: |
+          docker pull varnish:7.6
+          kind load docker-image varnish:7.6 --name cloud-vinyl-e2e
 
       - uses: azure/setup-helm@v5
 
@@ -52,6 +57,7 @@ jobs:
       - name: Install cloud-vinyl operator
         env:
           OPERATOR_IMAGE: ghcr.io/bluedynamics/cloud-vinyl-operator:dev
+          AGENT_IMAGE: ghcr.io/bluedynamics/cloud-vinyl-agent:dev
         run: bash e2e/setup/install-operator.sh
 
       - name: Install chainsaw
@@ -74,6 +80,18 @@ jobs:
             --report-format junit \
             --report-name e2e-results-sequential \
             --include-test-regex "(ha-operator|drift-detection)"
+
+      - name: Debug - operator logs
+        if: failure()
+        run: |
+          echo "=== Operator logs ==="
+          kubectl logs -n cloud-vinyl-system -l app.kubernetes.io/name=cloud-vinyl --tail=100 || true
+          echo "=== VinylCache resources ==="
+          kubectl get vinylcaches -A -o yaml 2>/dev/null | head -200 || true
+          echo "=== Pods in test namespaces ==="
+          kubectl get pods -A | grep -E "chainsaw|cloud-vinyl" || true
+          echo "=== Events ==="
+          kubectl get events -A --sort-by='.lastTimestamp' | tail -50 || true
 
       - name: Upload test results
         if: always()

@@ -43,8 +43,8 @@ func (r *VinylCacheReconciler) pushVCL(
 	log := logf.FromContext(ctx)
 
 	if len(peers) == 0 {
-		log.Info("No ready peers to push VCL to")
-		return nil
+		log.Info("No ready peers to push VCL to, will requeue")
+		return nil // Not an error — updateStatus will set partial state, reconciler will requeue
 	}
 
 	maxAttempts := int32(3)
