@@ -5,6 +5,12 @@ OPERATOR_IMAGE="${OPERATOR_IMAGE:-ghcr.io/bluedynamics/cloud-vinyl-operator:dev}
 AGENT_IMAGE="${AGENT_IMAGE:-ghcr.io/bluedynamics/cloud-vinyl-agent:dev}"
 NAMESPACE="${OPERATOR_NAMESPACE:-cloud-vinyl-system}"
 
+# Label the operator namespace so NetworkPolicies allow agent traffic.
+# The agent NetworkPolicy allows ingress only from namespaces with this label.
+echo "Labeling operator namespace ${NAMESPACE}..."
+kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+kubectl label namespace "${NAMESPACE}" vinyl.bluedynamics.eu/operator-namespace=true --overwrite
+
 echo "Installing cloud-vinyl operator (image: ${OPERATOR_IMAGE}, agent: ${AGENT_IMAGE})..."
 helm upgrade --install cloud-vinyl ./charts/cloud-vinyl \
   --namespace "${NAMESPACE}" \

@@ -20,6 +20,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Fix MTU for Kind cross-node networking
+        run: sudo sysctl -w net.ipv4.tcp_mtu_probing=1
+
       - name: Create kind cluster
         uses: helm/kind-action@v1
         with:
