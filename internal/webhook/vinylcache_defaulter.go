@@ -38,8 +38,11 @@ const directorTypeShard = "shard"
 //   - Director.Shard.Rampup = 30s (throttle traffic to newly healthy backends)
 //   - Director.Shard.By = "HASH" (standard shard key)
 //   - Director.Shard.Healthy = "CHOSEN" (standard health evaluation)
+//   - Backends[*].Director.Type = directorTypeShard (when .Director is non-nil)
+//   - Backends[*].Director.Shard.{Warmup, Rampup, By, Healthy} defaults
+//     (same values as top-level director)
 //   - Cluster.PeerRouting.Type = directorTypeShard
-//   - Debounce.Duration = 5s
+//   - Debounce.Duration = 1s
 //   - Retry.MaxAttempts = 3
 //   - Retry.BackoffBase = 5s
 //   - Retry.BackoffMax = 5m
@@ -89,9 +92,41 @@ func DefaultVinylCache(vc *vinylv1alpha1.VinylCache) {
 		vc.Spec.Cluster.PeerRouting.Type = directorTypeShard
 	}
 
-	// Debounce default: 5s.
+	// Per-backend director defaults (mirror top-level director handling).
+	// Applied only when a user has explicitly set .Director on a backend;
+	// a nil .Director is resolved to a shard director in the generator.
+	for i := range vc.Spec.Backends {
+		b := &vc.Spec.Backends[i]
+		if b.Director == nil {
+			continue
+		}
+		if b.Director.Type == "" {
+			b.Director.Type = directorTypeShard
+		}
+		if b.Director.Type == directorTypeShard {
+			if b.Director.Shard == nil {
+				b.Director.Shard = &vinylv1alpha1.ShardSpec{}
+			}
+			s := b.Director.Shard
+			if s.Warmup == nil {
+				v := 0.1
+				s.Warmup = &v
+			}
+			if s.Rampup.Duration == 0 {
+				s.Rampup = metav1.Duration{Duration: 30 * time.Second}
+			}
+			if s.By == "" {
+				s.By = "HASH"
+			}
+			if s.Healthy == "" {
+				s.Healthy = "CHOSEN"
+			}
+		}
+	}
+
+	// Debounce default: 1s (matches CRD +kubebuilder:default and controller fallback).
 	if vc.Spec.Debounce.Duration.Duration == 0 {
-		vc.Spec.Debounce.Duration = metav1.Duration{Duration: 5 * time.Second}
+		vc.Spec.Debounce.Duration = metav1.Duration{Duration: 1 * time.Second}
 	}
 
 	// Retry defaults.

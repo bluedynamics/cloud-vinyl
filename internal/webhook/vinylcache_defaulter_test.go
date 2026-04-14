@@ -205,12 +205,12 @@ func TestDefault_ClusterPeerRoutingType_NotOverwrittenIfAlreadySet(t *testing.T)
 
 // --- Debounce default ---
 
-func TestDefault_Debounce_DefaultsTo5s(t *testing.T) {
+func TestDefault_Debounce_DefaultsTo1s(t *testing.T) {
 	vc := emptyVC()
 	webhook.DefaultVinylCache(vc)
 
-	assert.Equal(t, 5*time.Second, vc.Spec.Debounce.Duration.Duration,
-		"Debounce.Duration should default to 5s")
+	assert.Equal(t, 1*time.Second, vc.Spec.Debounce.Duration.Duration,
+		"Debounce.Duration should default to 1s (matches CRD +kubebuilder:default)")
 }
 
 func TestDefault_Debounce_NotOverwrittenIfAlreadySet(t *testing.T) {
@@ -303,6 +303,85 @@ func TestDefault_ProxyProtocolPort_NotOverwrittenIfAlreadySet(t *testing.T) {
 
 	assert.Equal(t, int32(8443), vc.Spec.ProxyProtocol.Port,
 		"ProxyProtocol.Port should not be overwritten if already set")
+}
+
+// --- per-backend director defaults ---
+
+// baseVinylCache returns a VinylCache with a single backend (name only).
+// Used by per-backend director tests.
+func baseVinylCache() *vinylv1alpha1.VinylCache {
+	return &vinylv1alpha1.VinylCache{
+		Spec: vinylv1alpha1.VinylCacheSpec{
+			Backends: []vinylv1alpha1.BackendSpec{{Name: "b"}},
+		},
+	}
+}
+
+func TestDefault_BackendDirector_NilIsUntouched(t *testing.T) {
+	vc := baseVinylCache()
+	// Ensure backend has no Director set.
+	vc.Spec.Backends[0].Director = nil
+	webhook.DefaultVinylCache(vc)
+	assert.Nil(t, vc.Spec.Backends[0].Director,
+		"nil per-backend Director stays nil (generator handles nil as shard)")
+}
+
+func TestDefault_BackendDirector_EmptyTypeDefaultsShard(t *testing.T) {
+	vc := baseVinylCache()
+	vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{}
+	webhook.DefaultVinylCache(vc)
+	require.NotNil(t, vc.Spec.Backends[0].Director)
+	assert.Equal(t, "shard", vc.Spec.Backends[0].Director.Type)
+}
+
+func TestDefault_BackendDirector_ShardDefaults(t *testing.T) {
+	vc := baseVinylCache()
+	vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{Type: "shard"}
+	webhook.DefaultVinylCache(vc)
+	s := vc.Spec.Backends[0].Director.Shard
+	require.NotNil(t, s)
+	require.NotNil(t, s.Warmup)
+	assert.InDelta(t, 0.1, *s.Warmup, 1e-9)
+	assert.Equal(t, 30*time.Second, s.Rampup.Duration)
+	assert.Equal(t, "HASH", s.By)
+	assert.Equal(t, "CHOSEN", s.Healthy)
+}
+
+func TestDefault_BackendDirector_NonShardTypeKeepsNilShard(t *testing.T) {
+	vc := baseVinylCache()
+	vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{Type: "round_robin"}
+	webhook.DefaultVinylCache(vc)
+	assert.Equal(t, "round_robin", vc.Spec.Backends[0].Director.Type)
+	assert.Nil(t, vc.Spec.Backends[0].Director.Shard,
+		"round_robin doesn't get shard defaults")
+}
+
+func TestDefault_BackendDirector_ShardUserValuesPreserved(t *testing.T) {
+	vc := baseVinylCache()
+	warmup := 0.5
+	vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{
+		Type: "shard",
+		Shard: &vinylv1alpha1.ShardSpec{
+			Warmup: &warmup,
+			Rampup: metav1.Duration{Duration: 60 * time.Second},
+			By:     "URL",
+		},
+	}
+	webhook.DefaultVinylCache(vc)
+	s := vc.Spec.Backends[0].Director.Shard
+	assert.InDelta(t, 0.5, *s.Warmup, 1e-9, "user warmup preserved")
+	assert.Equal(t, 60*time.Second, s.Rampup.Duration, "user rampup preserved")
+	assert.Equal(t, "URL", s.By, "user by preserved")
+	assert.Equal(t, "CHOSEN", s.Healthy, "Healthy still gets default")
+}
+
+func TestDefault_Debounce_DefaultsToOneSecond(t *testing.T) {
+	vc := baseVinylCache()
+	// Ensure Debounce is zero-valued.
+	vc.Spec.Debounce = vinylv1alpha1.DebounceSpec{}
+	webhook.DefaultVinylCache(vc)
+	assert.Equal(t, 1*time.Second, vc.Spec.Debounce.Duration.Duration,
+		"webhook Debounce default must match CRD default (1s)")
 }
 
 // --- idempotency ---
