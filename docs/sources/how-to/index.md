@@ -7,6 +7,7 @@ Step-by-step guides for common tasks with cloud-vinyl.
 
 install
 create-cache
+per-backend-directors
 purge-ban
 upgrade
 ```
