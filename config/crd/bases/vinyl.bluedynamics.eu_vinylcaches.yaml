@@ -163,6 +163,7 @@ spec:
                           - round_robin
                           - random
                           - hash
+                          - fallback
                           type: string
                       type: object
                     name:
@@ -323,6 +324,7 @@ spec:
                     - round_robin
                     - random
                     - hash
+                    - fallback
                     type: string
                 type: object
               image:

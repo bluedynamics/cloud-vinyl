@@ -641,3 +641,51 @@ func TestGenerate_Cluster_WithShardWarmupRampup(t *testing.T) {
 	assert.Contains(t, r.VCL, "set_rampup(",
 		"cluster: vcl_init must call set_rampup() when rampup is configured")
 }
+
+func TestGenerate_BackendGroups_Hash(t *testing.T) {
+	g := newGenerator(t)
+	input := generator.Input{
+		Namespace: "ns", Name: "cache",
+		Spec: &vinylv1alpha1.VinylCacheSpec{
+			Replicas: 1, Image: "vinyl:test",
+			Backends: []vinylv1alpha1.BackendSpec{{
+				Name:       "api",
+				ServiceRef: vinylv1alpha1.ServiceRef{Name: "api-svc"},
+				Director:   &vinylv1alpha1.DirectorSpec{Type: "hash"},
+			}},
+		},
+		Endpoints: map[string][]generator.Endpoint{
+			"api": {{IP: "10.0.0.1", Port: 80}, {IP: "10.0.0.2", Port: 80}},
+		},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "new api = directors.hash();")
+	assert.Contains(t, r.VCL, "api.add_backend(api_0, 1.0);")
+	assert.Contains(t, r.VCL, "api.add_backend(api_1, 1.0);")
+	assert.NotContains(t, r.VCL, "api.reconfigure();",
+		"hash: no reconfigure() call")
+}
+
+func TestGenerate_BackendGroups_Fallback(t *testing.T) {
+	g := newGenerator(t)
+	input := generator.Input{
+		Namespace: "ns", Name: "cache",
+		Spec: &vinylv1alpha1.VinylCacheSpec{
+			Replicas: 1, Image: "vinyl:test",
+			Backends: []vinylv1alpha1.BackendSpec{{
+				Name:       "primary",
+				ServiceRef: vinylv1alpha1.ServiceRef{Name: "primary-svc"},
+				Director:   &vinylv1alpha1.DirectorSpec{Type: "fallback"},
+			}},
+		},
+		Endpoints: map[string][]generator.Endpoint{
+			"primary": {{IP: "10.0.0.1", Port: 80}, {IP: "10.0.0.2", Port: 80}},
+		},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "new primary = directors.fallback();")
+	assert.Contains(t, r.VCL, "primary.add_backend(primary_0);")
+	assert.Contains(t, r.VCL, "primary.add_backend(primary_1);")
+}

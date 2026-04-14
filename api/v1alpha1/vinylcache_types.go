@@ -215,7 +215,7 @@ type DirectorSpec struct {
 	// "shard" (default) provides consistent hashing; "round_robin", "random", and "hash"
 	// are also supported.
 	// +optional
-	// +kubebuilder:validation:Enum=shard;round_robin;random;hash
+	// +kubebuilder:validation:Enum=shard;round_robin;random;hash;fallback
 	Type string `json:"type,omitempty"`
 
 	// shard configures the shard director (consistent-hash). Only used when type is "shard".

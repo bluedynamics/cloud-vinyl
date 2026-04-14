@@ -1,5 +1,6 @@
 
 sub vcl_init {
+    # --- per-backend directors (see vcl_recv snippet to route traffic into these) ---
 {{- range $g := .BackendGroups }}
 {{- if eq $g.Director.Type "shard" }}
     new {{ $g.Name }} = directors.shard();
@@ -23,20 +24,20 @@ sub vcl_init {
 {{- range $b := $g.Backends }}
     {{ $g.Name }}.add_backend({{ $b.Name }}, 1.0);
 {{- end }}
+{{- else if eq $g.Director.Type "hash" }}
+    new {{ $g.Name }} = directors.hash();
+{{- range $b := $g.Backends }}
+    {{ $g.Name }}.add_backend({{ $b.Name }}, 1.0);
+{{- end }}
 {{- else if eq $g.Director.Type "fallback" }}
     new {{ $g.Name }} = directors.fallback();
 {{- range $b := $g.Backends }}
     {{ $g.Name }}.add_backend({{ $b.Name }});
 {{- end }}
-{{- else }}
-    new {{ $g.Name }} = directors.shard();
-{{- range $b := $g.Backends }}
-    {{ $g.Name }}.add_backend({{ $b.Name }});
-{{- end }}
-    {{ $g.Name }}.reconfigure();
 {{- end }}
 {{- end }}
 {{- if .HasCluster }}
+    # --- cluster peer director (routes requests across Varnish pods) ---
     new {{ .DirectorName }} = directors.shard();
 {{- range .PeerDefs }}
     {{ $.DirectorName }}.add_backend({{ .Name }});

@@ -89,14 +89,13 @@ type BackendGroup struct {
 // It reflects the v1alpha1.DirectorSpec but is template-friendly.
 //
 // Intentionally scoped: only fields the VCL templates consume today are captured
-// (Type, shard.Warmup, shard.Rampup, shard.By). Extend this struct (and
-// resolveDirectorInfo) when new template bindings are needed — e.g. shard.Replicas
-// or shard.Healthy for advanced sharding, or hash.Header for the hash director.
+// (Type, shard.Warmup, shard.Rampup). Extend this struct (and resolveDirectorInfo)
+// when new template bindings are needed — e.g. shard.Replicas or shard.Healthy
+// for advanced sharding, or hash.Header for the hash director.
 type DirectorInfo struct {
-	Type   string  // CRD enum: "shard" (default), "round_robin", "random", "hash".
+	Type   string  // CRD enum: "shard" (default), "round_robin", "random", "hash", "fallback".
 	Warmup float64 // 0.0 if unset; only for shard.
 	Rampup string  // empty if unset; formatted via fmtDuration; only for shard.
-	By     string  // "HASH" (default) or "URL"; only for shard.
 }
 
 type templateGenerator struct {
@@ -246,7 +245,7 @@ func fmtDuration(d time.Duration) string {
 // resolveDirectorInfo collapses a nullable per-backend DirectorSpec into a template-ready
 // DirectorInfo with defaults (shard / HASH / empty warmup/rampup).
 func resolveDirectorInfo(ds *vinylv1alpha1.DirectorSpec) DirectorInfo {
-	out := DirectorInfo{Type: "shard", By: "HASH"}
+	out := DirectorInfo{Type: "shard"}
 	if ds == nil {
 		return out
 	}
@@ -259,9 +258,6 @@ func resolveDirectorInfo(ds *vinylv1alpha1.DirectorSpec) DirectorInfo {
 		}
 		if ds.Shard.Rampup.Duration > 0 {
 			out.Rampup = fmtDuration(ds.Shard.Rampup.Duration)
-		}
-		if ds.Shard.By != "" {
-			out.By = ds.Shard.By
 		}
 	}
 	return out
