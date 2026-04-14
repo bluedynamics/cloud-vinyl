@@ -143,8 +143,8 @@ func TestGenerate_NoCluster_NoPeerBackends(t *testing.T) {
 	// Cluster disabled, no peers provided.
 	r, err := g.Generate(input)
 	require.NoError(t, err)
-	assert.NotContains(t, r.VCL, "import directors",
-		"no cluster: directors vmod must NOT be imported")
+	assert.Contains(t, r.VCL, "import directors",
+		"directors vmod is always imported (needed for per-backend directors)")
 	assert.NotContains(t, r.VCL, "acl vinyl_cluster_peers",
 		"no cluster: cluster peer ACL must NOT be present")
 }
@@ -273,7 +273,9 @@ func TestGenerate_Cluster_Disabled_When_NoPeers(t *testing.T) {
 	input.Peers = nil
 	r, err := g.Generate(input)
 	require.NoError(t, err)
-	assert.NotContains(t, r.VCL, "import directors",
+	assert.NotContains(t, r.VCL, "directors.shard();\n    app_backend_0",
+		"cluster-peer shard director must not be emitted when no peers are provided")
+	assert.NotContains(t, r.VCL, "acl vinyl_cluster_peers",
 		"cluster must not be enabled when no peers are provided")
 }
 
