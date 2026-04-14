@@ -258,9 +258,10 @@ spec:
                   preventing thundering-herd on rapid endpoint churn.
                 properties:
                   duration:
+                    default: 1s
                     description: |-
                       duration is the time to wait after the last endpoint change before pushing a VCL update.
-                      This prevents thundering-herd on rapid endpoint churn. Default: 5s.
+                      This prevents thundering-herd on rapid endpoint churn. Default: 1s.
                     type: string
                 type: object
               director:

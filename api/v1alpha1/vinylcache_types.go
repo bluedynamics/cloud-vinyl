@@ -472,8 +472,9 @@ type ServiceSpec struct {
 // DebounceSpec configures the grace period before applying endpoint changes to Varnish.
 type DebounceSpec struct {
 	// duration is the time to wait after the last endpoint change before pushing a VCL update.
-	// This prevents thundering-herd on rapid endpoint churn. Default: 5s.
+	// This prevents thundering-herd on rapid endpoint churn. Default: 1s.
 	// +optional
+	// +kubebuilder:default="1s"
 	Duration metav1.Duration `json:"duration,omitempty"`
 }
 

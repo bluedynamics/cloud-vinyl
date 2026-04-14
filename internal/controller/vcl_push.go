@@ -167,6 +167,8 @@ func (r *VinylCacheReconciler) debounceRemaining(vc *v1alpha1.VinylCache) time.D
 	}
 	window := vc.Spec.Debounce.Duration.Duration
 	if window <= 0 {
+		// Defensive fallback: kubebuilder default materialises 1s on API objects,
+		// but tests/direct struct literals may bypass admission.
 		window = 1 * time.Second
 	}
 	key := types.NamespacedName{Name: vc.Name, Namespace: vc.Namespace}

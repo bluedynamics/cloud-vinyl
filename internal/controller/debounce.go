@@ -18,7 +18,9 @@ import (
 type debouncer struct {
 	mu     sync.Mutex
 	lastCh map[types.NamespacedName]time.Time
-	now    func() time.Time
+	// now is the clock used by touch/remaining. Set-once at construction in
+	// production; tests override it directly before touching the debouncer.
+	now func() time.Time
 }
 
 func newDebouncer() *debouncer {
