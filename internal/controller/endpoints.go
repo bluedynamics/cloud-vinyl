@@ -7,6 +7,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -65,6 +66,7 @@ func (r *VinylCacheReconciler) listBackendEndpoints(
 			}
 		}
 	}
+	sort.Slice(endpoints, func(i, j int) bool { return endpoints[i].IP < endpoints[j].IP })
 	return endpoints, nil
 }
 
@@ -81,8 +83,9 @@ func endpointReady(ep discoveryv1.Endpoint) bool {
 }
 
 // pickPort selects the port for a backend: spec.backends[].port overrides the
-// slice port; otherwise the slice's first named/IPv4 port is used. If neither
-// is set, 0 is returned and the caller should skip the slice.
+// slice port; otherwise the first port with a non-nil Port value is used.
+// For multi-port services set spec.backends[].port explicitly to avoid
+// depending on Service port ordering.
 func pickPort(ports []discoveryv1.EndpointPort, b v1alpha1.BackendSpec) int {
 	if b.Port > 0 {
 		return int(b.Port)

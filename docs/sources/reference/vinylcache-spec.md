@@ -67,8 +67,12 @@ See the [per-backend directors how-to](../how-to/per-backend-directors.md) for w
 | `type` | string | `shard` | Director type. Currently only `shard` is supported. |
 | `shard.warmup` | float | `0.1` | Fraction of requests sent to alternate backend to pre-populate its cache. |
 | `shard.rampup` | duration | `30s` | Traffic throttle duration for newly healthy backends. |
-| `shard.by` | string | `HASH` | Shard key source (`HASH`, `URL`, `COOKIE`, `CUSTOM`). |
-| `shard.healthy` | string | `CHOSEN` | Health evaluation strategy (`CHOSEN`, `IGNORE`, `ALL`). |
+| `shard.by` | string | `HASH` | Shard key source (`HASH`, `URL`). |
+| `shard.healthy` | string | `CHOSEN` | Health evaluation strategy (`CHOSEN`, `ALL`). |
+
+> Note: `shard.by` and `shard.healthy` are accepted and persisted on the
+> resource, but are not yet consumed by the generator for per-backend
+> directors (see follow-up `shard-params-not-plumbed`).
 
 ### cluster
 
@@ -125,7 +129,7 @@ spec:
     xkey:
       softPurge: true
   debounce:
-    duration: 5s
+    duration: 1s
   retry:
     maxAttempts: 3
     backoffBase: 5s

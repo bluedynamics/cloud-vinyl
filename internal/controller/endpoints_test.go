@@ -207,3 +207,41 @@ func TestResolveBackendEndpoints_MultipleSlices_Aggregate(t *testing.T) {
 	assert.ElementsMatch(t,
 		[]string{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5"}, ips)
 }
+
+func TestResolveBackendEndpoints_ResultIsSortedByIP(t *testing.T) {
+	sch := newScheme(t)
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "plone-svc", Namespace: "app"},
+		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 8080}}},
+	}
+	es := &discoveryv1.EndpointSlice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "plone-svc-a", Namespace: "app",
+			Labels: map[string]string{"kubernetes.io/service-name": "plone-svc"},
+		},
+		AddressType: discoveryv1.AddressTypeIPv4,
+		Ports:       []discoveryv1.EndpointPort{{Name: ptrString("http"), Port: ptrInt32(8080)}},
+		Endpoints: []discoveryv1.Endpoint{
+			// Deliberately unsorted.
+			{Addresses: []string{"10.0.0.3"}, Conditions: discoveryv1.EndpointConditions{Ready: ptrBool(true)}},
+			{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: ptrBool(true)}},
+			{Addresses: []string{"10.0.0.2"}, Conditions: discoveryv1.EndpointConditions{Ready: ptrBool(true)}},
+		},
+	}
+	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(svc, es).Build()
+	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
+	vc := &v1alpha1.VinylCache{
+		ObjectMeta: metav1.ObjectMeta{Name: "cache", Namespace: "app"},
+		Spec: v1alpha1.VinylCacheSpec{
+			Backends: []v1alpha1.BackendSpec{{
+				Name: "plone", ServiceRef: v1alpha1.ServiceRef{Name: "plone-svc"},
+			}},
+		},
+	}
+	out, err := r.resolveBackendEndpoints(context.Background(), vc)
+	require.NoError(t, err)
+	require.Len(t, out["plone"], 3)
+	assert.Equal(t, "10.0.0.1", out["plone"][0].IP)
+	assert.Equal(t, "10.0.0.2", out["plone"][1].IP)
+	assert.Equal(t, "10.0.0.3", out["plone"][2].IP)
+}

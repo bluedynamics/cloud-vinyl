@@ -215,6 +215,8 @@ func (r *VinylCacheReconciler) endpointSliceToVinylCache(ctx context.Context, ob
 	}
 	list := &v1alpha1.VinylCacheList{}
 	if err := r.List(ctx, list, client.InNamespace(es.Namespace)); err != nil {
+		logf.FromContext(ctx).Error(err, "endpointSlice watch: failed to list VinylCaches",
+			"namespace", es.Namespace)
 		return nil
 	}
 	var reqs []reconcile.Request
