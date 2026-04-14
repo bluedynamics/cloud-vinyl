@@ -595,6 +595,31 @@ func TestGenerate_BackendGroups_PerBackendDirector(t *testing.T) {
 	assert.Contains(t, r.VCL, "plone.reconfigure();")
 }
 
+func TestGenerate_BackendGroups_RoundRobin(t *testing.T) {
+	g := newGenerator(t)
+	input := generator.Input{
+		Namespace: "ns", Name: "cache",
+		Spec: &vinylv1alpha1.VinylCacheSpec{
+			Replicas: 1, Image: "vinyl:test",
+			Backends: []vinylv1alpha1.BackendSpec{{
+				Name:       "api",
+				ServiceRef: vinylv1alpha1.ServiceRef{Name: "api-svc"},
+				Director:   &vinylv1alpha1.DirectorSpec{Type: "round_robin"},
+			}},
+		},
+		Endpoints: map[string][]generator.Endpoint{
+			"api": {{IP: "10.0.0.1", Port: 80}, {IP: "10.0.0.2", Port: 80}},
+		},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "new api = directors.round_robin();")
+	assert.Contains(t, r.VCL, "api.add_backend(api_0);")
+	assert.Contains(t, r.VCL, "api.add_backend(api_1);")
+	assert.NotContains(t, r.VCL, "api.reconfigure();",
+		"round_robin: no reconfigure() call")
+}
+
 func TestGenerate_Cluster_WithShardWarmupRampup(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()

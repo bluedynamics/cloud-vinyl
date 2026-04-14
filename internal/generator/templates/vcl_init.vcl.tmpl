@@ -1,5 +1,41 @@
 
 sub vcl_init {
+{{- range $g := .BackendGroups }}
+{{- if eq $g.Director.Type "shard" }}
+    new {{ $g.Name }} = directors.shard();
+{{- range $b := $g.Backends }}
+    {{ $g.Name }}.add_backend({{ $b.Name }});
+{{- end }}
+{{- if $g.Director.Warmup }}
+    {{ $g.Name }}.set_warmup({{ $g.Director.Warmup }});
+{{- end }}
+{{- if $g.Director.Rampup }}
+    {{ $g.Name }}.set_rampup({{ $g.Director.Rampup }});
+{{- end }}
+    {{ $g.Name }}.reconfigure();
+{{- else if eq $g.Director.Type "round_robin" }}
+    new {{ $g.Name }} = directors.round_robin();
+{{- range $b := $g.Backends }}
+    {{ $g.Name }}.add_backend({{ $b.Name }});
+{{- end }}
+{{- else if eq $g.Director.Type "random" }}
+    new {{ $g.Name }} = directors.random();
+{{- range $b := $g.Backends }}
+    {{ $g.Name }}.add_backend({{ $b.Name }}, 1.0);
+{{- end }}
+{{- else if eq $g.Director.Type "fallback" }}
+    new {{ $g.Name }} = directors.fallback();
+{{- range $b := $g.Backends }}
+    {{ $g.Name }}.add_backend({{ $b.Name }});
+{{- end }}
+{{- else }}
+    new {{ $g.Name }} = directors.shard();
+{{- range $b := $g.Backends }}
+    {{ $g.Name }}.add_backend({{ $b.Name }});
+{{- end }}
+    {{ $g.Name }}.reconfigure();
+{{- end }}
+{{- end }}
 {{- if .HasCluster }}
     new {{ .DirectorName }} = directors.shard();
 {{- range .PeerDefs }}
