@@ -137,6 +137,13 @@ type BackendSpec struct {
 	// connectionParameters configures backend connection pool timeouts and limits.
 	// +optional
 	ConnectionParameters *ConnectionParameters `json:"connectionParameters,omitempty"`
+
+	// director overrides the cluster-wide director for this backend only.
+	// If nil, a shard director with defaults is generated, grouping all resolved
+	// per-pod backends for this serviceRef. Use "round_robin" or "random" if
+	// consistent hashing is undesirable (e.g. stateless backends).
+	// +optional
+	Director *DirectorSpec `json:"director,omitempty"`
 }
 
 // ServiceRef references a Kubernetes Service by name in the same namespace.

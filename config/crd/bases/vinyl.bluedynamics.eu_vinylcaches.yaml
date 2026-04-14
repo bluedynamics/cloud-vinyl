@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.0
+    controller-gen.kubebuilder.io/version: v0.20.1
   name: vinylcaches.vinyl.bluedynamics.eu
 spec:
   group: vinyl.bluedynamics.eu
@@ -98,6 +98,72 @@ spec:
                           format: int32
                           minimum: 1
                           type: integer
+                      type: object
+                    director:
+                      description: |-
+                        director overrides the cluster-wide director for this backend only.
+                        If nil, a shard director with defaults is generated, grouping all resolved
+                        per-pod backends for this serviceRef. Use "round_robin" or "random" if
+                        consistent hashing is undesirable (e.g. stateless backends).
+                      properties:
+                        hash:
+                          description: hash configures the hash director. Only used
+                            when type is "hash".
+                          properties:
+                            header:
+                              description: header is the request header name used
+                                as the hash key.
+                              type: string
+                          type: object
+                        shard:
+                          description: shard configures the shard director (consistent-hash).
+                            Only used when type is "shard".
+                          properties:
+                            by:
+                              description: |-
+                                by determines what value is hashed for shard selection. "HASH" uses the Varnish
+                                hash (default); "URL" uses the request URL.
+                              enum:
+                              - HASH
+                              - URL
+                              type: string
+                            healthy:
+                              description: |-
+                                healthy controls which backends the director considers when selecting a shard.
+                                "CHOSEN" (default) only considers the chosen backend healthy; "ALL" requires all
+                                backends to be healthy.
+                              enum:
+                              - CHOSEN
+                              - ALL
+                              type: string
+                            rampup:
+                              description: |-
+                                rampup is the time after adding a backend before it receives its full share of traffic,
+                                preventing thundering-herd. Default: 30s.
+                              type: string
+                            replicas:
+                              description: 'replicas is the number of Ketama replicas
+                                per backend in the hash ring. Default: 67.'
+                              format: int32
+                              minimum: 1
+                              type: integer
+                            warmup:
+                              description: |-
+                                warmup is the proportion of requests (0.0–1.0) sent to the alternative backend
+                                to pre-populate its cache. Default: 0.1. Must be between 0.0 and 1.0.
+                              type: number
+                          type: object
+                        type:
+                          description: |-
+                            type selects the Varnish director algorithm.
+                            "shard" (default) provides consistent hashing; "round_robin", "random", and "hash"
+                            are also supported.
+                          enum:
+                          - shard
+                          - round_robin
+                          - random
+                          - hash
+                          type: string
                       type: object
                     name:
                       description: name is the VCL identifier for this backend. Must
