@@ -18,13 +18,11 @@ package controller
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -185,38 +183,6 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 	// All replicas ready — requeue for drift detection.
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
-}
-
-// resolveBackendEndpoints builds endpoints for each backend using the Kubernetes
-// Service DNS name. Varnish resolves the DNS name itself — no need to enumerate
-// individual pod IPs. Pod-level sharding is only used for Varnish cluster peers
-// (handled by collectReadyPeers), not for upstream backends.
-func (r *VinylCacheReconciler) resolveBackendEndpoints(ctx context.Context, vc *v1alpha1.VinylCache) (map[string][]generator.Endpoint, error) {
-	endpoints := make(map[string][]generator.Endpoint)
-
-	for _, backend := range vc.Spec.Backends {
-		svcName := backend.ServiceRef.Name
-		port := int(backend.Port)
-		if port == 0 {
-			// Look up the Service to get the port.
-			svc := &corev1.Service{}
-			if err := r.Get(ctx, types.NamespacedName{Name: svcName, Namespace: vc.Namespace}, svc); err != nil {
-				return nil, fmt.Errorf("getting service %s for backend %s: %w", svcName, backend.Name, err)
-			}
-			if len(svc.Spec.Ports) > 0 {
-				port = int(svc.Spec.Ports[0].Port)
-			}
-		}
-
-		// Single endpoint using the Service DNS name.
-		// Kubernetes DNS resolves this to the ClusterIP, which load-balances
-		// across ready pods via kube-proxy/iptables.
-		endpoints[backend.Name] = []generator.Endpoint{
-			{IP: svcName, Port: port},
-		}
-	}
-
-	return endpoints, nil
 }
 
 // podToVinylCache maps a Pod event to the owning VinylCache reconcile request.
