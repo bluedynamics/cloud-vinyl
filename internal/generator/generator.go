@@ -80,15 +80,20 @@ type BackendDef struct {
 // BackendGroup is one CRD backend (spec.backends[i]) expanded to its per-pod backends,
 // with the director algorithm that groups them in vcl_init.
 type BackendGroup struct {
-	Name     string       // VCL identifier; matches BackendSpec.Name (sanitized).
+	Name     string       // VCL identifier: sanitizeName(BackendSpec.Name).
 	Director DirectorInfo // Director algorithm + params for this group.
 	Backends []BackendDef // One per resolved Endpoint; Name is "<Group.Name>_<idx>".
 }
 
 // DirectorInfo captures the resolved director config for a backend group.
 // It reflects the v1alpha1.DirectorSpec but is template-friendly.
+//
+// Intentionally scoped: only fields the VCL templates consume today are captured
+// (Type, shard.Warmup, shard.Rampup, shard.By). Extend this struct (and
+// resolveDirectorInfo) when new template bindings are needed — e.g. shard.Replicas
+// or shard.Healthy for advanced sharding, or hash.Header for the hash director.
 type DirectorInfo struct {
-	Type   string  // "shard" (default), "round_robin", "random", "fallback".
+	Type   string  // CRD enum: "shard" (default), "round_robin", "random", "hash".
 	Warmup float64 // 0.0 if unset; only for shard.
 	Rampup string  // empty if unset; formatted via fmtDuration; only for shard.
 	By     string  // "HASH" (default) or "URL"; only for shard.
