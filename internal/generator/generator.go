@@ -145,10 +145,22 @@ func (g *templateGenerator) Generate(input Input) (*Result, error) {
 	data := buildTemplateData(input)
 
 	// If fullOverride is set, return it directly (with a comment header).
+	// Full-override bypasses the empty-backend guard — users supplying their
+	// own VCL are not subject to the director constraint.
 	if input.Spec.VCL.FullOverride != "" {
 		vcl := fmt.Sprintf("# cloud-vinyl managed VCL (full override mode)\n# Name: %s/%s\n\n%s",
 			input.Namespace, input.Name, input.Spec.VCL.FullOverride)
 		return &Result{VCL: vcl, Hash: HashVCL(vcl)}, nil
+	}
+
+	// Defensive guard: refuse to emit VCL with an empty director. A shard
+	// director with zero add_backend calls is a runtime error in Varnish at
+	// VCL load time. The controller already skips the push in this case;
+	// this guard ensures invalid VCL can never be produced.
+	for _, g := range data.BackendGroups {
+		if len(g.Backends) == 0 {
+			return nil, fmt.Errorf("backend %q has no resolved endpoints; refusing to emit VCL with empty director", g.Name)
+		}
 	}
 
 	var buf bytes.Buffer

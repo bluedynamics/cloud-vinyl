@@ -689,3 +689,42 @@ func TestGenerate_BackendGroups_Fallback(t *testing.T) {
 	assert.Contains(t, r.VCL, "primary.add_backend(primary_0);")
 	assert.Contains(t, r.VCL, "primary.add_backend(primary_1);")
 }
+
+func TestGenerate_EmptyBackendEndpoints_ReturnsError(t *testing.T) {
+	g := newGenerator(t)
+	input := generator.Input{
+		Namespace: "ns", Name: "cache",
+		Spec: &vinylv1alpha1.VinylCacheSpec{
+			Replicas: 1, Image: "vinyl:test",
+			Backends: []vinylv1alpha1.BackendSpec{{
+				Name:       "empty",
+				ServiceRef: vinylv1alpha1.ServiceRef{Name: "some-svc"},
+			}},
+		},
+		Endpoints: map[string][]generator.Endpoint{
+			"empty": {},
+		},
+	}
+	_, err := g.Generate(input)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no resolved endpoints")
+}
+
+func TestGenerate_FullOverride_BypassesEmptyBackendCheck(t *testing.T) {
+	g := newGenerator(t)
+	input := generator.Input{
+		Namespace: "ns", Name: "cache",
+		Spec: &vinylv1alpha1.VinylCacheSpec{
+			Replicas: 1, Image: "vinyl:test",
+			Backends: []vinylv1alpha1.BackendSpec{{
+				Name:       "empty",
+				ServiceRef: vinylv1alpha1.ServiceRef{Name: "some-svc"},
+			}},
+			VCL: vinylv1alpha1.VCLSpec{FullOverride: "vcl 4.1; # user override"},
+		},
+		Endpoints: map[string][]generator.Endpoint{"empty": {}},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err, "full override must bypass the empty-backend guard")
+	assert.Contains(t, r.VCL, "user override")
+}

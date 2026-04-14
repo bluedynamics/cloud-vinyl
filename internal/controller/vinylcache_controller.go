@@ -157,6 +157,18 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
+	// If any backend has zero resolved endpoints, skip the push and requeue.
+	// This avoids emitting invalid VCL (a director with no add_backend calls
+	// is a runtime error in Varnish). The EndpointSlice watch will trigger
+	// a fresh reconcile as soon as endpoints appear.
+	for _, b := range vc.Spec.Backends {
+		if len(endpoints[b.Name]) == 0 {
+			log.Info("backend has no ready endpoints, waiting",
+				"backend", b.Name, "service", b.ServiceRef.Name)
+			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+		}
+	}
+
 	genResult, err := r.Generator.Generate(generator.Input{
 		Spec:      &vc.Spec,
 		Peers:     peers,
