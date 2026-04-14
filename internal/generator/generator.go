@@ -57,8 +57,8 @@ type TemplateData struct {
 	HasSoftPurge     bool
 	HasProxyProtocol bool
 	HasFullOverride  bool
-	VCLName          string // sanitized name for vcl declaration
-	BackendDefs      []BackendDef
+	VCLName          string         // sanitized name for vcl declaration
+	BackendGroups    []BackendGroup // Replaces flat BackendDefs: grouped per spec.backends[i] for directors.
 	PeerDefs         []BackendDef
 	UseShardDirector bool
 	DirectorName     string
@@ -75,6 +75,23 @@ type BackendDef struct {
 	BetweenBytesTimeout string
 	IdleTimeout         string
 	MaxConnections      int32
+}
+
+// BackendGroup is one CRD backend (spec.backends[i]) expanded to its per-pod backends,
+// with the director algorithm that groups them in vcl_init.
+type BackendGroup struct {
+	Name     string       // VCL identifier; matches BackendSpec.Name (sanitized).
+	Director DirectorInfo // Director algorithm + params for this group.
+	Backends []BackendDef // One per resolved Endpoint; Name is "<Group.Name>_<idx>".
+}
+
+// DirectorInfo captures the resolved director config for a backend group.
+// It reflects the v1alpha1.DirectorSpec but is template-friendly.
+type DirectorInfo struct {
+	Type   string  // "shard" (default), "round_robin", "random", "fallback".
+	Warmup float64 // 0.0 if unset; only for shard.
+	Rampup string  // empty if unset; formatted via fmtDuration; only for shard.
+	By     string  // "HASH" (default) or "URL"; only for shard.
 }
 
 type templateGenerator struct {
@@ -162,13 +179,15 @@ func buildTemplateData(input Input) TemplateData {
 
 	data.UseShardDirector = input.Spec.Director.Type == "shard" || input.Spec.Director.Type == ""
 
-	// Build backend defs from spec backends + resolved endpoints.
+	// Build backend groups from spec backends + resolved endpoints.
 	for _, b := range input.Spec.Backends {
-		endpoints := input.Endpoints[b.Name]
-		for i, ep := range endpoints {
-			name := fmt.Sprintf("%s_%d", b.Name, i)
+		group := BackendGroup{
+			Name:     sanitizeName(b.Name),
+			Director: resolveDirectorInfo(b.Director),
+		}
+		for i, ep := range input.Endpoints[b.Name] {
 			def := BackendDef{
-				Name: name,
+				Name: fmt.Sprintf("%s_%d", group.Name, i),
 				IP:   ep.IP,
 				Port: ep.Port,
 			}
@@ -191,8 +210,9 @@ func buildTemplateData(input Input) TemplateData {
 				}
 				def.MaxConnections = cp.MaxConnections
 			}
-			data.BackendDefs = append(data.BackendDefs, def)
+			group.Backends = append(group.Backends, def)
 		}
+		data.BackendGroups = append(data.BackendGroups, group)
 	}
 
 	// Build peer defs.
@@ -216,6 +236,30 @@ func fmtDuration(d time.Duration) string {
 		return fmt.Sprintf("%.0fm", d.Minutes())
 	}
 	return fmt.Sprintf("%.0fs", d.Seconds())
+}
+
+// resolveDirectorInfo collapses a nullable per-backend DirectorSpec into a template-ready
+// DirectorInfo with defaults (shard / HASH / empty warmup/rampup).
+func resolveDirectorInfo(ds *vinylv1alpha1.DirectorSpec) DirectorInfo {
+	out := DirectorInfo{Type: "shard", By: "HASH"}
+	if ds == nil {
+		return out
+	}
+	if ds.Type != "" {
+		out.Type = ds.Type
+	}
+	if ds.Shard != nil {
+		if ds.Shard.Warmup != nil {
+			out.Warmup = *ds.Shard.Warmup
+		}
+		if ds.Shard.Rampup.Duration > 0 {
+			out.Rampup = fmtDuration(ds.Shard.Rampup.Duration)
+		}
+		if ds.Shard.By != "" {
+			out.By = ds.Shard.By
+		}
+	}
+	return out
 }
 
 // sanitizeName replaces hyphens with underscores for VCL identifier compatibility.

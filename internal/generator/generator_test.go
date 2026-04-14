@@ -558,6 +558,43 @@ func TestGenerate_FmtDuration_Hours(t *testing.T) {
 		"hour-duration must be formatted as Xh in VCL")
 }
 
+func TestGenerate_BackendGroups_PerBackendDirector(t *testing.T) {
+	g := newGenerator(t)
+	input := generator.Input{
+		Namespace: "ns",
+		Name:      "cache",
+		Spec: &vinylv1alpha1.VinylCacheSpec{
+			Replicas: 1,
+			Image:    "vinyl:test",
+			Backends: []vinylv1alpha1.BackendSpec{
+				{Name: "plone", ServiceRef: vinylv1alpha1.ServiceRef{Name: "plone-svc"}},
+			},
+		},
+		Endpoints: map[string][]generator.Endpoint{
+			"plone": {
+				{IP: "10.0.0.1", Port: 8080},
+				{IP: "10.0.0.2", Port: 8080},
+				{IP: "10.0.0.3", Port: 8080},
+			},
+		},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+
+	// Per-pod backend blocks.
+	assert.Contains(t, r.VCL, `backend plone_0 {`)
+	assert.Contains(t, r.VCL, `backend plone_1 {`)
+	assert.Contains(t, r.VCL, `backend plone_2 {`)
+
+	// Director init for this backend group.
+	assert.Contains(t, r.VCL, "new plone = directors.shard();",
+		"default director must be shard")
+	assert.Contains(t, r.VCL, "plone.add_backend(plone_0);")
+	assert.Contains(t, r.VCL, "plone.add_backend(plone_1);")
+	assert.Contains(t, r.VCL, "plone.add_backend(plone_2);")
+	assert.Contains(t, r.VCL, "plone.reconfigure();")
+}
+
 func TestGenerate_Cluster_WithShardWarmupRampup(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
