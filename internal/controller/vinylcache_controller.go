@@ -22,6 +22,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -200,6 +201,36 @@ func (r *VinylCacheReconciler) podToVinylCache(_ context.Context, obj client.Obj
 	}
 }
 
+// endpointSliceToVinylCache maps an EndpointSlice event to every VinylCache
+// in the same namespace that references the slice's Service via a backend.
+func (r *VinylCacheReconciler) endpointSliceToVinylCache(ctx context.Context, obj client.Object) []reconcile.Request {
+	es, ok := obj.(*discoveryv1.EndpointSlice)
+	if !ok {
+		return nil
+	}
+	svcName := es.Labels[discoveryv1.LabelServiceName]
+	if svcName == "" {
+		return nil
+	}
+	list := &v1alpha1.VinylCacheList{}
+	if err := r.List(ctx, list, client.InNamespace(es.Namespace)); err != nil {
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		vc := &list.Items[i]
+		for _, b := range vc.Spec.Backends {
+			if b.ServiceRef.Name == svcName {
+				reqs = append(reqs, reconcile.Request{
+					NamespacedName: client.ObjectKey{Name: vc.Name, Namespace: vc.Namespace},
+				})
+				break
+			}
+		}
+	}
+	return reqs
+}
+
 // SetupWithManager registers the controller with the manager.
 func (r *VinylCacheReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -211,6 +242,11 @@ func (r *VinylCacheReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.podToVinylCache),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
+		Watches(
+			&discoveryv1.EndpointSlice{},
+			handler.EnqueueRequestsFromMapFunc(r.endpointSliceToVinylCache),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Named("vinylcache").
