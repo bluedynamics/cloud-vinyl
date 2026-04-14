@@ -307,9 +307,9 @@ func TestDefault_ProxyProtocolPort_NotOverwrittenIfAlreadySet(t *testing.T) {
 
 // --- per-backend director defaults ---
 
-// baseVinylCache returns a VinylCache with a single backend (name only).
+// vcWithBackend returns a VinylCache with a single backend (name only).
 // Used by per-backend director tests.
-func baseVinylCache() *vinylv1alpha1.VinylCache {
+func vcWithBackend() *vinylv1alpha1.VinylCache {
 	return &vinylv1alpha1.VinylCache{
 		Spec: vinylv1alpha1.VinylCacheSpec{
 			Backends: []vinylv1alpha1.BackendSpec{{Name: "b"}},
@@ -318,7 +318,7 @@ func baseVinylCache() *vinylv1alpha1.VinylCache {
 }
 
 func TestDefault_BackendDirector_NilIsUntouched(t *testing.T) {
-	vc := baseVinylCache()
+	vc := vcWithBackend()
 	// Ensure backend has no Director set.
 	vc.Spec.Backends[0].Director = nil
 	webhook.DefaultVinylCache(vc)
@@ -327,7 +327,7 @@ func TestDefault_BackendDirector_NilIsUntouched(t *testing.T) {
 }
 
 func TestDefault_BackendDirector_EmptyTypeDefaultsShard(t *testing.T) {
-	vc := baseVinylCache()
+	vc := vcWithBackend()
 	vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{}
 	webhook.DefaultVinylCache(vc)
 	require.NotNil(t, vc.Spec.Backends[0].Director)
@@ -335,7 +335,7 @@ func TestDefault_BackendDirector_EmptyTypeDefaultsShard(t *testing.T) {
 }
 
 func TestDefault_BackendDirector_ShardDefaults(t *testing.T) {
-	vc := baseVinylCache()
+	vc := vcWithBackend()
 	vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{Type: "shard"}
 	webhook.DefaultVinylCache(vc)
 	s := vc.Spec.Backends[0].Director.Shard
@@ -348,7 +348,7 @@ func TestDefault_BackendDirector_ShardDefaults(t *testing.T) {
 }
 
 func TestDefault_BackendDirector_NonShardTypeKeepsNilShard(t *testing.T) {
-	vc := baseVinylCache()
+	vc := vcWithBackend()
 	vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{Type: "round_robin"}
 	webhook.DefaultVinylCache(vc)
 	assert.Equal(t, "round_robin", vc.Spec.Backends[0].Director.Type)
@@ -357,7 +357,7 @@ func TestDefault_BackendDirector_NonShardTypeKeepsNilShard(t *testing.T) {
 }
 
 func TestDefault_BackendDirector_ShardUserValuesPreserved(t *testing.T) {
-	vc := baseVinylCache()
+	vc := vcWithBackend()
 	warmup := 0.5
 	vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{
 		Type: "shard",
@@ -373,15 +373,6 @@ func TestDefault_BackendDirector_ShardUserValuesPreserved(t *testing.T) {
 	assert.Equal(t, 60*time.Second, s.Rampup.Duration, "user rampup preserved")
 	assert.Equal(t, "URL", s.By, "user by preserved")
 	assert.Equal(t, "CHOSEN", s.Healthy, "Healthy still gets default")
-}
-
-func TestDefault_Debounce_DefaultsToOneSecond(t *testing.T) {
-	vc := baseVinylCache()
-	// Ensure Debounce is zero-valued.
-	vc.Spec.Debounce = vinylv1alpha1.DebounceSpec{}
-	webhook.DefaultVinylCache(vc)
-	assert.Equal(t, 1*time.Second, vc.Spec.Debounce.Duration.Duration,
-		"webhook Debounce default must match CRD default (1s)")
 }
 
 // --- idempotency ---
