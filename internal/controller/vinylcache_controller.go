@@ -55,6 +55,7 @@ type VinylCacheReconciler struct {
 	// Proxy integration (optional — nil when proxy is disabled).
 	ProxyRouter *proxy.RegisteredRouter
 	ProxyPodMap *proxy.PodMap
+	debouncer   *debouncer // lazy-init in SetupWithManager
 }
 
 // +kubebuilder:rbac:groups=vinyl.bluedynamics.eu,resources=vinylcaches,verbs=get;list;watch;create;update;patch;delete
@@ -228,11 +229,19 @@ func (r *VinylCacheReconciler) endpointSliceToVinylCache(ctx context.Context, ob
 			}
 		}
 	}
+	for _, req := range reqs {
+		if r.debouncer != nil {
+			r.debouncer.touch(req.NamespacedName)
+		}
+	}
 	return reqs
 }
 
 // SetupWithManager registers the controller with the manager.
 func (r *VinylCacheReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.debouncer == nil {
+		r.debouncer = newDebouncer()
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.VinylCache{}).
 		Owns(&appsv1.StatefulSet{}).

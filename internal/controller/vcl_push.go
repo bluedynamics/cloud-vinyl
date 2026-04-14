@@ -24,6 +24,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -157,9 +158,17 @@ func isPodReady(pod *corev1.Pod) bool {
 	return false
 }
 
-// debounceRemaining returns the duration to wait before pushing a VCL update.
-// Currently always returns 0 (full debounce logic is future work).
+// debounceRemaining returns the duration the reconciler should wait before
+// pushing VCL. Zero means "push now". Uses the reconciler-level debouncer,
+// which is primed by EndpointSlice events.
 func (r *VinylCacheReconciler) debounceRemaining(vc *v1alpha1.VinylCache) time.Duration {
-	_ = vc.Spec.Debounce.Duration.Duration // acknowledge the field
-	return 0
+	if r.debouncer == nil {
+		return 0
+	}
+	window := vc.Spec.Debounce.Duration.Duration
+	if window <= 0 {
+		window = 1 * time.Second
+	}
+	key := types.NamespacedName{Name: vc.Name, Namespace: vc.Namespace}
+	return r.debouncer.remaining(key, window)
 }
