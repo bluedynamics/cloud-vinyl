@@ -712,6 +712,66 @@ func TestGenerate_EmptyBackendEndpoints_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "no resolved endpoints")
 }
 
+func TestGenerate_ProbeFields_PropagatedToPerPodBackends(t *testing.T) {
+	g := newGenerator(t)
+	expected := int32(204)
+	input := generator.Input{
+		Namespace: "ns", Name: "cache",
+		Spec: &vinylv1alpha1.VinylCacheSpec{
+			Replicas: 1, Image: "vinyl:test",
+			Backends: []vinylv1alpha1.BackendSpec{{
+				Name:       "plone",
+				ServiceRef: vinylv1alpha1.ServiceRef{Name: "plone-svc"},
+				Probe: &vinylv1alpha1.BackendProbeSpec{
+					URL:              "/ok",
+					Interval:         metav1.Duration{Duration: 10 * time.Second},
+					Timeout:          metav1.Duration{Duration: 5 * time.Second},
+					Window:           10,
+					Threshold:        8,
+					ExpectedResponse: &expected,
+				},
+			}},
+		},
+		Endpoints: map[string][]generator.Endpoint{
+			"plone": {{IP: "10.0.0.1", Port: 8080}, {IP: "10.0.0.2", Port: 8080}},
+		},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	// Both per-pod backends must carry the spec probe config, not hardcoded defaults.
+	assert.Contains(t, r.VCL, `.url = "/ok"`)
+	assert.Contains(t, r.VCL, ".interval = 10s")
+	assert.Contains(t, r.VCL, ".timeout = 5s")
+	assert.Contains(t, r.VCL, ".window = 10")
+	assert.Contains(t, r.VCL, ".threshold = 8")
+	assert.Contains(t, r.VCL, ".expected_response = 204")
+	assert.NotContains(t, r.VCL, ".timeout = 2s",
+		"hardcoded timeout must not leak through when spec sets a value")
+}
+
+func TestGenerate_ProbeDefaults_AppliedWhenFieldsUnset(t *testing.T) {
+	g := newGenerator(t)
+	input := generator.Input{
+		Namespace: "ns", Name: "cache",
+		Spec: &vinylv1alpha1.VinylCacheSpec{
+			Replicas: 1, Image: "vinyl:test",
+			Backends: []vinylv1alpha1.BackendSpec{{
+				Name:       "plone",
+				ServiceRef: vinylv1alpha1.ServiceRef{Name: "plone-svc"},
+				Probe:      &vinylv1alpha1.BackendProbeSpec{URL: "/ok"},
+			}},
+		},
+		Endpoints: map[string][]generator.Endpoint{"plone": {{IP: "10.0.0.1", Port: 8080}}},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, ".interval = 5s", "default interval")
+	assert.Contains(t, r.VCL, ".timeout = 2s", "default timeout")
+	assert.Contains(t, r.VCL, ".window = 5", "default window")
+	assert.Contains(t, r.VCL, ".threshold = 3", "default threshold")
+	assert.NotContains(t, r.VCL, ".expected_response", "no expected_response when unset")
+}
+
 func TestGenerate_FullOverride_BypassesEmptyBackendCheck(t *testing.T) {
 	g := newGenerator(t)
 	input := generator.Input{

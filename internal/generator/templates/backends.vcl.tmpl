@@ -6,10 +6,13 @@ backend {{ .Name }} {
 {{- if .ProbeURL }}
     .probe = {
         .url = "{{ .ProbeURL }}";
-        .interval = 5s;
-        .timeout = 2s;
-        .window = 5;
-        .threshold = 3;
+        .interval = {{ .ProbeInterval }};
+        .timeout = {{ .ProbeTimeout }};
+        .window = {{ .ProbeWindow }};
+        .threshold = {{ .ProbeThreshold }};
+{{- if .ProbeExpectedResponse }}
+        .expected_response = {{ .ProbeExpectedResponse }};
+{{- end }}
     }
 {{- end }}
 {{- if .ConnectTimeout }}

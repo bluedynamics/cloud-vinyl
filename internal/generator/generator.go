@@ -66,15 +66,20 @@ type TemplateData struct {
 
 // BackendDef is a single backend definition for VCL.
 type BackendDef struct {
-	Name                string
-	IP                  string
-	Port                int
-	ProbeURL            string
-	ConnectTimeout      string
-	FirstByteTimeout    string
-	BetweenBytesTimeout string
-	IdleTimeout         string
-	MaxConnections      int32
+	Name                  string
+	IP                    string
+	Port                  int
+	ProbeURL              string
+	ProbeInterval         string // e.g. "5s"; empty means use built-in default
+	ProbeTimeout          string // e.g. "2s"; empty means use built-in default
+	ProbeWindow           int32  // 0 means use built-in default
+	ProbeThreshold        int32  // 0 means use built-in default
+	ProbeExpectedResponse int32  // 0 means use built-in default (200)
+	ConnectTimeout        string
+	FirstByteTimeout      string
+	BetweenBytesTimeout   string
+	IdleTimeout           string
+	MaxConnections        int32
 }
 
 // BackendGroup is one CRD backend (spec.backends[i]) expanded to its per-pod backends,
@@ -209,6 +214,29 @@ func buildTemplateData(input Input) TemplateData {
 			}
 			if b.Probe != nil && b.Probe.URL != "" {
 				def.ProbeURL = b.Probe.URL
+				if b.Probe.Interval.Duration > 0 {
+					def.ProbeInterval = fmtDuration(b.Probe.Interval.Duration)
+				} else {
+					def.ProbeInterval = "5s"
+				}
+				if b.Probe.Timeout.Duration > 0 {
+					def.ProbeTimeout = fmtDuration(b.Probe.Timeout.Duration)
+				} else {
+					def.ProbeTimeout = "2s"
+				}
+				if b.Probe.Window > 0 {
+					def.ProbeWindow = b.Probe.Window
+				} else {
+					def.ProbeWindow = 5
+				}
+				if b.Probe.Threshold > 0 {
+					def.ProbeThreshold = b.Probe.Threshold
+				} else {
+					def.ProbeThreshold = 3
+				}
+				if b.Probe.ExpectedResponse != nil {
+					def.ProbeExpectedResponse = *b.Probe.ExpectedResponse
+				}
 			}
 			if b.ConnectionParameters != nil {
 				cp := b.ConnectionParameters

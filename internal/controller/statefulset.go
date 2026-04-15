@@ -62,14 +62,18 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 		// Build Varnish container.
 		// The stock varnish image entrypoint passes extra args to varnishd.
 		// We need -T (admin CLI) and -S (shared secret) for the agent sidecar.
+		varnishArgs := []string{
+			"-j", "none",
+			"-T", "127.0.0.1:6082",
+			"-S", "/etc/varnish/secret",
+		}
+		// Append -s args for each spec.storage entry (after the fixed args).
+		varnishArgs = append(varnishArgs, storageArgs(vc.Spec.Storage)...)
+
 		varnishContainer := corev1.Container{
 			Name:  "varnish",
 			Image: vc.Spec.Image,
-			Args: []string{
-				"-j", "none",
-				"-T", "127.0.0.1:6082",
-				"-S", "/etc/varnish/secret",
-			},
+			Args:  varnishArgs,
 			Env: []corev1.EnvVar{
 				// Override the stock varnish image default port (80) to match
 				// the containerPort and Service definitions.
@@ -267,4 +271,29 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 // boolPtr returns a pointer to a bool value.
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+// storageArgs renders spec.storage entries as varnishd "-s <name>=<type>,..."
+// command-line args. See https://varnish-cache.org/docs/7.6/reference/varnishd.html#argument-list
+// for the syntax accepted by -s.
+func storageArgs(storage []v1alpha1.StorageSpec) []string {
+	if len(storage) == 0 {
+		return nil
+	}
+	args := make([]string, 0, 2*len(storage))
+	for _, s := range storage {
+		var spec string
+		switch s.Type {
+		case "malloc":
+			// -s <name>=malloc,<size>
+			spec = fmt.Sprintf("%s=malloc,%d", s.Name, s.Size.Value())
+		case "file":
+			// -s <name>=file,<path>,<size>
+			spec = fmt.Sprintf("%s=file,%s,%d", s.Name, s.Path, s.Size.Value())
+		default:
+			continue // webhook already rejects other types; belt-and-braces skip
+		}
+		args = append(args, "-s", spec)
+	}
+	return args
 }
