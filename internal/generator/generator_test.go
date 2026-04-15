@@ -143,8 +143,8 @@ func TestGenerate_NoCluster_NoPeerBackends(t *testing.T) {
 	// Cluster disabled, no peers provided.
 	r, err := g.Generate(input)
 	require.NoError(t, err)
-	assert.NotContains(t, r.VCL, "import directors",
-		"no cluster: directors vmod must NOT be imported")
+	assert.Contains(t, r.VCL, "import directors",
+		"directors vmod is always imported (needed for per-backend directors)")
 	assert.NotContains(t, r.VCL, "acl vinyl_cluster_peers",
 		"no cluster: cluster peer ACL must NOT be present")
 }
@@ -273,7 +273,9 @@ func TestGenerate_Cluster_Disabled_When_NoPeers(t *testing.T) {
 	input.Peers = nil
 	r, err := g.Generate(input)
 	require.NoError(t, err)
-	assert.NotContains(t, r.VCL, "import directors",
+	assert.NotContains(t, r.VCL, "directors.shard();\n    app_backend_0",
+		"cluster-peer shard director must not be emitted when no peers are provided")
+	assert.NotContains(t, r.VCL, "acl vinyl_cluster_peers",
 		"cluster must not be enabled when no peers are provided")
 }
 
@@ -558,6 +560,68 @@ func TestGenerate_FmtDuration_Hours(t *testing.T) {
 		"hour-duration must be formatted as Xh in VCL")
 }
 
+func TestGenerate_BackendGroups_PerBackendDirector(t *testing.T) {
+	g := newGenerator(t)
+	input := generator.Input{
+		Namespace: "ns",
+		Name:      "cache",
+		Spec: &vinylv1alpha1.VinylCacheSpec{
+			Replicas: 1,
+			Image:    "vinyl:test",
+			Backends: []vinylv1alpha1.BackendSpec{
+				{Name: "plone", ServiceRef: vinylv1alpha1.ServiceRef{Name: "plone-svc"}},
+			},
+		},
+		Endpoints: map[string][]generator.Endpoint{
+			"plone": {
+				{IP: "10.0.0.1", Port: 8080},
+				{IP: "10.0.0.2", Port: 8080},
+				{IP: "10.0.0.3", Port: 8080},
+			},
+		},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+
+	// Per-pod backend blocks.
+	assert.Contains(t, r.VCL, `backend plone_0 {`)
+	assert.Contains(t, r.VCL, `backend plone_1 {`)
+	assert.Contains(t, r.VCL, `backend plone_2 {`)
+
+	// Director init for this backend group.
+	assert.Contains(t, r.VCL, "new plone = directors.shard();",
+		"default director must be shard")
+	assert.Contains(t, r.VCL, "plone.add_backend(plone_0);")
+	assert.Contains(t, r.VCL, "plone.add_backend(plone_1);")
+	assert.Contains(t, r.VCL, "plone.add_backend(plone_2);")
+	assert.Contains(t, r.VCL, "plone.reconfigure();")
+}
+
+func TestGenerate_BackendGroups_RoundRobin(t *testing.T) {
+	g := newGenerator(t)
+	input := generator.Input{
+		Namespace: "ns", Name: "cache",
+		Spec: &vinylv1alpha1.VinylCacheSpec{
+			Replicas: 1, Image: "vinyl:test",
+			Backends: []vinylv1alpha1.BackendSpec{{
+				Name:       "api",
+				ServiceRef: vinylv1alpha1.ServiceRef{Name: "api-svc"},
+				Director:   &vinylv1alpha1.DirectorSpec{Type: "round_robin"},
+			}},
+		},
+		Endpoints: map[string][]generator.Endpoint{
+			"api": {{IP: "10.0.0.1", Port: 80}, {IP: "10.0.0.2", Port: 80}},
+		},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "new api = directors.round_robin();")
+	assert.Contains(t, r.VCL, "api.add_backend(api_0);")
+	assert.Contains(t, r.VCL, "api.add_backend(api_1);")
+	assert.NotContains(t, r.VCL, "api.reconfigure();",
+		"round_robin: no reconfigure() call")
+}
+
 func TestGenerate_Cluster_WithShardWarmupRampup(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
@@ -578,4 +642,91 @@ func TestGenerate_Cluster_WithShardWarmupRampup(t *testing.T) {
 		"cluster: vcl_init must call set_warmup() when warmup is configured")
 	assert.Contains(t, r.VCL, "set_rampup(",
 		"cluster: vcl_init must call set_rampup() when rampup is configured")
+}
+
+func TestGenerate_BackendGroups_Hash(t *testing.T) {
+	g := newGenerator(t)
+	input := generator.Input{
+		Namespace: "ns", Name: "cache",
+		Spec: &vinylv1alpha1.VinylCacheSpec{
+			Replicas: 1, Image: "vinyl:test",
+			Backends: []vinylv1alpha1.BackendSpec{{
+				Name:       "api",
+				ServiceRef: vinylv1alpha1.ServiceRef{Name: "api-svc"},
+				Director:   &vinylv1alpha1.DirectorSpec{Type: "hash"},
+			}},
+		},
+		Endpoints: map[string][]generator.Endpoint{
+			"api": {{IP: "10.0.0.1", Port: 80}, {IP: "10.0.0.2", Port: 80}},
+		},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "new api = directors.hash();")
+	assert.Contains(t, r.VCL, "api.add_backend(api_0, 1.0);")
+	assert.Contains(t, r.VCL, "api.add_backend(api_1, 1.0);")
+	assert.NotContains(t, r.VCL, "api.reconfigure();",
+		"hash: no reconfigure() call")
+}
+
+func TestGenerate_BackendGroups_Fallback(t *testing.T) {
+	g := newGenerator(t)
+	input := generator.Input{
+		Namespace: "ns", Name: "cache",
+		Spec: &vinylv1alpha1.VinylCacheSpec{
+			Replicas: 1, Image: "vinyl:test",
+			Backends: []vinylv1alpha1.BackendSpec{{
+				Name:       "primary",
+				ServiceRef: vinylv1alpha1.ServiceRef{Name: "primary-svc"},
+				Director:   &vinylv1alpha1.DirectorSpec{Type: "fallback"},
+			}},
+		},
+		Endpoints: map[string][]generator.Endpoint{
+			"primary": {{IP: "10.0.0.1", Port: 80}, {IP: "10.0.0.2", Port: 80}},
+		},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "new primary = directors.fallback();")
+	assert.Contains(t, r.VCL, "primary.add_backend(primary_0);")
+	assert.Contains(t, r.VCL, "primary.add_backend(primary_1);")
+}
+
+func TestGenerate_EmptyBackendEndpoints_ReturnsError(t *testing.T) {
+	g := newGenerator(t)
+	input := generator.Input{
+		Namespace: "ns", Name: "cache",
+		Spec: &vinylv1alpha1.VinylCacheSpec{
+			Replicas: 1, Image: "vinyl:test",
+			Backends: []vinylv1alpha1.BackendSpec{{
+				Name:       "empty",
+				ServiceRef: vinylv1alpha1.ServiceRef{Name: "some-svc"},
+			}},
+		},
+		Endpoints: map[string][]generator.Endpoint{
+			"empty": {},
+		},
+	}
+	_, err := g.Generate(input)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no resolved endpoints")
+}
+
+func TestGenerate_FullOverride_BypassesEmptyBackendCheck(t *testing.T) {
+	g := newGenerator(t)
+	input := generator.Input{
+		Namespace: "ns", Name: "cache",
+		Spec: &vinylv1alpha1.VinylCacheSpec{
+			Replicas: 1, Image: "vinyl:test",
+			Backends: []vinylv1alpha1.BackendSpec{{
+				Name:       "empty",
+				ServiceRef: vinylv1alpha1.ServiceRef{Name: "some-svc"},
+			}},
+			VCL: vinylv1alpha1.VCLSpec{FullOverride: "vcl 4.1; # user override"},
+		},
+		Endpoints: map[string][]generator.Endpoint{"empty": {}},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err, "full override must bypass the empty-backend guard")
+	assert.Contains(t, r.VCL, "user override")
 }

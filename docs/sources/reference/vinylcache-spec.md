@@ -17,7 +17,7 @@
 | `director` | object | no | Director configuration (defaults: `type: shard`). |
 | `cluster` | object | no | Clustering / peer-routing configuration. |
 | `invalidation` | object | no | Cache invalidation configuration. |
-| `debounce.duration` | duration | no | Wait after last change before VCL push (default: `5s`). |
+| `debounce.duration` | duration | no | Wait after last change before VCL push (default: `1s`). |
 | `retry.maxAttempts` | integer | no | Maximum VCL push retry attempts (default: `3`). |
 | `retry.backoffBase` | duration | no | Initial retry backoff (default: `5s`). |
 | `retry.backoffMax` | duration | no | Maximum retry backoff (default: `5m`). |
@@ -33,8 +33,8 @@ Each entry in `spec.backends` defines an upstream service:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | yes | Unique backend identifier (used in VCL). |
-| `host` | string | yes | Backend hostname or cluster-internal DNS name. |
-| `port` | integer | yes | Backend port. |
+| `serviceRef.name` | string | yes | Kubernetes Service name in the same namespace. |
+| `port` | integer | no | Overrides the Service port; defaults to the Service's first port. |
 | `connectTimeout` | duration | no | Connection timeout (default: `1s`). |
 | `firstByteTimeout` | duration | no | Time-to-first-byte timeout (default: `60s`). |
 | `betweenBytesTimeout` | duration | no | Between-bytes timeout (default: `60s`). |
@@ -45,6 +45,21 @@ Each entry in `spec.backends` defines an upstream service:
 | `healthCheck.threshold` | integer | no | Consecutive successes required to mark healthy. |
 | `healthCheck.window` | integer | no | Rolling window for health evaluation. |
 
+### `backends[].director`
+
+Per-backend director override. If unset, the generator emits a `shard` director with default parameters, grouping all resolved per-pod backends for this `serviceRef`.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | enum | no | One of `shard`, `round_robin`, `random`, `hash`, `fallback`. Defaults to `shard`. |
+| `shard.warmup` | float | no | `0.0`–`1.0`; share of traffic sent to alternate backend to warm its cache. Default `0.1`. |
+| `shard.rampup` | duration | no | Ramp-up window after adding a backend. Default `30s`. |
+| `shard.by` | enum | no | `HASH` (default) or `URL`. Request-time selector passed to `<backend>.backend(by=...)`. |
+| `shard.healthy` | enum | no | `CHOSEN` (default) or `ALL`. Which backends must be healthy for the director to route. |
+| `hash.header` | string | no | Header used as hash key for the `hash` director. |
+
+See the [per-backend directors how-to](../how-to/per-backend-directors.md) for when to override each type.
+
 ### director
 
 | Field | Type | Default | Description |
@@ -52,8 +67,12 @@ Each entry in `spec.backends` defines an upstream service:
 | `type` | string | `shard` | Director type. Currently only `shard` is supported. |
 | `shard.warmup` | float | `0.1` | Fraction of requests sent to alternate backend to pre-populate its cache. |
 | `shard.rampup` | duration | `30s` | Traffic throttle duration for newly healthy backends. |
-| `shard.by` | string | `HASH` | Shard key source (`HASH`, `URL`, `COOKIE`, `CUSTOM`). |
-| `shard.healthy` | string | `CHOSEN` | Health evaluation strategy (`CHOSEN`, `IGNORE`, `ALL`). |
+| `shard.by` | string | `HASH` | Shard key source (`HASH`, `URL`). |
+| `shard.healthy` | string | `CHOSEN` | Health evaluation strategy (`CHOSEN`, `ALL`). |
+
+> Note: `shard.by` and `shard.healthy` are accepted and persisted on the
+> resource, but are not yet consumed by the generator for per-backend
+> directors (see follow-up `shard-params-not-plumbed`).
 
 ### cluster
 
@@ -110,7 +129,7 @@ spec:
     xkey:
       softPurge: true
   debounce:
-    duration: 5s
+    duration: 1s
   retry:
     maxAttempts: 3
     backoffBase: 5s

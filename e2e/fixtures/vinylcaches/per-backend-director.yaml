@@ -1,0 +1,20 @@
+apiVersion: vinyl.bluedynamics.eu/v1alpha1
+kind: VinylCache
+metadata:
+  name: director-cache
+spec:
+  replicas: 1
+  image: varnish:7.6
+  backends:
+    - name: echo
+      serviceRef:
+        name: echo-multi
+      port: 80
+      probe:
+        url: /
+        interval: 5s
+        timeout: 1s
+        threshold: 2
+        window: 5
+      director:
+        type: shard

@@ -1,6 +1,43 @@
 
 sub vcl_init {
+    # --- per-backend directors (see vcl_recv snippet to route traffic into these) ---
+{{- range $g := .BackendGroups }}
+{{- if eq $g.Director.Type "shard" }}
+    new {{ $g.Name }} = directors.shard();
+{{- range $b := $g.Backends }}
+    {{ $g.Name }}.add_backend({{ $b.Name }});
+{{- end }}
+{{- if $g.Director.Warmup }}
+    {{ $g.Name }}.set_warmup({{ $g.Director.Warmup }});
+{{- end }}
+{{- if $g.Director.Rampup }}
+    {{ $g.Name }}.set_rampup({{ $g.Director.Rampup }});
+{{- end }}
+    {{ $g.Name }}.reconfigure();
+{{- else if eq $g.Director.Type "round_robin" }}
+    new {{ $g.Name }} = directors.round_robin();
+{{- range $b := $g.Backends }}
+    {{ $g.Name }}.add_backend({{ $b.Name }});
+{{- end }}
+{{- else if eq $g.Director.Type "random" }}
+    new {{ $g.Name }} = directors.random();
+{{- range $b := $g.Backends }}
+    {{ $g.Name }}.add_backend({{ $b.Name }}, 1.0);
+{{- end }}
+{{- else if eq $g.Director.Type "hash" }}
+    new {{ $g.Name }} = directors.hash();
+{{- range $b := $g.Backends }}
+    {{ $g.Name }}.add_backend({{ $b.Name }}, 1.0);
+{{- end }}
+{{- else if eq $g.Director.Type "fallback" }}
+    new {{ $g.Name }} = directors.fallback();
+{{- range $b := $g.Backends }}
+    {{ $g.Name }}.add_backend({{ $b.Name }});
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if .HasCluster }}
+    # --- cluster peer director (routes requests across Varnish pods) ---
     new {{ .DirectorName }} = directors.shard();
 {{- range .PeerDefs }}
     {{ $.DirectorName }}.add_backend({{ .Name }});

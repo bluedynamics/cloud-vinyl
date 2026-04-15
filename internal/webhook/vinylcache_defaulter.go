@@ -24,7 +24,43 @@ import (
 	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 )
 
-const directorTypeShard = "shard"
+const (
+	directorTypeShard    = "shard"
+	defaultShardWarmup   = 0.1
+	defaultShardRampup   = 30 * time.Second
+	defaultShardBy       = "HASH"
+	defaultShardHealthy  = "CHOSEN"
+	defaultDebounce      = 1 * time.Second
+	defaultRetryAttempts = int32(3)
+	defaultBackoffBase   = 5 * time.Second
+	defaultBackoffMax    = 5 * time.Minute
+	defaultProxyPort     = int32(8081)
+)
+
+// applyShardDefaults fills ShardSpec defaults on a DirectorSpec whose Type is
+// "shard". Idempotent: existing non-zero values are preserved.
+func applyShardDefaults(ds *vinylv1alpha1.DirectorSpec) {
+	if ds.Type != directorTypeShard {
+		return
+	}
+	if ds.Shard == nil {
+		ds.Shard = &vinylv1alpha1.ShardSpec{}
+	}
+	s := ds.Shard
+	if s.Warmup == nil {
+		v := defaultShardWarmup
+		s.Warmup = &v
+	}
+	if s.Rampup.Duration == 0 {
+		s.Rampup = metav1.Duration{Duration: defaultShardRampup}
+	}
+	if s.By == "" {
+		s.By = defaultShardBy
+	}
+	if s.Healthy == "" {
+		s.Healthy = defaultShardHealthy
+	}
+}
 
 // DefaultVinylCache applies default values to a VinylCache resource.
 // It is idempotent: calling it multiple times on the same object produces the same result.
@@ -38,8 +74,11 @@ const directorTypeShard = "shard"
 //   - Director.Shard.Rampup = 30s (throttle traffic to newly healthy backends)
 //   - Director.Shard.By = "HASH" (standard shard key)
 //   - Director.Shard.Healthy = "CHOSEN" (standard health evaluation)
+//   - Backends[*].Director.Type = directorTypeShard (when .Director is non-nil)
+//   - Backends[*].Director.Shard.{Warmup, Rampup, By, Healthy} defaults
+//     (same values as top-level director)
 //   - Cluster.PeerRouting.Type = directorTypeShard
-//   - Debounce.Duration = 5s
+//   - Debounce.Duration = 1s
 //   - Retry.MaxAttempts = 3
 //   - Retry.BackoffBase = 5s
 //   - Retry.BackoffMax = 5m
@@ -64,49 +103,45 @@ func DefaultVinylCache(vc *vinylv1alpha1.VinylCache) {
 	}
 
 	// Shard director defaults (applied whenever type is shard, not only when it was just defaulted).
-	if vc.Spec.Director.Type == directorTypeShard {
-		if vc.Spec.Director.Shard == nil {
-			vc.Spec.Director.Shard = &vinylv1alpha1.ShardSpec{}
-		}
-		s := vc.Spec.Director.Shard
-		if s.Warmup == nil {
-			v := 0.1
-			s.Warmup = &v
-		}
-		if s.Rampup.Duration == 0 {
-			s.Rampup = metav1.Duration{Duration: 30 * time.Second}
-		}
-		if s.By == "" {
-			s.By = "HASH"
-		}
-		if s.Healthy == "" {
-			s.Healthy = "CHOSEN"
-		}
-	}
+	applyShardDefaults(&vc.Spec.Director)
 
 	// Cluster peer routing default.
 	if vc.Spec.Cluster.PeerRouting.Type == "" {
 		vc.Spec.Cluster.PeerRouting.Type = directorTypeShard
 	}
 
-	// Debounce default: 5s.
+	// Per-backend director defaults (mirror top-level director handling).
+	// Applied only when a user has explicitly set .Director on a backend;
+	// a nil .Director is resolved to a shard director in the generator.
+	for i := range vc.Spec.Backends {
+		b := &vc.Spec.Backends[i]
+		if b.Director == nil {
+			continue
+		}
+		if b.Director.Type == "" {
+			b.Director.Type = directorTypeShard
+		}
+		applyShardDefaults(b.Director)
+	}
+
+	// Debounce default: 1s (matches CRD +kubebuilder:default and controller fallback).
 	if vc.Spec.Debounce.Duration.Duration == 0 {
-		vc.Spec.Debounce.Duration = metav1.Duration{Duration: 5 * time.Second}
+		vc.Spec.Debounce.Duration = metav1.Duration{Duration: defaultDebounce}
 	}
 
 	// Retry defaults.
 	if vc.Spec.Retry.MaxAttempts == 0 {
-		vc.Spec.Retry.MaxAttempts = 3
+		vc.Spec.Retry.MaxAttempts = defaultRetryAttempts
 	}
 	if vc.Spec.Retry.BackoffBase.Duration == 0 {
-		vc.Spec.Retry.BackoffBase = metav1.Duration{Duration: 5 * time.Second}
+		vc.Spec.Retry.BackoffBase = metav1.Duration{Duration: defaultBackoffBase}
 	}
 	if vc.Spec.Retry.BackoffMax.Duration == 0 {
-		vc.Spec.Retry.BackoffMax = metav1.Duration{Duration: 5 * time.Minute}
+		vc.Spec.Retry.BackoffMax = metav1.Duration{Duration: defaultBackoffMax}
 	}
 
 	// ProxyProtocol port default: 8081 (only when enabled).
 	if vc.Spec.ProxyProtocol.Enabled && vc.Spec.ProxyProtocol.Port == 0 {
-		vc.Spec.ProxyProtocol.Port = 8081
+		vc.Spec.ProxyProtocol.Port = defaultProxyPort
 	}
 }

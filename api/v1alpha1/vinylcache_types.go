@@ -137,6 +137,13 @@ type BackendSpec struct {
 	// connectionParameters configures backend connection pool timeouts and limits.
 	// +optional
 	ConnectionParameters *ConnectionParameters `json:"connectionParameters,omitempty"`
+
+	// director overrides the cluster-wide director for this backend only.
+	// If nil, a shard director with defaults is generated, grouping all resolved
+	// per-pod backends for this serviceRef. Use "round_robin" or "random" if
+	// consistent hashing is undesirable (e.g. stateless backends).
+	// +optional
+	Director *DirectorSpec `json:"director,omitempty"`
 }
 
 // ServiceRef references a Kubernetes Service by name in the same namespace.
@@ -208,7 +215,7 @@ type DirectorSpec struct {
 	// "shard" (default) provides consistent hashing; "round_robin", "random", and "hash"
 	// are also supported.
 	// +optional
-	// +kubebuilder:validation:Enum=shard;round_robin;random;hash
+	// +kubebuilder:validation:Enum=shard;round_robin;random;hash;fallback
 	Type string `json:"type,omitempty"`
 
 	// shard configures the shard director (consistent-hash). Only used when type is "shard".
@@ -465,8 +472,9 @@ type ServiceSpec struct {
 // DebounceSpec configures the grace period before applying endpoint changes to Varnish.
 type DebounceSpec struct {
 	// duration is the time to wait after the last endpoint change before pushing a VCL update.
-	// This prevents thundering-herd on rapid endpoint churn. Default: 5s.
+	// This prevents thundering-herd on rapid endpoint churn. Default: 1s.
 	// +optional
+	// +kubebuilder:default="1s"
 	Duration metav1.Duration `json:"duration,omitempty"`
 }
 

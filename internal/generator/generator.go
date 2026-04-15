@@ -57,8 +57,8 @@ type TemplateData struct {
 	HasSoftPurge     bool
 	HasProxyProtocol bool
 	HasFullOverride  bool
-	VCLName          string // sanitized name for vcl declaration
-	BackendDefs      []BackendDef
+	VCLName          string         // sanitized name for vcl declaration
+	BackendGroups    []BackendGroup // Replaces flat BackendDefs: grouped per spec.backends[i] for directors.
 	PeerDefs         []BackendDef
 	UseShardDirector bool
 	DirectorName     string
@@ -75,6 +75,27 @@ type BackendDef struct {
 	BetweenBytesTimeout string
 	IdleTimeout         string
 	MaxConnections      int32
+}
+
+// BackendGroup is one CRD backend (spec.backends[i]) expanded to its per-pod backends,
+// with the director algorithm that groups them in vcl_init.
+type BackendGroup struct {
+	Name     string       // VCL identifier: sanitizeName(BackendSpec.Name).
+	Director DirectorInfo // Director algorithm + params for this group.
+	Backends []BackendDef // One per resolved Endpoint; Name is "<Group.Name>_<idx>".
+}
+
+// DirectorInfo captures the resolved director config for a backend group.
+// It reflects the v1alpha1.DirectorSpec but is template-friendly.
+//
+// Intentionally scoped: only fields the VCL templates consume today are captured
+// (Type, shard.Warmup, shard.Rampup). Extend this struct (and resolveDirectorInfo)
+// when new template bindings are needed — e.g. shard.Replicas or shard.Healthy
+// for advanced sharding, or hash.Header for the hash director.
+type DirectorInfo struct {
+	Type   string  // CRD enum: "shard" (default), "round_robin", "random", "hash", "fallback".
+	Warmup float64 // 0.0 if unset; only for shard.
+	Rampup string  // empty if unset; formatted via fmtDuration; only for shard.
 }
 
 type templateGenerator struct {
@@ -124,10 +145,22 @@ func (g *templateGenerator) Generate(input Input) (*Result, error) {
 	data := buildTemplateData(input)
 
 	// If fullOverride is set, return it directly (with a comment header).
+	// Full-override bypasses the empty-backend guard — users supplying their
+	// own VCL are not subject to the director constraint.
 	if input.Spec.VCL.FullOverride != "" {
 		vcl := fmt.Sprintf("# cloud-vinyl managed VCL (full override mode)\n# Name: %s/%s\n\n%s",
 			input.Namespace, input.Name, input.Spec.VCL.FullOverride)
 		return &Result{VCL: vcl, Hash: HashVCL(vcl)}, nil
+	}
+
+	// Defensive guard: refuse to emit VCL with an empty director. A shard
+	// director with zero add_backend calls is a runtime error in Varnish at
+	// VCL load time. The controller already skips the push in this case;
+	// this guard ensures invalid VCL can never be produced.
+	for _, g := range data.BackendGroups {
+		if len(g.Backends) == 0 {
+			return nil, fmt.Errorf("backend %q has no resolved endpoints; refusing to emit VCL with empty director", g.Name)
+		}
 	}
 
 	var buf bytes.Buffer
@@ -162,13 +195,15 @@ func buildTemplateData(input Input) TemplateData {
 
 	data.UseShardDirector = input.Spec.Director.Type == "shard" || input.Spec.Director.Type == ""
 
-	// Build backend defs from spec backends + resolved endpoints.
+	// Build backend groups from spec backends + resolved endpoints.
 	for _, b := range input.Spec.Backends {
-		endpoints := input.Endpoints[b.Name]
-		for i, ep := range endpoints {
-			name := fmt.Sprintf("%s_%d", b.Name, i)
+		group := BackendGroup{
+			Name:     sanitizeName(b.Name),
+			Director: resolveDirectorInfo(b.Director),
+		}
+		for i, ep := range input.Endpoints[b.Name] {
 			def := BackendDef{
-				Name: name,
+				Name: fmt.Sprintf("%s_%d", group.Name, i),
 				IP:   ep.IP,
 				Port: ep.Port,
 			}
@@ -191,8 +226,9 @@ func buildTemplateData(input Input) TemplateData {
 				}
 				def.MaxConnections = cp.MaxConnections
 			}
-			data.BackendDefs = append(data.BackendDefs, def)
+			group.Backends = append(group.Backends, def)
 		}
+		data.BackendGroups = append(data.BackendGroups, group)
 	}
 
 	// Build peer defs.
@@ -216,6 +252,27 @@ func fmtDuration(d time.Duration) string {
 		return fmt.Sprintf("%.0fm", d.Minutes())
 	}
 	return fmt.Sprintf("%.0fs", d.Seconds())
+}
+
+// resolveDirectorInfo collapses a nullable per-backend DirectorSpec into a template-ready
+// DirectorInfo with defaults (shard / HASH / empty warmup/rampup).
+func resolveDirectorInfo(ds *vinylv1alpha1.DirectorSpec) DirectorInfo {
+	out := DirectorInfo{Type: "shard"}
+	if ds == nil {
+		return out
+	}
+	if ds.Type != "" {
+		out.Type = ds.Type
+	}
+	if ds.Shard != nil {
+		if ds.Shard.Warmup != nil {
+			out.Warmup = *ds.Shard.Warmup
+		}
+		if ds.Shard.Rampup.Duration > 0 {
+			out.Rampup = fmtDuration(ds.Shard.Rampup.Duration)
+		}
+	}
+	return out
 }
 
 // sanitizeName replaces hyphens with underscores for VCL identifier compatibility.

@@ -1,4 +1,5 @@
-{{ range .BackendDefs }}
+{{- range .BackendGroups }}
+{{- range .Backends }}
 backend {{ .Name }} {
     .host = "{{ .IP }}";
     .port = "{{ .Port }}";
@@ -25,6 +26,7 @@ backend {{ .Name }} {
 {{- end }}
 }
 {{ end }}
+{{- end }}
 {{- if .HasCluster }}
 {{ range .PeerDefs }}
 backend {{ .Name }} {

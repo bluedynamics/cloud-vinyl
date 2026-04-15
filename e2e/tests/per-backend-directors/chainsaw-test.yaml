@@ -1,0 +1,127 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: per-backend-directors
+spec:
+  description: |
+    Exercises the per-backend director feature end-to-end:
+      - spec.backends[].director is accepted, defaulted, and persisted.
+      - EndpointSlice watch fires on backend scale events.
+      - VinylCache stays Ready under backend replica churn.
+  timeouts:
+    apply: 10s
+    assert: 180s
+    delete: 60s
+    exec: 30s
+  steps:
+    - name: deploy-multi-replica-backend
+      try:
+        - apply:
+            file: ../../fixtures/backends/multi-replica-echo.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-multi
+              status:
+                readyReplicas: 3
+
+    - name: deploy-cache-with-per-backend-director
+      try:
+        - apply:
+            file: ../../fixtures/vinylcaches/per-backend-director.yaml
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: director-cache
+              status:
+                phase: Ready
+        - assert:
+            # Webhook defaulter must have filled shard defaults on the per-backend director.
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: director-cache
+              spec:
+                backends:
+                  - name: echo
+                    director:
+                      type: shard
+                      shard:
+                        by: HASH
+                        healthy: CHOSEN
+
+    - name: scale-backend-up-to-5
+      description: Scale the backend Deployment up to drive EndpointSlice churn.
+      try:
+        - patch:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-multi
+              spec:
+                replicas: 5
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-multi
+              status:
+                readyReplicas: 5
+
+    - name: cache-stays-ready-after-scale-up
+      description: VinylCache must remain Ready after backend scale-up.
+      try:
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: director-cache
+              status:
+                phase: Ready
+
+    - name: scale-backend-down-to-2
+      description: Scale the backend Deployment down to drive EndpointSlice churn.
+      try:
+        - patch:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-multi
+              spec:
+                replicas: 2
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-multi
+              status:
+                readyReplicas: 2
+
+    - name: cache-stays-ready-after-scale-down
+      description: VinylCache must remain Ready after backend scale-down.
+      try:
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: director-cache
+              status:
+                phase: Ready
+
+    - name: cleanup
+      try:
+        - delete:
+            file: ../../fixtures/vinylcaches/per-backend-director.yaml
+        - delete:
+            file: ../../fixtures/backends/multi-replica-echo.yaml

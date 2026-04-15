@@ -6,14 +6,12 @@
 vcl 4.1;
 
 import std;
+import directors;
 {{- if .HasXkey }}
 import xkey;
 {{- end }}
 {{- if .HasESI }}
 import esi;
-{{- end }}
-{{- if .HasCluster }}
-import directors;
 {{- end }}
 {{ if .Spec.VCL.Snippets.Header }}
 # --- custom header snippet ---

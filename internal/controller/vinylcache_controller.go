@@ -18,13 +18,12 @@ package controller
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -56,6 +55,7 @@ type VinylCacheReconciler struct {
 	// Proxy integration (optional — nil when proxy is disabled).
 	ProxyRouter *proxy.RegisteredRouter
 	ProxyPodMap *proxy.PodMap
+	debouncer   *debouncer // lazy-init in SetupWithManager
 }
 
 // +kubebuilder:rbac:groups=vinyl.bluedynamics.eu,resources=vinylcaches,verbs=get;list;watch;create;update;patch;delete
@@ -157,6 +157,18 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
+	// If any backend has zero resolved endpoints, skip the push and requeue.
+	// This avoids emitting invalid VCL (a director with no add_backend calls
+	// is a runtime error in Varnish). The EndpointSlice watch will trigger
+	// a fresh reconcile as soon as endpoints appear.
+	for _, b := range vc.Spec.Backends {
+		if len(endpoints[b.Name]) == 0 {
+			log.Info("backend has no ready endpoints, waiting",
+				"backend", b.Name, "service", b.ServiceRef.Name)
+			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+		}
+	}
+
 	genResult, err := r.Generator.Generate(generator.Input{
 		Spec:      &vc.Spec,
 		Peers:     peers,
@@ -187,38 +199,6 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
 
-// resolveBackendEndpoints builds endpoints for each backend using the Kubernetes
-// Service DNS name. Varnish resolves the DNS name itself — no need to enumerate
-// individual pod IPs. Pod-level sharding is only used for Varnish cluster peers
-// (handled by collectReadyPeers), not for upstream backends.
-func (r *VinylCacheReconciler) resolveBackendEndpoints(ctx context.Context, vc *v1alpha1.VinylCache) (map[string][]generator.Endpoint, error) {
-	endpoints := make(map[string][]generator.Endpoint)
-
-	for _, backend := range vc.Spec.Backends {
-		svcName := backend.ServiceRef.Name
-		port := int(backend.Port)
-		if port == 0 {
-			// Look up the Service to get the port.
-			svc := &corev1.Service{}
-			if err := r.Get(ctx, types.NamespacedName{Name: svcName, Namespace: vc.Namespace}, svc); err != nil {
-				return nil, fmt.Errorf("getting service %s for backend %s: %w", svcName, backend.Name, err)
-			}
-			if len(svc.Spec.Ports) > 0 {
-				port = int(svc.Spec.Ports[0].Port)
-			}
-		}
-
-		// Single endpoint using the Service DNS name.
-		// Kubernetes DNS resolves this to the ClusterIP, which load-balances
-		// across ready pods via kube-proxy/iptables.
-		endpoints[backend.Name] = []generator.Endpoint{
-			{IP: svcName, Port: port},
-		}
-	}
-
-	return endpoints, nil
-}
-
 // podToVinylCache maps a Pod event to the owning VinylCache reconcile request.
 func (r *VinylCacheReconciler) podToVinylCache(_ context.Context, obj client.Object) []reconcile.Request {
 	pod, ok := obj.(*corev1.Pod)
@@ -234,8 +214,48 @@ func (r *VinylCacheReconciler) podToVinylCache(_ context.Context, obj client.Obj
 	}
 }
 
+// endpointSliceToVinylCache maps an EndpointSlice event to every VinylCache
+// in the same namespace that references the slice's Service via a backend.
+func (r *VinylCacheReconciler) endpointSliceToVinylCache(ctx context.Context, obj client.Object) []reconcile.Request {
+	es, ok := obj.(*discoveryv1.EndpointSlice)
+	if !ok {
+		return nil
+	}
+	svcName := es.Labels[discoveryv1.LabelServiceName]
+	if svcName == "" {
+		return nil
+	}
+	list := &v1alpha1.VinylCacheList{}
+	if err := r.List(ctx, list, client.InNamespace(es.Namespace)); err != nil {
+		logf.FromContext(ctx).Error(err, "endpointSlice watch: failed to list VinylCaches",
+			"namespace", es.Namespace)
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		vc := &list.Items[i]
+		for _, b := range vc.Spec.Backends {
+			if b.ServiceRef.Name == svcName {
+				reqs = append(reqs, reconcile.Request{
+					NamespacedName: client.ObjectKey{Name: vc.Name, Namespace: vc.Namespace},
+				})
+				break
+			}
+		}
+	}
+	for _, req := range reqs {
+		if r.debouncer != nil {
+			r.debouncer.touch(req.NamespacedName)
+		}
+	}
+	return reqs
+}
+
 // SetupWithManager registers the controller with the manager.
 func (r *VinylCacheReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.debouncer == nil {
+		r.debouncer = newDebouncer()
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.VinylCache{}).
 		Owns(&appsv1.StatefulSet{}).
@@ -245,6 +265,11 @@ func (r *VinylCacheReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.podToVinylCache),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
+		Watches(
+			&discoveryv1.EndpointSlice{},
+			handler.EnqueueRequestsFromMapFunc(r.endpointSliceToVinylCache),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Named("vinylcache").

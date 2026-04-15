@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-multi
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: echo-multi
+  template:
+    metadata:
+      labels:
+        app: echo-multi
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: echo
+          image: ealen/echo-server:0.9.2
+          ports:
+            - containerPort: 80
+          env:
+            - name: PORT
+              value: "80"
+            # Make the echo server add Cache-Control and Xkey headers
+            # so tests can verify caching and xkey invalidation.
+            - name: ECHO__ENABLE__HEADER
+              value: "true"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-multi
+spec:
+  selector:
+    app: echo-multi
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
