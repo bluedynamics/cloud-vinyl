@@ -44,3 +44,6 @@ docs/html/
 .DS_Store
 Thumbs.db
 .worktrees/
+
+# Editor/assistant session artifacts
+.claude/
