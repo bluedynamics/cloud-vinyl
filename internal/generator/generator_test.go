@@ -790,3 +790,48 @@ func TestGenerate_FullOverride_BypassesEmptyBackendCheck(t *testing.T) {
 	require.NoError(t, err, "full override must bypass the empty-backend guard")
 	assert.Contains(t, r.VCL, "user override")
 }
+
+func TestGenerate_OperatorIP_PresentInPurgeACL(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.OperatorIP = "10.244.1.7"
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "acl vinyl_purge_allowed {")
+	assert.Contains(t, r.VCL, `"10.244.1.7";`,
+		"operator IP must appear in vinyl_purge_allowed")
+	assert.Contains(t, r.VCL, `"127.0.0.1";`,
+		"localhost entry must remain")
+}
+
+func TestGenerate_OperatorIP_OmittedWhenEmpty(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	// OperatorIP left at zero value.
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "acl vinyl_purge_allowed {")
+	// Only localhost must be in the ACL (no user allowedSources in the minimal input).
+	purgeACL := strings.SplitAfter(r.VCL, "acl vinyl_purge_allowed {")[1]
+	purgeACL = strings.SplitN(purgeACL, "}", 2)[0]
+	assert.Equal(t, 1, strings.Count(purgeACL, `"127.0.0.1";`),
+		"minimal input must emit exactly one ACL entry (localhost)")
+	assert.NotContains(t, purgeACL, "10.244.",
+		"no operator IP entry when OperatorIP is empty")
+}
+
+func TestGenerate_OperatorIP_CoexistsWithAllowedSources(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.OperatorIP = "10.244.1.7"
+	input.Spec.Invalidation.Purge = &vinylv1alpha1.PurgeSpec{
+		Enabled:        true,
+		AllowedSources: []string{"10.0.0.0/8", "192.168.1.0/24"},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, `"10.244.1.7";`)
+	assert.Contains(t, r.VCL, `"10.0.0.0/8";`)
+	assert.Contains(t, r.VCL, `"192.168.1.0/24";`)
+	assert.Contains(t, r.VCL, `"127.0.0.1";`)
+}

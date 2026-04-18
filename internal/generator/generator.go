@@ -26,6 +26,12 @@ type Input struct {
 	Endpoints map[string][]Endpoint // backend name -> list of endpoints
 	Namespace string                // VinylCache namespace (for VCL name)
 	Name      string                // VinylCache name (for VCL name)
+
+	// OperatorIP is the pod IP of the cloud-vinyl operator instance that
+	// is reconciling this VinylCache. When non-empty it is added to the
+	// vinyl_purge_allowed ACL so the operator's invalidation proxy can
+	// forward PURGE requests into Varnish. Empty in tests / pre-GA startup.
+	OperatorIP string
 }
 
 // PeerBackend is a cluster peer (another Varnish pod).
