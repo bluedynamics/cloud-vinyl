@@ -12,9 +12,11 @@ metadata:
   namespace: default
 spec:
   replicas: 2
+  image: varnish:7.6
   backends:
     - name: app
-      host: app-service.default.svc.cluster.local
+      serviceRef:
+        name: app-service
       port: 8080
 ```
 
@@ -60,9 +62,11 @@ spec:
 ```yaml
 spec:
   replicas: 2
+  image: varnish:7.6
   backends:
     - name: app
-      host: app-service.default.svc.cluster.local
+      serviceRef:
+        name: app-service
       port: 8080
   invalidation:
     purge:
