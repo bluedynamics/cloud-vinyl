@@ -835,3 +835,73 @@ func TestGenerate_OperatorIP_CoexistsWithAllowedSources(t *testing.T) {
 	assert.Contains(t, r.VCL, `"192.168.1.0/24";`)
 	assert.Contains(t, r.VCL, `"127.0.0.1";`)
 }
+
+func TestGenerate_BAN_DisabledByDefault(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(makeMinimalInput())
+	require.NoError(t, err)
+	assert.NotContains(t, r.VCL, "acl vinyl_ban_allowed",
+		"BAN ACL must NOT be emitted when spec.invalidation.ban is unset")
+	assert.NotContains(t, r.VCL, `req.method == "BAN"`,
+		"BAN handler must NOT be emitted when ban is disabled")
+}
+
+func TestGenerate_BAN_EnabledEmitsACLAndHandler(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Invalidation.BAN = &vinylv1alpha1.BANSpec{Enabled: true}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "acl vinyl_ban_allowed {",
+		"BAN ACL must be emitted when ban.enabled=true")
+	assert.Contains(t, r.VCL, `req.method == "BAN"`,
+		"BAN handler must be emitted in vcl_recv")
+	assert.Contains(t, r.VCL, `client.ip ~ vinyl_ban_allowed`,
+		"BAN handler must check the BAN ACL")
+	assert.Contains(t, r.VCL, `ban(req.http.X-Vinyl-Ban)`,
+		"BAN handler must call ban() with the X-Vinyl-Ban header value")
+	assert.Contains(t, r.VCL, `return(synth(200, "Banned"))`,
+		"BAN handler must return synth 200 on success")
+}
+
+func TestGenerate_BAN_OperatorIPInACL(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.OperatorIP = "10.244.1.7"
+	input.Spec.Invalidation.BAN = &vinylv1alpha1.BANSpec{Enabled: true}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	banACL := strings.SplitAfter(r.VCL, "acl vinyl_ban_allowed {")[1]
+	banACL = strings.SplitN(banACL, "}", 2)[0]
+	assert.Contains(t, banACL, `"10.244.1.7";`,
+		"operator IP must appear in vinyl_ban_allowed so operator-proxied BAN requests are accepted")
+	assert.Contains(t, banACL, `"127.0.0.1";`,
+		"localhost entry must remain")
+}
+
+func TestGenerate_BAN_AllowedSourcesHonored(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Invalidation.BAN = &vinylv1alpha1.BANSpec{
+		Enabled:        true,
+		AllowedSources: []string{"10.0.0.0/8", "192.168.1.0/24"},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	banACL := strings.SplitAfter(r.VCL, "acl vinyl_ban_allowed {")[1]
+	banACL = strings.SplitN(banACL, "}", 2)[0]
+	assert.Contains(t, banACL, `"10.0.0.0/8";`)
+	assert.Contains(t, banACL, `"192.168.1.0/24";`)
+}
+
+func TestGenerate_BAN_EnabledButNotConfigured_OnlyLocalhost(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Invalidation.BAN = &vinylv1alpha1.BANSpec{Enabled: true}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	banACL := strings.SplitAfter(r.VCL, "acl vinyl_ban_allowed {")[1]
+	banACL = strings.SplitN(banACL, "}", 2)[0]
+	assert.Equal(t, 1, strings.Count(banACL, `"127.0.0.1";`),
+		"BAN ACL with no AllowedSources and no OperatorIP must contain exactly one entry (localhost)")
+}

@@ -61,6 +61,7 @@ type TemplateData struct {
 	HasESI           bool
 	HasXkey          bool
 	HasSoftPurge     bool
+	HasBAN           bool
 	HasProxyProtocol bool
 	HasFullOverride  bool
 	VCLName          string         // sanitized name for vcl declaration
@@ -198,6 +199,9 @@ func buildTemplateData(input Input) TemplateData {
 	}
 	if input.Spec.Invalidation.Purge != nil {
 		data.HasSoftPurge = input.Spec.Invalidation.Purge.Soft
+	}
+	if input.Spec.Invalidation.BAN != nil {
+		data.HasBAN = input.Spec.Invalidation.BAN.Enabled
 	}
 
 	// ESI: check VarnishParams for explicit feature flag.
