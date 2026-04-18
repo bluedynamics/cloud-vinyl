@@ -17,7 +17,7 @@ sub vcl_recv {
     # Route to responsible peer; if already routed, proceed to cache lookup
     if (!req.http.X-Vinyl-Shard) {
         set req.http.X-Vinyl-Shard = "1";
-        set req.backend_hint = {{ .DirectorName }}.backend(by=URL);
+        set req.backend_hint = {{ .DirectorName }}.backend(by={{ .ClusterShardBy }}{{ if .ClusterShardHealthy }}, healthy={{ .ClusterShardHealthy }}{{ end }});
         return(pass);
     }
     unset req.http.X-Vinyl-Shard;
