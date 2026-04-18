@@ -170,11 +170,12 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	genResult, err := r.Generator.Generate(generator.Input{
-		Spec:      &vc.Spec,
-		Peers:     peers,
-		Endpoints: endpoints,
-		Namespace: vc.Namespace,
-		Name:      vc.Name,
+		Spec:       &vc.Spec,
+		Peers:      peers,
+		Endpoints:  endpoints,
+		Namespace:  vc.Namespace,
+		Name:       vc.Name,
+		OperatorIP: r.OperatorIP,
 	})
 	if err != nil {
 		r.setErrorStatus(ctx, vc, err)
