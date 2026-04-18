@@ -1,6 +1,6 @@
 
 sub vcl_deliver {
-{{- if .HasXkey }}
+{{- if or .HasXkey .HasBAN }}
     # Strip internal BAN-support headers before sending to client
     unset resp.http.x-url;
     unset resp.http.x-host;

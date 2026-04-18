@@ -212,6 +212,11 @@ func main() {
 			HTTPClient: &http.Client{Timeout: agentClientTimeout},
 			K8sClient:  mgr.GetClient(),
 		},
+		// POD_IP is injected by the Helm chart via the downward API.
+		// Empty is safe (the ACL template and EndpointSlice reconciler both
+		// no-op on empty), but it means invalidation-proxy PURGE/BAN requests
+		// are rejected by Varnish's ACL — so in production this must be set.
+		OperatorIP:  os.Getenv("POD_IP"),
 		ProxyRouter: proxyRouter,
 		ProxyPodMap: proxyPodMap,
 	}).SetupWithManager(mgr); err != nil {

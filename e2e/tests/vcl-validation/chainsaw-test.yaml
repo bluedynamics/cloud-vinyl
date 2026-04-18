@@ -11,6 +11,7 @@ spec:
     apply: 10s
     assert: 60s
     delete: 60s
+    cleanup: 60s
     exec: 30s
   steps:
     - name: deploy-backend

@@ -10,7 +10,7 @@ sub vcl_backend_response {
     if (beresp.grace < 24h) {
         set beresp.grace = 24h;
     }
-{{- if .HasXkey }}
+{{- if or .HasXkey .HasBAN }}
 
     # Copy URL and Host for BAN lurker friendliness (ban-lurker cannot access req.*)
     set beresp.http.x-url = bereq.url;

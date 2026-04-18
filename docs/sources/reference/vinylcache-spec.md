@@ -70,9 +70,12 @@ See the [per-backend directors how-to](../how-to/per-backend-directors.md) for w
 | `shard.by` | string | `HASH` | Shard key source (`HASH`, `URL`). |
 | `shard.healthy` | string | `CHOSEN` | Health evaluation strategy (`CHOSEN`, `ALL`). |
 
-> Note: `shard.by` and `shard.healthy` are accepted and persisted on the
-> resource, but are not yet consumed by the generator for per-backend
-> directors (see follow-up `shard-params-not-plumbed`).
+> Note on `shard.by` and `shard.healthy`:
+> - **Cluster-peer director** (when `cluster.enabled: true`): honored automatically —
+>   the operator emits `<director>.backend(by=<by>, healthy=<healthy>)` in `vcl_recv`.
+> - **Per-backend directors**: still request-time arguments. The CRD accepts
+>   the fields but you must use them in your own VCL snippet, e.g.
+>   `set req.backend_hint = plone.backend(by=HASH, healthy=CHOSEN);`.
 
 ### cluster
 
@@ -86,8 +89,25 @@ See the [per-backend directors how-to](../how-to/per-backend-directors.md) for w
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `purge.soft` | boolean | `true` | Use soft purge (stale-while-revalidate). |
+| `purge.allowedSources` | list | `[]` | CIDRs permitted to send `PURGE`. `127.0.0.1` and the operator pod IP are always included. |
 | `xkey` | object | nil | Xkey (surrogate key) configuration. When set, `vmod_xkey` is loaded. |
 | `xkey.softPurge` | boolean | `true` | Use soft purge for xkey invalidation. |
+| `ban.enabled` | boolean | `false` | When `true`, emit a `vinyl_ban_allowed` ACL and a `BAN` handler in `vcl_recv` that dispatches `std.ban(req.http.X-Vinyl-Ban)`. Also emits ban-lurker-friendly `x-url`/`x-host` headers on stored objects. |
+| `ban.allowedSources` | list | `[]` | CIDRs permitted to send `BAN` (in addition to `127.0.0.1` and the operator pod IP). |
+| `ban.rateLimitPerMinute` | integer | `0` | Inert in v0.4.2 — field is accepted but not enforced; rate-limiting is tracked as follow-up work. |
+
+> Note on BAN security: any client whose source IP is in `vinyl_ban_allowed`
+> can invalidate the entire cache with an arbitrary ban expression. Scope
+> `ban.allowedSources` tightly to trusted callers only. Ban expressions
+> should prefer `obj.http.x-url` / `obj.http.x-host` over `req.*` fields —
+> only the former can be processed by the ban lurker, so `req.*` bans
+> accumulate without being compacted.
+>
+> Clients send BAN requests like:
+>
+> ```bash
+> curl -X BAN -H 'X-Vinyl-Ban: obj.http.x-url ~ "^/news/"' http://varnish.svc/
+> ```
 
 ## Status fields
 
