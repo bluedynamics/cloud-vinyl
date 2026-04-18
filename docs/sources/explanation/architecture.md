@@ -60,6 +60,41 @@ The operator exposes an HTTP endpoint on port `8090` that accepts:
 
 Upstream services send a single request; the operator fans it out to all pods in parallel.
 
+#### How the proxy finds the right cache
+
+Since the operator is a single cluster-wide Deployment, a request hitting port 8090 could belong to *any* `VinylCache` in *any* namespace. The proxy disambiguates via the HTTP **`Host` header** — and the operator bends Kubernetes DNS to make that Just Work for callers.
+
+For each `VinylCache` named `my-cache` in namespace `app`, the reconciler creates:
+
+1. A `Service` named `my-cache-invalidation` in `app` (ClusterIP, port 8090).
+2. An `EndpointSlice` for that Service whose only endpoint is **the operator's own pod IP** (sourced from the `POD_IP` env var via the downward API).
+
+Result: a caller that sends
+
+```
+PURGE /path  Host: my-cache-invalidation.app.svc.cluster.local
+```
+
+hits the Service → kube-proxy → operator pod (because the Service's only endpoint IS the operator). The proxy inside the operator runs a `RegisteredRouter` that the controller fills with one entry per `VinylCache`:
+
+```
+my-cache-invalidation.app                     → {app, my-cache}
+my-cache-invalidation.app.svc.cluster.local   → {app, my-cache}
+other-cache-invalidation.billing              → {billing, other-cache}
+other-cache-invalidation.billing.svc.cluster.local → {billing, other-cache}
+```
+
+On each request, the proxy:
+
+1. Reads the `Host` header (stripping port).
+2. Looks it up in the `RegisteredRouter` to obtain `{namespace, cacheName}`. No match → `404`.
+3. Looks up the list of ready pod IPs for that cache in a parallel `PodMap`.
+4. Broadcasts PURGE/BAN to every pod; aggregates per-pod results into the JSON response.
+
+Because the discriminator is the FQDN, two caches with the same name in different namespaces (`foo` in `a` vs `foo` in `b`) are unambiguous: `foo-invalidation.a` and `foo-invalidation.b` are distinct hosts.
+
+**Gotcha — source IPs after SNAT.** The proxy's source-CIDR ACL (`spec.invalidation.{purge,ban}.allowedSources`) sees the IP of whoever connected to the Service, which for most CNIs means the **kube-proxy SNAT source**, not the original caller. If you want tight source filtering, place it at an ingress/policy layer that preserves the client IP, not in the VinylCache spec.
+
 ## Why a central operator instead of sidecars?
 
 A per-pod signaller sidecar design that watches the Kubernetes Endpoints API and triggers VCL reloads
@@ -75,7 +110,7 @@ cloud-vinyl solves all three:
 
 1. The operator pushes VCL after the pod passes its health probes — no readiness gate deadlock.
 2. The reconcile loop retries on failure with exponential backoff (configurable via `spec.retry`).
-3. Debouncing is built in (`spec.debounce.duration`, default 5 s).
+3. Debouncing is built in (`spec.debounce.duration`, default 1 s).
 
 ## RBAC scope
 
