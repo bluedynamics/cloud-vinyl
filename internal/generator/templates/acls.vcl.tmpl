@@ -1,5 +1,8 @@
 acl vinyl_purge_allowed {
     "127.0.0.1";  // localhost always allowed
+{{- if .OperatorIP }}
+    "{{ .OperatorIP }}";  // operator pod IP (invalidation proxy source)
+{{- end }}
 {{- if .Spec.Invalidation.Purge }}{{ range .Spec.Invalidation.Purge.AllowedSources }}
     "{{ . }}";
 {{- end }}{{ end }}
