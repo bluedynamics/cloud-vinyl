@@ -791,6 +791,60 @@ func TestGenerate_FullOverride_BypassesEmptyBackendCheck(t *testing.T) {
 	assert.Contains(t, r.VCL, "user override")
 }
 
+func TestGenerate_ClusterShardBy_DefaultsToURL(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Peers = []generator.PeerBackend{
+		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
+		{Name: "my_cache_1", IP: "10.0.2.2", Port: 8080},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, ".backend(by=URL)",
+		"cluster-peer director must default to by=URL when spec.director.shard.by is unset")
+	assert.NotContains(t, r.VCL, "healthy=",
+		"no healthy= argument when spec.director.shard.healthy is unset")
+}
+
+func TestGenerate_ClusterShardBy_HonorsSpecOverride(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Spec.Director = vinylv1alpha1.DirectorSpec{
+		Type:  "shard",
+		Shard: &vinylv1alpha1.ShardSpec{By: "HASH"},
+	}
+	input.Peers = []generator.PeerBackend{
+		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
+		{Name: "my_cache_1", IP: "10.0.2.2", Port: 8080},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, ".backend(by=HASH)",
+		"spec.director.shard.by=HASH must reach vcl_recv")
+	assert.NotContains(t, r.VCL, ".backend(by=URL)",
+		"hardcoded URL must not leak through when spec overrides it")
+}
+
+func TestGenerate_ClusterShardHealthy_HonorsSpecOverride(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Spec.Director = vinylv1alpha1.DirectorSpec{
+		Type:  "shard",
+		Shard: &vinylv1alpha1.ShardSpec{Healthy: "ALL"},
+	}
+	input.Peers = []generator.PeerBackend{
+		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
+		{Name: "my_cache_1", IP: "10.0.2.2", Port: 8080},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, ".backend(by=URL, healthy=ALL)",
+		"spec.director.shard.healthy=ALL must reach vcl_recv alongside by=")
+}
+
 func TestGenerate_OperatorIP_PresentInPurgeACL(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()

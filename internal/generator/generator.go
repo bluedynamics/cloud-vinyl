@@ -68,6 +68,15 @@ type TemplateData struct {
 	PeerDefs         []BackendDef
 	UseShardDirector bool
 	DirectorName     string
+
+	// ClusterShardBy is the hash-key strategy for the cluster-peer shard
+	// director's request-time .backend() call. Defaults to "URL" (matches
+	// previous hardcoded behaviour). Overridable via spec.director.shard.by.
+	ClusterShardBy string
+	// ClusterShardHealthy is the health policy the cluster-peer director
+	// evaluates at request time. Empty means "Varnish default" — template
+	// omits the healthy= argument. Overridable via spec.director.shard.healthy.
+	ClusterShardHealthy string
 }
 
 // BackendDef is a single backend definition for VCL.
@@ -205,6 +214,20 @@ func buildTemplateData(input Input) TemplateData {
 	data.HasESI = hasESI
 
 	data.UseShardDirector = input.Spec.Director.Type == "shard" || input.Spec.Director.Type == ""
+
+	// Cluster-peer shard director parameters (request-time).
+	// Fall back to "URL" for by (preserves pre-#36 behaviour) and to empty
+	// for healthy (so the template omits the arg and Varnish uses its default).
+	data.ClusterShardBy = "URL"
+	data.ClusterShardHealthy = ""
+	if input.Spec.Director.Shard != nil {
+		if input.Spec.Director.Shard.By != "" {
+			data.ClusterShardBy = input.Spec.Director.Shard.By
+		}
+		if input.Spec.Director.Shard.Healthy != "" {
+			data.ClusterShardHealthy = input.Spec.Director.Shard.Healthy
+		}
+	}
 
 	// Build backend groups from spec backends + resolved endpoints.
 	for _, b := range input.Spec.Backends {
