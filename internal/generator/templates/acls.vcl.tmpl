@@ -7,6 +7,18 @@ acl vinyl_purge_allowed {
     "{{ . }}";
 {{- end }}{{ end }}
 }
+{{- if .HasBAN }}
+
+acl vinyl_ban_allowed {
+    "127.0.0.1";  // localhost always allowed
+{{- if .OperatorIP }}
+    "{{ .OperatorIP }}";  // operator pod IP (invalidation proxy source)
+{{- end }}
+{{- if .Spec.Invalidation.BAN }}{{ range .Spec.Invalidation.BAN.AllowedSources }}
+    "{{ . }}";
+{{- end }}{{ end }}
+}
+{{- end }}
 {{- if .HasCluster }}
 
 acl vinyl_cluster_peers {

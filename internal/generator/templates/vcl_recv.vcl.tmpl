@@ -47,7 +47,24 @@ sub vcl_recv {
 {{- end }}
         return(purge);
     }
+{{- if .HasBAN }}
 
+    # BAN handling — std.ban() preferred over deprecated ban() (Varnish >= 6.6).
+    # std.ban() returns true on success, false on malformed expression;
+    # std.ban_error() returns the last compile error for this session.
+    if (req.method == "BAN") {
+        if (!client.ip ~ vinyl_ban_allowed) {
+            return(synth(403, "Forbidden"));
+        }
+        if (!req.http.X-Vinyl-Ban) {
+            return(synth(400, "Missing X-Vinyl-Ban header"));
+        }
+        if (!std.ban(req.http.X-Vinyl-Ban)) {
+            return(synth(400, "Invalid ban expression: " + std.ban_error()));
+        }
+        return(synth(200, "Banned"));
+    }
+{{- end }}
     # Only handle GET and HEAD for caching (pass everything else)
     if (req.method != "GET" && req.method != "HEAD") {
         return(pass);
