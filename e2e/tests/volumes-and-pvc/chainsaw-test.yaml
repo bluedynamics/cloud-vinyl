@@ -56,9 +56,11 @@ spec:
                       - name: cache-ssd
                         emptyDir:
                           sizeLimit: 200Mi
-                    (containers[?name=='varnish'].volumeMounts[?name=='cache-ssd']):
-                      - - name: cache-ssd
-                          mountPath: /var/lib/varnish-cache
+                    # Pipe + [0] so .volumeMounts returns a flat list
+                    # instead of list-of-lists from projection semantics.
+                    (containers[?name=='varnish'] | [0].volumeMounts[?name=='cache-ssd']):
+                      - name: cache-ssd
+                        mountPath: /var/lib/varnish-cache
 
     - name: cleanup
       try:
