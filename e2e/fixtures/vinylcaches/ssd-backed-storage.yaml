@@ -1,0 +1,29 @@
+apiVersion: vinyl.bluedynamics.eu/v1alpha1
+kind: VinylCache
+metadata:
+  name: ssd-cache
+spec:
+  replicas: 1
+  image: varnish:7.6
+  backends:
+    - name: app
+      port: 80
+      serviceRef:
+        name: echo-backend
+  storage:
+    - name: disk
+      type: file
+      path: /var/lib/varnish-cache/spill.bin
+      size: 100Mi
+  pod:
+    volumes:
+      - name: cache-ssd
+        emptyDir:
+          sizeLimit: 200Mi
+      - name: another-vol
+        emptyDir: {}
+    volumeMounts:
+      - name: cache-ssd
+        mountPath: /var/lib/varnish-cache
+      - name: another-vol
+        mountPath: /var/cache/extra
