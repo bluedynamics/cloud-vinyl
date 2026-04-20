@@ -502,6 +502,37 @@ func TestValidate_VolumeMountPath_ReservedIsRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "/var/lib/varnish")
 }
 
+func TestValidate_VolumeMountPath_AncestorOfReservedIsRejected(t *testing.T) {
+	// Guards against a shadowing attack: mounting /etc/varnish would
+	// cover the operator's subPath mounts at /etc/varnish/secret and
+	// /etc/varnish/default.vcl, giving a user with VinylCache edit
+	// rights a new vector onto operator-owned data.
+	cases := []struct {
+		name      string
+		mountPath string
+	}{
+		{"etc-varnish", "/etc/varnish"}, // ancestor of /etc/varnish/secret and /etc/varnish/default.vcl
+		{"var-lib", "/var/lib"},         // ancestor of /var/lib/varnish
+		{"root", "/"},                   // ancestor of everything
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vc := validBaseVinylCache()
+			vc.Spec.Pod.Volumes = []corev1.Volume{{
+				Name:         "my-vol",
+				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+			}}
+			vc.Spec.Pod.VolumeMounts = []corev1.VolumeMount{
+				{Name: "my-vol", MountPath: tc.mountPath},
+			}
+			_, err := webhook.ValidateVinylCache(vc)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.mountPath)
+			assert.Contains(t, err.Error(), "conflicts with a reserved")
+		})
+	}
+}
+
 func TestValidate_VolumeMountName_Unresolvable_Rejected(t *testing.T) {
 	vc := validBaseVinylCache()
 	vc.Spec.Pod.VolumeMounts = []corev1.VolumeMount{

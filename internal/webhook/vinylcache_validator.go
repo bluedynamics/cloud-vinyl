@@ -88,6 +88,30 @@ func pathIsReserved(p string) bool {
 	return false
 }
 
+// pathConflictsWithReserved reports whether user path p either sits under
+// a reserved path (pathIsReserved) OR is an ancestor of one. Ancestor
+// mounts must be rejected for mountPath because kubelet would otherwise
+// let the user-declared mount shadow the operator's narrower subPath
+// mount (e.g. mounting "/etc/varnish" shadows the agent secret at
+// "/etc/varnish/secret"), giving a user with VinylCache edit rights a
+// new path to operator-owned data.
+func pathConflictsWithReserved(p string) bool {
+	if pathIsReserved(p) {
+		return true
+	}
+	// "/" is the ancestor of every reserved path; special-case it so the
+	// HasPrefix check below doesn't have to deal with "/"+"/"="//" quirks.
+	if p == "/" {
+		return true
+	}
+	for _, r := range reservedMountPaths {
+		if strings.HasPrefix(r, p+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidateVinylCache performs semantic validation of a VinylCache resource that is not
 // expressible as CRD schema constraints. It is called by both ValidateCreate and ValidateUpdate.
 //
@@ -169,9 +193,9 @@ func ValidateVinylCache(vc *vinylv1alpha1.VinylCache) (admission.Warnings, error
 
 	// Validate mount paths + that each mount resolves to a declared volume.
 	for _, m := range vc.Spec.Pod.VolumeMounts {
-		if pathIsReserved(m.MountPath) {
+		if pathConflictsWithReserved(m.MountPath) {
 			errs = append(errs, fmt.Sprintf(
-				"spec.pod.volumeMounts[%q]: mountPath %q is reserved by the operator",
+				"spec.pod.volumeMounts[%q]: mountPath %q conflicts with a reserved operator mount",
 				m.Name, m.MountPath))
 		}
 		if !declared[m.Name] && !reservedVolumeNames[m.Name] {
