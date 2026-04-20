@@ -101,6 +101,15 @@ type VinylCacheSpec struct {
 	// +optional
 	Pod PodSpec `json:"pod,omitempty"`
 
+	// volumeClaimTemplates are appended verbatim to the generated StatefulSet's
+	// spec.volumeClaimTemplates. Each template yields one PVC per replica
+	// (named <claim>-<statefulset>-<ord>) that persists across pod restarts
+	// for that replica. Useful for per-replica SSD-backed file storage.
+	// Reference the claim name from spec.pod.volumeMounts; reference the
+	// resulting mountPath from spec.storage[].path.
+	// +optional
+	VolumeClaimTemplates []corev1.PersistentVolumeClaim `json:"volumeClaimTemplates,omitempty"`
+
 	// monitoring configures Prometheus metrics and alerting rules.
 	// +optional
 	Monitoring MonitoringSpec `json:"monitoring,omitempty"`
@@ -520,6 +529,24 @@ type PodSpec struct {
 	// priorityClassName is the name of the PriorityClass for Varnish pods.
 	// +optional
 	PriorityClass string `json:"priorityClassName,omitempty"`
+
+	// volumes are additional pod-level volumes appended to the operator-managed
+	// defaults (agent-token, varnish-secret, varnish-workdir, varnish-tmp,
+	// bootstrap-vcl). Use to back spec.storage[].path with a PVC, an EmptyDir
+	// with sizeLimit, or any VolumeSource supported by Kubernetes. Reserved
+	// names collide with operator-managed volumes and are rejected by the
+	// admission webhook. Volume names must also be unique across volumes and
+	// volumeClaimTemplates.
+	// +optional
+	Volumes []corev1.Volume `json:"volumes,omitempty"`
+
+	// volumeMounts are additional mounts appended to the varnish container.
+	// Each entry must reference a name present in spec.pod.volumes or
+	// spec.volumeClaimTemplates. Reserved mount paths (/run/vinyl,
+	// /etc/varnish/secret, /var/lib/varnish, /tmp, /etc/varnish/default.vcl)
+	// are rejected by the admission webhook.
+	// +optional
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
 }
 
 // MonitoringSpec configures Prometheus monitoring for the Varnish cluster.

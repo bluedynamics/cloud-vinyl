@@ -51,6 +51,67 @@ var forbiddenStorageTypes = map[string]bool{
 	"default":    true,
 }
 
+// reservedVolumeNames collide with operator-managed volumes on every pod.
+// Users cannot reuse these names in spec.pod.volumes or
+// spec.volumeClaimTemplates.
+var reservedVolumeNames = map[string]bool{
+	"agent-token":     true,
+	"varnish-secret":  true,
+	"varnish-workdir": true,
+	"varnish-tmp":     true,
+	"bootstrap-vcl":   true,
+}
+
+// reservedMountPaths are owned by the operator. spec.pod.volumeMounts
+// must not mount into these, and spec.storage[].path must not place
+// files under them.
+var reservedMountPaths = []string{
+	"/run/vinyl",
+	"/etc/varnish/secret",
+	"/etc/varnish/default.vcl",
+	"/var/lib/varnish",
+	"/tmp",
+}
+
+// pathIsReserved reports whether p equals a reserved mount path or sits
+// under one (with a trailing slash boundary to avoid false positives
+// like "/var/lib/varnish-cache" hitting "/var/lib/varnish").
+func pathIsReserved(p string) bool {
+	for _, r := range reservedMountPaths {
+		if p == r {
+			return true
+		}
+		if strings.HasPrefix(p, r+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// pathConflictsWithReserved reports whether user path p either sits under
+// a reserved path (pathIsReserved) OR is an ancestor of one. Ancestor
+// mounts must be rejected for mountPath because kubelet would otherwise
+// let the user-declared mount shadow the operator's narrower subPath
+// mount (e.g. mounting "/etc/varnish" shadows the agent secret at
+// "/etc/varnish/secret"), giving a user with VinylCache edit rights a
+// new path to operator-owned data.
+func pathConflictsWithReserved(p string) bool {
+	if pathIsReserved(p) {
+		return true
+	}
+	// "/" is the ancestor of every reserved path; special-case it so the
+	// HasPrefix check below doesn't have to deal with "/"+"/"="//" quirks.
+	if p == "/" {
+		return true
+	}
+	for _, r := range reservedMountPaths {
+		if strings.HasPrefix(r, p+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidateVinylCache performs semantic validation of a VinylCache resource that is not
 // expressible as CRD schema constraints. It is called by both ValidateCreate and ValidateUpdate.
 //
@@ -96,6 +157,60 @@ func ValidateVinylCache(vc *vinylv1alpha1.VinylCache) (admission.Warnings, error
 			if _, _, err := net.ParseCIDR(cidr); err != nil {
 				errs = append(errs, fmt.Sprintf("invalid CIDR %q: %v", cidr, err))
 			}
+		}
+	}
+
+	// Collect all user-declared volume names (pod.volumes + volumeClaimTemplates).
+	declared := make(map[string]bool, len(vc.Spec.Pod.Volumes)+len(vc.Spec.VolumeClaimTemplates))
+
+	for _, v := range vc.Spec.Pod.Volumes {
+		if reservedVolumeNames[v.Name] {
+			errs = append(errs, fmt.Sprintf(
+				"spec.pod.volumes[%q]: name is reserved by the operator", v.Name))
+			continue
+		}
+		if declared[v.Name] {
+			errs = append(errs, fmt.Sprintf(
+				"spec.pod.volumes[%q]: duplicate volume name", v.Name))
+			continue
+		}
+		declared[v.Name] = true
+	}
+
+	for _, c := range vc.Spec.VolumeClaimTemplates {
+		if reservedVolumeNames[c.Name] {
+			errs = append(errs, fmt.Sprintf(
+				"spec.volumeClaimTemplates[%q]: name is reserved by the operator", c.Name))
+			continue
+		}
+		if declared[c.Name] {
+			errs = append(errs, fmt.Sprintf(
+				"spec.volumeClaimTemplates[%q]: duplicate — name already used in spec.pod.volumes or another claim template", c.Name))
+			continue
+		}
+		declared[c.Name] = true
+	}
+
+	// Validate mount paths + that each mount resolves to a declared volume.
+	for _, m := range vc.Spec.Pod.VolumeMounts {
+		if pathConflictsWithReserved(m.MountPath) {
+			errs = append(errs, fmt.Sprintf(
+				"spec.pod.volumeMounts[%q]: mountPath %q conflicts with a reserved operator mount",
+				m.Name, m.MountPath))
+		}
+		if !declared[m.Name] && !reservedVolumeNames[m.Name] {
+			errs = append(errs, fmt.Sprintf(
+				"spec.pod.volumeMounts[%q]: volume is not declared in spec.pod.volumes or spec.volumeClaimTemplates",
+				m.Name))
+		}
+	}
+
+	// Validate spec.storage[].path does not write into a reserved mount.
+	for _, s := range vc.Spec.Storage {
+		if s.Type == "file" && pathIsReserved(s.Path) {
+			errs = append(errs, fmt.Sprintf(
+				"spec.storage[%q].path %q is reserved by the operator; mount your own volume and place the cache file there",
+				s.Name, s.Path))
 		}
 	}
 
