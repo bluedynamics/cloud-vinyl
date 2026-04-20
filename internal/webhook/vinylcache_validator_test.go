@@ -21,6 +21,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 	"github.com/bluedynamics/cloud-vinyl/internal/webhook"
@@ -428,4 +431,117 @@ func TestValidate_ValidFullConfig_Passes(t *testing.T) {
 
 	_, err := webhook.ValidateVinylCache(vc)
 	assert.NoError(t, err)
+}
+
+// --- pod volumes, volumeMounts, volumeClaimTemplates, and storage path collisions ---
+
+// validBaseVinylCache returns a minimally valid VinylCache with ObjectMeta set,
+// used by tests that exercise pod.volumes, pod.volumeMounts, volumeClaimTemplates,
+// and storage-path collision validation.
+func validBaseVinylCache() *vinylv1alpha1.VinylCache {
+	return &vinylv1alpha1.VinylCache{
+		ObjectMeta: metav1.ObjectMeta{Name: "vc", Namespace: "ns"},
+		Spec: vinylv1alpha1.VinylCacheSpec{
+			Replicas: 1,
+			Image:    "varnish:7.6",
+			Backends: []vinylv1alpha1.BackendSpec{
+				{Name: "app", ServiceRef: vinylv1alpha1.ServiceRef{Name: "svc"}},
+			},
+		},
+	}
+}
+
+func TestValidate_PodVolumeName_ReservedIsRejected(t *testing.T) {
+	vc := validBaseVinylCache()
+	vc.Spec.Pod.Volumes = []corev1.Volume{{
+		Name:         "varnish-workdir", // reserved
+		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+	}}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "varnish-workdir")
+	assert.Contains(t, err.Error(), "reserved")
+}
+
+func TestValidate_VolumeClaimTemplateName_ReservedIsRejected(t *testing.T) {
+	vc := validBaseVinylCache()
+	vc.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{{
+		ObjectMeta: metav1.ObjectMeta{Name: "bootstrap-vcl"}, // reserved
+	}}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "bootstrap-vcl")
+}
+
+func TestValidate_VolumeNameDuplicate_AcrossVolumesAndClaims_Rejected(t *testing.T) {
+	vc := validBaseVinylCache()
+	vc.Spec.Pod.Volumes = []corev1.Volume{{
+		Name:         "cache-ssd",
+		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+	}}
+	vc.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{{
+		ObjectMeta: metav1.ObjectMeta{Name: "cache-ssd"},
+	}}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cache-ssd")
+	assert.Contains(t, err.Error(), "duplicate")
+}
+
+func TestValidate_VolumeMountPath_ReservedIsRejected(t *testing.T) {
+	vc := validBaseVinylCache()
+	vc.Spec.Pod.Volumes = []corev1.Volume{{
+		Name:         "my-ssd",
+		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+	}}
+	vc.Spec.Pod.VolumeMounts = []corev1.VolumeMount{
+		{Name: "my-ssd", MountPath: "/var/lib/varnish"}, // reserved
+	}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "/var/lib/varnish")
+}
+
+func TestValidate_VolumeMountName_Unresolvable_Rejected(t *testing.T) {
+	vc := validBaseVinylCache()
+	vc.Spec.Pod.VolumeMounts = []corev1.VolumeMount{
+		{Name: "nonexistent", MountPath: "/data"},
+	}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nonexistent")
+	assert.Contains(t, err.Error(), "not declared")
+}
+
+func TestValidate_StoragePath_UnderReservedMount_Rejected(t *testing.T) {
+	vc := validBaseVinylCache()
+	vc.Spec.Storage = []vinylv1alpha1.StorageSpec{{
+		Name: "disk",
+		Type: "file",
+		Path: "/var/lib/varnish/spill.bin", // under reserved /var/lib/varnish
+		Size: resource.MustParse("10Gi"),
+	}}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "/var/lib/varnish")
+	assert.Contains(t, err.Error(), "storage")
+}
+
+func TestValidate_StoragePath_UnderUserMount_Accepted(t *testing.T) {
+	vc := validBaseVinylCache()
+	vc.Spec.Pod.Volumes = []corev1.Volume{{
+		Name:         "cache-ssd",
+		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+	}}
+	vc.Spec.Pod.VolumeMounts = []corev1.VolumeMount{
+		{Name: "cache-ssd", MountPath: "/var/lib/varnish-cache"},
+	}
+	vc.Spec.Storage = []vinylv1alpha1.StorageSpec{{
+		Name: "disk",
+		Type: "file",
+		Path: "/var/lib/varnish-cache/spill.bin",
+		Size: resource.MustParse("10Gi"),
+	}}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.NoError(t, err)
 }
