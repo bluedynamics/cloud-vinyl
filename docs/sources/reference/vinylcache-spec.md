@@ -133,9 +133,10 @@ spec:
   replicas: 3
   backends:
     - name: api
-      host: api-service.production.svc.cluster.local
+      serviceRef:
+        name: api-service
       port: 8080
-      healthCheck:
+      probe:
         url: /healthz
         interval: 5s
         threshold: 3
