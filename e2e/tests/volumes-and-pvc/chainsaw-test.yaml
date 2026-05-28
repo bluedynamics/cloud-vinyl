@@ -1,0 +1,70 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: volumes-and-pvc
+spec:
+  description: |
+    Verify spec.pod.volumes and spec.pod.volumeMounts are passed through
+    to the generated StatefulSet and the VinylCache reaches Ready phase
+    with a user-declared EmptyDir mounted under a path consumed by
+    spec.storage[].path.
+  timeouts:
+    apply: 10s
+    assert: 180s
+    delete: 60s
+    cleanup: 60s
+    exec: 30s
+  steps:
+    - name: deploy-backend
+      try:
+        - apply:
+            file: ../../fixtures/backends/echo-service.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-backend
+              status:
+                readyReplicas: 1
+
+    - name: deploy-cache-with-ssd-volume
+      try:
+        - apply:
+            file: ../../fixtures/vinylcaches/ssd-backed-storage.yaml
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: ssd-cache
+              status:
+                phase: Ready
+
+    - name: verify-statefulset-has-user-volumes
+      try:
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: ssd-cache
+              spec:
+                template:
+                  spec:
+                    (volumes[?name=='cache-ssd']):
+                      - name: cache-ssd
+                        emptyDir:
+                          sizeLimit: 200Mi
+                    # Pipe + [0] so .volumeMounts returns a flat list
+                    # instead of list-of-lists from projection semantics.
+                    (containers[?name=='varnish'] | [0].volumeMounts[?name=='cache-ssd']):
+                      - name: cache-ssd
+                        mountPath: /var/lib/varnish-cache
+
+    - name: cleanup
+      try:
+        - delete:
+            file: ../../fixtures/vinylcaches/ssd-backed-storage.yaml
+        - delete:
+            file: ../../fixtures/backends/echo-service.yaml

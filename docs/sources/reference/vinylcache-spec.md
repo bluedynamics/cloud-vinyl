@@ -25,6 +25,9 @@
 | `proxyProtocol.port` | integer | no | PROXY protocol port (default: `8081` when enabled). |
 | `service.annotations` | object | no | Annotations on the traffic Service. |
 | `pod.labels` | object | no | Extra labels on Vinyl Cache pods. |
+| `pod.volumes` | list | no | Additional pod volumes appended to operator-managed defaults. Reserved names rejected by webhook. See [SSD-backed storage how-to](../how-to/ssd-backed-storage.md). |
+| `pod.volumeMounts` | list | no | Additional mounts on the varnish container. Each `name` must reference a `spec.pod.volumes` entry or a `spec.volumeClaimTemplates` claim name. Reserved mount paths rejected by webhook. |
+| `volumeClaimTemplates` | list | no | StatefulSet-native per-replica PVC templates. Reference the claim `name` from `spec.pod.volumeMounts`. |
 
 ### backends
 
@@ -130,9 +133,10 @@ spec:
   replicas: 3
   backends:
     - name: api
-      host: api-service.production.svc.cluster.local
+      serviceRef:
+        name: api-service
       port: 8080
-      healthCheck:
+      probe:
         url: /healthz
         interval: 5s
         threshold: 3

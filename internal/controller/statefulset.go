@@ -124,6 +124,11 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 			Resources: vc.Spec.Resources,
 		}
 
+		// Append user-declared volume mounts to the varnish container.
+		if len(vc.Spec.Pod.VolumeMounts) > 0 {
+			varnishContainer.VolumeMounts = append(varnishContainer.VolumeMounts, vc.Spec.Pod.VolumeMounts...)
+		}
+
 		// Add proxy protocol port if enabled.
 		if vc.Spec.ProxyProtocol.Enabled {
 			ppPort := int32(8081)
@@ -228,6 +233,11 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 			},
 		}
 
+		// Append user-declared pod volumes after the operator-managed defaults.
+		if len(vc.Spec.Pod.Volumes) > 0 {
+			volumes = append(volumes, vc.Spec.Pod.Volumes...)
+		}
+
 		uid := int64(65532)
 		podSpec := corev1.PodSpec{
 			Containers:        []corev1.Container{varnishContainer, agentContainer},
@@ -257,6 +267,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 				},
 				Spec: podSpec,
 			},
+			VolumeClaimTemplates: vc.Spec.VolumeClaimTemplates,
 		}
 
 		return nil
