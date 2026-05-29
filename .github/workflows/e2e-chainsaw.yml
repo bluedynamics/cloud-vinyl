@@ -70,7 +70,7 @@ jobs:
         run: |
           chainsaw test \
             --test-dir e2e/tests \
-            --parallel 3 \
+            --parallel 2 \
             --exclude-test-regex "(ha-operator|drift-detection)"
 
       - name: Run sequential E2E tests
