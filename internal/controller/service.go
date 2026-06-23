@@ -76,6 +76,14 @@ func (r *VinylCacheReconciler) reconcileHeadlessService(ctx context.Context, vc 
 					TargetPort: intstr.FromInt32(varnishPort),
 					Protocol:   corev1.ProtocolTCP,
 				},
+				{
+					// Exposed so the ServiceMonitor can scrape the varnish-exporter
+					// sidecar. Harmless when the exporter is disabled (no listener).
+					Name:       "exporter",
+					Port:       exporterPort,
+					TargetPort: intstr.FromInt32(exporterPort),
+					Protocol:   corev1.ProtocolTCP,
+				},
 			},
 		}
 		return nil
