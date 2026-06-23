@@ -75,3 +75,28 @@ func TestGeneratePrometheusRule_VCLSyncFailed_UsesCorrectMetric(t *testing.T) {
 	}
 	assert.True(t, found, "VinylCacheVCLSyncFailed alert not found")
 }
+
+func findAlertExpr(rule *monitoring.PrometheusRule, name string) (string, bool) {
+	for _, r := range rule.Spec.Groups[0].Rules {
+		if r.Alert == name {
+			return r.Expr.String(), true
+		}
+	}
+	return "", false
+}
+
+func TestPrometheusRule_HitRatioUsesExporterMetric(t *testing.T) {
+	rule := monitoring.GeneratePrometheusRule("cloud-vinyl")
+	expr, ok := findAlertExpr(rule, "VinylCacheLowHitRatio")
+	require.True(t, ok)
+	assert.Contains(t, expr, "varnish_main_cache_hit")
+	assert.NotContains(t, expr, "vinyl_cache_hit_ratio")
+}
+
+func TestPrometheusRule_BackendHealthUsesExporterMetric(t *testing.T) {
+	rule := monitoring.GeneratePrometheusRule("cloud-vinyl")
+	expr, ok := findAlertExpr(rule, "VinylCacheBackendUnhealthy")
+	require.True(t, ok)
+	assert.Contains(t, expr, "varnish_backend_happy")
+	assert.NotContains(t, expr, "vinyl_backend_health")
+}
