@@ -23,8 +23,12 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
 	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
+	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
 )
 
 // mockAgentClient is a test double for AgentClient.
@@ -69,6 +73,21 @@ func makePeers(n int) []generator.PeerBackend {
 		peers[i] = generator.PeerBackend{Name: "pod_" + string(rune('0'+i)), IP: "10.0.0." + string(rune('1'+i)), Port: 8080}
 	}
 	return peers
+}
+
+func TestPushVCL_RecordsMetricsPerPeer(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := monitoring.NewMetrics(reg)
+	r := makeReconcilerWithMock(&mockAgentClient{pushErr: nil})
+	r.Metrics = m
+
+	peers := makePeers(2)
+	if err := r.pushVCL(context.Background(), makeVC(), makeResult(), peers); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if got := testutil.ToFloat64(m.VCLPushTotal.WithLabelValues("test-cache", "default", "success")); got != 2 {
+		t.Errorf("expected 2 successful pushes counted, got %v", got)
+	}
 }
 
 func TestPushVCL_AllPodsSuccess(t *testing.T) {

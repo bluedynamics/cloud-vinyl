@@ -48,6 +48,13 @@ func (r *VinylCacheReconciler) pushVCL(
 		return nil // Not an error — updateStatus will set partial state, reconciler will requeue
 	}
 
+	pushStart := time.Now()
+	defer func() {
+		if r.Metrics != nil {
+			r.Metrics.VCLPushDuration.Observe(time.Since(pushStart).Seconds())
+		}
+	}()
+
 	maxAttempts := int32(3)
 	if vc.Spec.Retry.MaxAttempts > 0 {
 		maxAttempts = vc.Spec.Retry.MaxAttempts
@@ -109,9 +116,14 @@ func (r *VinylCacheReconciler) pushVCL(
 
 	failCount := 0
 	for _, pr := range results {
+		res := "success"
 		if pr.err != nil {
+			res = "error"
 			failCount++
 			log.Error(pr.err, "VCL push failed for pod", "pod", pr.peer.Name)
+		}
+		if r.Metrics != nil {
+			r.Metrics.VCLPushTotal.WithLabelValues(vc.Name, vc.Namespace, res).Inc()
 		}
 	}
 
