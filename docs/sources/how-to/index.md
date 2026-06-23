@@ -10,5 +10,6 @@ create-cache
 ssd-backed-storage
 per-backend-directors
 purge-ban
+setup-monitoring
 upgrade
 ```
