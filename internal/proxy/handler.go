@@ -25,8 +25,32 @@ type xkeyRequest struct {
 	Keys []string `json:"keys"`
 }
 
+// recordInvalidation records invalidation + broadcast + partial-failure metrics.
+func (s *Server) recordInvalidation(namespace, cacheName, typ string, start time.Time, res BroadcastResult) {
+	if s.metrics == nil {
+		return
+	}
+	outcome := "success"
+	if res.Succeeded == 0 {
+		outcome = "error"
+	}
+	s.metrics.InvalidationTotal.WithLabelValues(cacheName, namespace, typ, outcome).Inc()
+	s.metrics.InvalidationDuration.Observe(time.Since(start).Seconds())
+	for _, pr := range res.Results {
+		r := "success"
+		if pr.Status < 200 || pr.Status >= 300 {
+			r = "error"
+		}
+		s.metrics.BroadcastTotal.WithLabelValues(pr.Pod, r).Inc()
+	}
+	if res.Succeeded > 0 && res.Succeeded < res.Total {
+		s.metrics.PartialFailureTotal.WithLabelValues(cacheName, namespace).Inc()
+	}
+}
+
 // handlePurge broadcasts a PURGE request to all Varnish pod IPs on varnishPort.
-func (s *Server) handlePurge(w http.ResponseWriter, r *http.Request, pods []string) {
+func (s *Server) handlePurge(w http.ResponseWriter, r *http.Request, namespace, cacheName string, pods []string) {
+	start := time.Now()
 	podAddrs := withPort(pods, varnishPort)
 	req := BroadcastRequest{
 		Method:  "PURGE",
@@ -38,12 +62,14 @@ func (s *Server) handlePurge(w http.ResponseWriter, r *http.Request, pods []stri
 	defer cancel()
 
 	result := s.broadcaster.Broadcast(ctx, podAddrs, req)
+	s.recordInvalidation(namespace, cacheName, "purge", start, result)
 	WriteResult(w, result)
 }
 
 // handleBAN handles BAN requests (both BAN method and POST /ban).
 // It validates the ban expression and broadcasts it to the agent API on each pod.
-func (s *Server) handleBAN(w http.ResponseWriter, r *http.Request, pods []string, namespace string) {
+func (s *Server) handleBAN(w http.ResponseWriter, r *http.Request, namespace, cacheName string, pods []string) {
+	start := time.Now()
 	var expression string
 
 	switch r.Method {
@@ -92,11 +118,13 @@ func (s *Server) handleBAN(w http.ResponseWriter, r *http.Request, pods []string
 	defer cancel()
 
 	result := s.broadcaster.Broadcast(ctx, podAddrs, req)
+	s.recordInvalidation(namespace, cacheName, "ban", start, result)
 	WriteResult(w, result)
 }
 
 // handleXkey broadcasts PURGE requests with X-Xkey-Purge header for each key.
-func (s *Server) handleXkey(w http.ResponseWriter, r *http.Request, pods []string) {
+func (s *Server) handleXkey(w http.ResponseWriter, r *http.Request, namespace, cacheName string, pods []string) {
+	start := time.Now()
 	var body xkeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
@@ -136,6 +164,7 @@ func (s *Server) handleXkey(w http.ResponseWriter, r *http.Request, pods []strin
 		Succeeded: totalSucceeded,
 		Results:   allResults,
 	}
+	s.recordInvalidation(namespace, cacheName, "xkey", start, result)
 	WriteResult(w, result)
 }
 

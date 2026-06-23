@@ -209,6 +209,7 @@ func main() {
 	// Register vinyl_* metrics into the controller-runtime registry so they are
 	// served by the existing /metrics endpoint. Shared by the reconciler and proxy.
 	vinylMetrics := monitoring.NewMetrics(ctrlmetrics.Registry)
+	proxyServer.SetMetrics(vinylMetrics)
 
 	if err := (&controller.VinylCacheReconciler{
 		Client:    mgr.GetClient(),

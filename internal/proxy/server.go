@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"time"
+
+	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
 )
 
 // TokenProvider returns the agent Bearer token for a given namespace.
@@ -26,7 +28,11 @@ type Server struct {
 	tokenProvider TokenProvider
 	acl           map[string]*ACL // per-cache ACLs, keyed by "namespace/cacheName"
 	rateLimiter   RateLimiter
+	metrics       *monitoring.Metrics // nil-safe
 }
+
+// SetMetrics installs a nil-safe metrics recorder.
+func (s *Server) SetMetrics(m *monitoring.Metrics) { s.metrics = m }
 
 // NewServer creates a new Server with the given dependencies.
 // acl and rateLimiter may be nil; nil acl allows all sources, nil rateLimiter
@@ -94,13 +100,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 5. Dispatch.
 	switch {
 	case r.Method == "PURGE":
-		s.handlePurge(w, r, pods)
+		s.handlePurge(w, r, namespace, cacheName, pods)
 	case r.Method == "BAN":
-		s.handleBAN(w, r, pods, namespace)
+		s.handleBAN(w, r, namespace, cacheName, pods)
 	case r.Method == http.MethodPost && r.URL.Path == "/ban":
-		s.handleBAN(w, r, pods, namespace)
+		s.handleBAN(w, r, namespace, cacheName, pods)
 	case r.Method == http.MethodPost && r.URL.Path == "/purge/xkey":
-		s.handleXkey(w, r, pods)
+		s.handleXkey(w, r, namespace, cacheName, pods)
 	default:
 		writeJSONError(w, http.StatusNotFound, "no route for "+r.Method+" "+r.URL.Path)
 	}
