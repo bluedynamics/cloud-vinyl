@@ -562,6 +562,39 @@ type MonitoringSpec struct {
 	// serviceMonitor configures a ServiceMonitor for Prometheus Operator scraping.
 	// +optional
 	ServiceMonitor *ServiceMonitorSpec `json:"serviceMonitor,omitempty"`
+
+	// exporter configures the prometheus_varnish_exporter sidecar that exposes
+	// native varnish_* metrics (cache hit/miss, backend health) from varnishstat.
+	// +optional
+	Exporter *ExporterSpec `json:"exporter,omitempty"`
+}
+
+// ExporterSpec configures the varnish metrics exporter sidecar.
+type ExporterSpec struct {
+	// enabled adds a prometheus_varnish_exporter sidecar to each Varnish pod.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// image overrides the exporter image. Defaults to
+	// ghcr.io/bluedynamics/varnish-exporter:1.6.1.
+	// +optional
+	Image ExporterImageSpec `json:"image,omitempty"`
+
+	// port is the container port the exporter listens on. Defaults to 9131.
+	// +optional
+	Port int32 `json:"port,omitempty"`
+
+	// resources sets the exporter container resource requirements.
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+// ExporterImageSpec is the exporter container image reference.
+type ExporterImageSpec struct {
+	// +optional
+	Repository string `json:"repository,omitempty"`
+	// +optional
+	Tag string `json:"tag,omitempty"`
 }
 
 // PrometheusRulesSpec configures PrometheusRule objects for alerting.
