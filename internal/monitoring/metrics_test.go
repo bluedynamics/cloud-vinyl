@@ -20,8 +20,6 @@ func TestNewMetrics_AllFieldsNotNil(t *testing.T) {
 	assert.NotNil(t, m.InvalidationDuration)
 	assert.NotNil(t, m.BroadcastTotal)
 	assert.NotNil(t, m.PartialFailureTotal)
-	assert.NotNil(t, m.HitRatio)
-	assert.NotNil(t, m.BackendHealth)
 	assert.NotNil(t, m.VCLVersionsLoaded)
 	assert.NotNil(t, m.ReconcileTotal)
 	assert.NotNil(t, m.ReconcileDuration)
@@ -49,8 +47,7 @@ func TestNewMetrics_AllRegisteredInRegistry(t *testing.T) {
 	// Observe one value to make it gatherable
 	m.VCLPushTotal.WithLabelValues("my-cache", "default", "success").Inc()
 	m.ReconcileTotal.WithLabelValues("my-cache", "default", "ok").Inc()
-	m.HitRatio.WithLabelValues("my-cache", "default").Set(0.95)
-	m.BackendHealth.WithLabelValues("my-cache", "default", "app").Set(1.0)
+	m.VCLVersionsLoaded.WithLabelValues("my-cache", "default").Set(1.0)
 	m.BroadcastTotal.WithLabelValues("pod-0", "success").Inc()
 
 	mfs2, err := reg2.Gather()
@@ -61,9 +58,21 @@ func TestNewMetrics_AllRegisteredInRegistry(t *testing.T) {
 	}
 	assert.True(t, gathered["vinyl_vcl_push_total"])
 	assert.True(t, gathered["vinyl_reconcile_total"])
-	assert.True(t, gathered["vinyl_cache_hit_ratio"])
-	assert.True(t, gathered["vinyl_backend_health"])
+	assert.True(t, gathered["vinyl_vcl_versions_loaded"])
 	assert.True(t, gathered["vinyl_broadcast_total"])
+}
+
+func TestMetrics_HitRatioAndBackendHealthRemoved(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	_ = monitoring.NewMetrics(reg)
+	mfs, err := reg.Gather()
+	require.NoError(t, err)
+	names := map[string]bool{}
+	for _, mf := range mfs {
+		names[mf.GetName()] = true
+	}
+	assert.False(t, names["vinyl_cache_hit_ratio"], "hit ratio gauge should be removed (exporter is the source)")
+	assert.False(t, names["vinyl_backend_health"], "backend health gauge should be removed (exporter is the source)")
 }
 
 func TestNewMetrics_Labels_VCLPushTotal(t *testing.T) {
@@ -72,13 +81,6 @@ func TestNewMetrics_Labels_VCLPushTotal(t *testing.T) {
 	// Should not panic with correct labels
 	m.VCLPushTotal.WithLabelValues("my-cache", "production", "success").Inc()
 	m.VCLPushTotal.WithLabelValues("my-cache", "production", "error").Inc()
-}
-
-func TestNewMetrics_Labels_BackendHealth(t *testing.T) {
-	reg := prometheus.NewRegistry()
-	m := monitoring.NewMetrics(reg)
-	m.BackendHealth.WithLabelValues("my-cache", "default", "app-backend").Set(1.0)
-	m.BackendHealth.WithLabelValues("my-cache", "default", "legacy-backend").Set(0.0)
 }
 
 func TestNewMetrics_NilSafe_NilMetrics(t *testing.T) {

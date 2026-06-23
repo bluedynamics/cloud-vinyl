@@ -17,9 +17,10 @@ type Metrics struct {
 	BroadcastTotal       *prometheus.CounterVec // labels: pod, result (success|error)
 	PartialFailureTotal  *prometheus.CounterVec // labels: cache, namespace
 
-	// Cache state
-	HitRatio          *prometheus.GaugeVec // labels: cache, namespace
-	BackendHealth     *prometheus.GaugeVec // labels: cache, namespace, backend
+	// Cache state.
+	// Note: hit-ratio and backend-health are NOT operator-side gauges — they come
+	// from the prometheus_varnish_exporter sidecar (varnish_main_cache_hit/miss,
+	// backend health) and are computed in PromQL/Grafana.
 	VCLVersionsLoaded *prometheus.GaugeVec // labels: cache, namespace
 
 	// Operator
@@ -69,18 +70,6 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		Help: "Total number of partial broadcast failures (some pods unreachable).",
 	}, []string{"cache", "namespace"})
 	reg.MustRegister(m.PartialFailureTotal)
-
-	m.HitRatio = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "vinyl_cache_hit_ratio",
-		Help: "Current cache hit ratio (hits / (hits + misses)).",
-	}, []string{"cache", "namespace"})
-	reg.MustRegister(m.HitRatio)
-
-	m.BackendHealth = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "vinyl_backend_health",
-		Help: "Backend health status (1 = healthy, 0 = unhealthy).",
-	}, []string{"cache", "namespace", "backend"})
-	reg.MustRegister(m.BackendHealth)
 
 	m.VCLVersionsLoaded = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "vinyl_vcl_versions_loaded",
