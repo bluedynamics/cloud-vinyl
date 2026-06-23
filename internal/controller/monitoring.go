@@ -59,7 +59,7 @@ func (r *VinylCacheReconciler) reconcileMonitoring(ctx context.Context, vc *v1al
 
 // crdInstalled reports whether the cluster knows the given GVK.
 func (r *VinylCacheReconciler) crdInstalled(gvk schema.GroupVersionKind) bool {
-	mapper := r.Client.RESTMapper()
+	mapper := r.RESTMapper()
 	if mapper == nil {
 		return false
 	}
