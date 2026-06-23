@@ -95,7 +95,7 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// 2. Deletion handling.
 	if !vc.DeletionTimestamp.IsZero() {
-		return r.handleDeletion(ctx, vc)
+		return ctrl.Result{}, r.handleDeletion(ctx, vc)
 	}
 
 	// 3. Ensure finalizer.
