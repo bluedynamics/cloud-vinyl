@@ -34,3 +34,9 @@ rules:
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Optional monitoring resources generated per VinylCache (spec.monitoring).
+  # Only used when the prometheus-operator CRDs are installed.
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["servicemonitors", "prometheusrules"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

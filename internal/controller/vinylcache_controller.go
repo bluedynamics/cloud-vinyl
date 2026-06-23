@@ -69,6 +69,7 @@ type VinylCacheReconciler struct {
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors;prometheusrules,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is the main reconciliation loop for VinylCache objects.
 func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, retErr error) {
@@ -115,6 +116,11 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// 6. Reconcile Services.
 	if err := r.reconcileServices(ctx, vc); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// 6b. Reconcile optional monitoring resources (ServiceMonitor / PrometheusRule).
+	if err := r.reconcileMonitoring(ctx, vc); err != nil {
 		return ctrl.Result{}, err
 	}
 
