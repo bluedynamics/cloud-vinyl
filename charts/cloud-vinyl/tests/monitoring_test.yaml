@@ -34,6 +34,29 @@ tests:
           path: spec.groups[0].name
           value: cloud-vinyl
 
+  - it: PrometheusRule should apply additionalLabels
+    template: prometheusrule.yaml
+    set:
+      monitoring.prometheusRules.enabled: true
+      monitoring.prometheusRules.additionalLabels:
+        release: kube-prometheus-stack
+    asserts:
+      - equal:
+          path: metadata.labels.release
+          value: kube-prometheus-stack
+
+  - it: PrometheusRule hit-ratio and backend alerts use exporter metrics
+    template: prometheusrule.yaml
+    set:
+      monitoring.prometheusRules.enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.groups[0].rules[4].expr
+          pattern: varnish_main_cache_hit
+      - equal:
+          path: spec.groups[0].rules[3].expr
+          value: "varnish_backend_happy == 0"
+
   - it: ServiceMonitor should not be rendered when disabled
     template: servicemonitor.yaml
     set:
