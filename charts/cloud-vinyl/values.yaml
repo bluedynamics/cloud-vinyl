@@ -64,6 +64,10 @@ monitoring:
   prometheusRules:
     # Deploy a PrometheusRule with 10 pre-defined alerts (architektur.md §8.5).
     enabled: false
+    # Extra labels for the PrometheusRule, e.g. to match a Prometheus ruleSelector
+    # such as {release: kube-prometheus-stack}. Without a matching label the rule
+    # is created but never loaded by Prometheus.
+    additionalLabels: {}
   serviceMonitor:
     # Deploy a ServiceMonitor for Prometheus Operator scraping.
     enabled: false

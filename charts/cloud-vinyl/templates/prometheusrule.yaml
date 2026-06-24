@@ -7,6 +7,9 @@ metadata:
   labels:
     {{- include "cloud-vinyl.labels" . | nindent 4 }}
     app.kubernetes.io/part-of: cloud-vinyl
+    {{- with .Values.monitoring.prometheusRules.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
   groups:
     - name: cloud-vinyl
@@ -36,7 +39,7 @@ spec:
             summary: "All Varnish pods unreachable for {{ "{{" }} $labels.cache {{ "}}" }}"
             description: "Cannot reach any Varnish pod in cache {{ "{{" }} $labels.cache {{ "}}" }}. Cache is not serving requests correctly."
         - alert: VinylCacheBackendUnhealthy
-          expr: 'vinyl_backend_health == 0'
+          expr: 'varnish_backend_happy == 0'
           for: 5m
           labels:
             severity: warning
@@ -44,7 +47,7 @@ spec:
             summary: "Backend {{ "{{" }} $labels.backend {{ "}}" }} unhealthy"
             description: "Backend {{ "{{" }} $labels.backend {{ "}}" }} for cache {{ "{{" }} $labels.cache {{ "}}" }} is reporting unhealthy."
         - alert: VinylCacheLowHitRatio
-          expr: 'vinyl_cache_hit_ratio < 0.5'
+          expr: '(sum(rate(varnish_main_cache_hit[5m])) by (namespace, pod)) / (sum(rate(varnish_main_cache_hit[5m])) by (namespace, pod) + sum(rate(varnish_main_cache_miss[5m])) by (namespace, pod)) < 0.5'
           for: 15m
           labels:
             severity: warning
