@@ -35,6 +35,13 @@ import (
 // labelVinylCacheName is the label key used to identify resources belonging to a VinylCache.
 const labelVinylCacheName = "vinyl.bluedynamics.eu/cache-name"
 
+const (
+	// exporterPort is the default prometheus_varnish_exporter listen port.
+	exporterPort = int32(9131)
+	// defaultExporterImage is the default varnish exporter sidecar image.
+	defaultExporterImage = "ghcr.io/bluedynamics/varnish-exporter:1.6.1"
+)
+
 // reconcileStatefulSet creates or updates the StatefulSet for the VinylCache.
 func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1alpha1.VinylCache) error {
 	sts := &appsv1.StatefulSet{
@@ -238,9 +245,14 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 			volumes = append(volumes, vc.Spec.Pod.Volumes...)
 		}
 
+		containers := []corev1.Container{varnishContainer, agentContainer}
+		if exp := vc.Spec.Monitoring.Exporter; exp != nil && exp.Enabled {
+			containers = append(containers, buildExporterContainer(exp))
+		}
+
 		uid := int64(65532)
 		podSpec := corev1.PodSpec{
-			Containers:        []corev1.Container{varnishContainer, agentContainer},
+			Containers:        containers,
 			Volumes:           volumes,
 			NodeSelector:      vc.Spec.Pod.NodeSelector,
 			Tolerations:       vc.Spec.Pod.Tolerations,
@@ -282,6 +294,39 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 // boolPtr returns a pointer to a bool value.
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+// buildExporterContainer returns the prometheus_varnish_exporter sidecar. It
+// shares the varnish-workdir volume read-only to read the VSM (varnishstat) data.
+func buildExporterContainer(exp *v1alpha1.ExporterSpec) corev1.Container {
+	image := defaultExporterImage
+	if exp.Image.Repository != "" {
+		tag := exp.Image.Tag
+		if tag == "" {
+			tag = "latest"
+		}
+		image = exp.Image.Repository + ":" + tag
+	}
+	port := exporterPort
+	if exp.Port != 0 {
+		port = exp.Port
+	}
+	return corev1.Container{
+		Name:  "vinyl-exporter",
+		Image: image,
+		Ports: []corev1.ContainerPort{
+			{Name: "exporter", ContainerPort: port, Protocol: corev1.ProtocolTCP},
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: "varnish-workdir", MountPath: "/var/lib/varnish", ReadOnly: true},
+		},
+		SecurityContext: &corev1.SecurityContext{
+			RunAsNonRoot:             boolPtr(true),
+			ReadOnlyRootFilesystem:   boolPtr(true),
+			AllowPrivilegeEscalation: boolPtr(false),
+		},
+		Resources: exp.Resources,
+	}
 }
 
 // storageArgs renders spec.storage entries as varnishd "-s <name>=<type>,..."

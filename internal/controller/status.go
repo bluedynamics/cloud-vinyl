@@ -45,6 +45,12 @@ func (r *VinylCacheReconciler) updateStatus(
 		PushedAt: &now,
 	}
 
+	if r.Metrics != nil {
+		// One active VCL version after a successful generate/push. A richer
+		// drift count (via agent vcl.list) is intentionally out of scope here.
+		r.Metrics.VCLVersionsLoaded.WithLabelValues(vc.Name, vc.Namespace).Set(1)
+	}
+
 	// Rebuild ClusterPeers from ready peers.
 	vc.Status.ClusterPeers = make([]v1alpha1.ClusterPeerStatus, 0, len(peers))
 	for _, p := range peers {

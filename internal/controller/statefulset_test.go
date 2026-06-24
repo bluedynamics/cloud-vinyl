@@ -46,6 +46,62 @@ func TestStorageArgs_Empty(t *testing.T) {
 	assert.Nil(t, storageArgs([]v1alpha1.StorageSpec{}))
 }
 
+func exporterBaseVC() *v1alpha1.VinylCache {
+	return &v1alpha1.VinylCache{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
+		Spec: v1alpha1.VinylCacheSpec{
+			Replicas: 1,
+			Image:    "varnish:7.6",
+			Backends: []v1alpha1.BackendSpec{{Name: "app", ServiceRef: v1alpha1.ServiceRef{Name: "svc"}}},
+		},
+	}
+}
+
+func getStatefulSet(t *testing.T, vc *v1alpha1.VinylCache) *appsv1.StatefulSet {
+	t.Helper()
+	sch := newScheme(t)
+	cli := fake.NewClientBuilder().WithScheme(sch).Build()
+	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
+	require.NoError(t, r.reconcileStatefulSet(context.Background(), vc))
+	ss := &appsv1.StatefulSet{}
+	require.NoError(t, cli.Get(context.Background(),
+		types.NamespacedName{Name: vc.Name, Namespace: vc.Namespace}, ss))
+	return ss
+}
+
+func TestReconcileStatefulSet_ExporterSidecarWhenEnabled(t *testing.T) {
+	vc := exporterBaseVC()
+	vc.Spec.Monitoring.Exporter = &v1alpha1.ExporterSpec{Enabled: true}
+
+	ss := getStatefulSet(t, vc)
+
+	var exporter *corev1.Container
+	for i := range ss.Spec.Template.Spec.Containers {
+		if ss.Spec.Template.Spec.Containers[i].Name == "vinyl-exporter" {
+			exporter = &ss.Spec.Template.Spec.Containers[i]
+		}
+	}
+	require.NotNil(t, exporter, "exporter sidecar must be present when enabled")
+	assert.Equal(t, "ghcr.io/bluedynamics/varnish-exporter:1.6.1", exporter.Image)
+
+	var mount *corev1.VolumeMount
+	for i := range exporter.VolumeMounts {
+		if exporter.VolumeMounts[i].MountPath == "/var/lib/varnish" {
+			mount = &exporter.VolumeMounts[i]
+		}
+	}
+	require.NotNil(t, mount, "exporter must mount /var/lib/varnish")
+	assert.True(t, mount.ReadOnly, "exporter VSM mount must be read-only")
+	assert.Equal(t, "varnish-workdir", mount.Name)
+}
+
+func TestReconcileStatefulSet_NoExporterByDefault(t *testing.T) {
+	ss := getStatefulSet(t, exporterBaseVC())
+	for _, c := range ss.Spec.Template.Spec.Containers {
+		assert.NotEqual(t, "vinyl-exporter", c.Name)
+	}
+}
+
 func TestReconcileStatefulSet_UserVolumesAndMountsAppended(t *testing.T) {
 	sch := newScheme(t)
 	quantity := resource.MustParse("100Mi")

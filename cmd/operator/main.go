@@ -33,6 +33,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -40,6 +41,7 @@ import (
 	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 	"github.com/bluedynamics/cloud-vinyl/internal/controller"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
+	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
 	"github.com/bluedynamics/cloud-vinyl/internal/proxy"
 	webhookv1alpha1 "github.com/bluedynamics/cloud-vinyl/internal/webhook/v1alpha1"
 	// +kubebuilder:scaffold:imports
@@ -204,10 +206,16 @@ func main() {
 		}
 	}()
 
+	// Register vinyl_* metrics into the controller-runtime registry so they are
+	// served by the existing /metrics endpoint. Shared by the reconciler and proxy.
+	vinylMetrics := monitoring.NewMetrics(ctrlmetrics.Registry)
+	proxyServer.SetMetrics(vinylMetrics)
+
 	if err := (&controller.VinylCacheReconciler{
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
 		Generator: generator.New(),
+		Metrics:   vinylMetrics,
 		AgentClient: &controller.HTTPAgentClient{
 			HTTPClient: &http.Client{Timeout: agentClientTimeout},
 			K8sClient:  mgr.GetClient(),

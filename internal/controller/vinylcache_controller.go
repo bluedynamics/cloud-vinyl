@@ -34,6 +34,7 @@ import (
 
 	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
+	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
 	"github.com/bluedynamics/cloud-vinyl/internal/proxy"
 )
 
@@ -55,7 +56,9 @@ type VinylCacheReconciler struct {
 	// Proxy integration (optional — nil when proxy is disabled).
 	ProxyRouter *proxy.RegisteredRouter
 	ProxyPodMap *proxy.PodMap
-	debouncer   *debouncer // lazy-init in SetupWithManager
+	// Metrics is nil-safe; nil disables metric recording (used in tests).
+	Metrics   *monitoring.Metrics
+	debouncer *debouncer // lazy-init in SetupWithManager
 }
 
 // +kubebuilder:rbac:groups=vinyl.bluedynamics.eu,resources=vinylcaches,verbs=get;list;watch;create;update;patch;delete
@@ -66,10 +69,23 @@ type VinylCacheReconciler struct {
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors;prometheusrules,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is the main reconciliation loop for VinylCache objects.
-func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, retErr error) {
 	log := logf.FromContext(ctx)
+
+	start := time.Now()
+	result := "success"
+	defer func() {
+		if retErr != nil {
+			result = "error"
+		}
+		if r.Metrics != nil {
+			r.Metrics.ReconcileTotal.WithLabelValues(req.Name, req.Namespace, result).Inc()
+			r.Metrics.ReconcileDuration.Observe(time.Since(start).Seconds())
+		}
+	}()
 
 	// 1. Load VinylCache.
 	vc := &v1alpha1.VinylCache{}
@@ -79,7 +95,7 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// 2. Deletion handling.
 	if !vc.DeletionTimestamp.IsZero() {
-		return r.handleDeletion(ctx, vc)
+		return ctrl.Result{}, r.handleDeletion(ctx, vc)
 	}
 
 	// 3. Ensure finalizer.
@@ -100,6 +116,11 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// 6. Reconcile Services.
 	if err := r.reconcileServices(ctx, vc); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// 6b. Reconcile optional monitoring resources (ServiceMonitor / PrometheusRule).
+	if err := r.reconcileMonitoring(ctx, vc); err != nil {
 		return ctrl.Result{}, err
 	}
 

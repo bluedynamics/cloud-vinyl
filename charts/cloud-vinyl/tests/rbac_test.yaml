@@ -46,6 +46,16 @@ tests:
             resources: ["endpointslices"]
             verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
+  - it: ClusterRole should contain monitoring.coreos.com permissions
+    template: clusterrole.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["monitoring.coreos.com"]
+            resources: ["servicemonitors", "prometheusrules"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
   - it: ClusterRoleBinding should be created
     template: clusterrolebinding.yaml
     asserts:

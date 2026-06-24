@@ -94,7 +94,7 @@ func allAlerts() []Rule {
 		},
 		{
 			Alert:  "VinylCacheBackendUnhealthy",
-			Expr:   intstr.FromString(`vinyl_backend_health == 0`),
+			Expr:   intstr.FromString(`varnish_backend_happy == 0`),
 			For:    "5m",
 			Labels: map[string]string{"severity": "warning"},
 			Annotations: map[string]string{
@@ -104,7 +104,7 @@ func allAlerts() []Rule {
 		},
 		{
 			Alert:  "VinylCacheLowHitRatio",
-			Expr:   intstr.FromString(`vinyl_cache_hit_ratio < 0.5`),
+			Expr:   intstr.FromString(`(sum(rate(varnish_main_cache_hit[5m])) by (namespace, pod)) / (sum(rate(varnish_main_cache_hit[5m])) by (namespace, pod) + sum(rate(varnish_main_cache_miss[5m])) by (namespace, pod)) < 0.5`),
 			For:    "15m",
 			Labels: map[string]string{"severity": "warning"},
 			Annotations: map[string]string{

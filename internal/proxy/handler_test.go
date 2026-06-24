@@ -9,8 +9,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
 )
 
 // MockBroadcaster records calls and returns a preset result.
@@ -50,6 +54,27 @@ func okResult() BroadcastResult {
 			{Pod: "10.0.0.3:8080", Status: 200},
 		},
 	}
+}
+
+// ---------- metrics ----------
+
+func TestHandlePurge_RecordsInvalidationMetrics(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := monitoring.NewMetrics(reg)
+	mb := &MockBroadcaster{Result: okResult()}
+	srv := newTestServer(mb)
+	srv.SetMetrics(m)
+
+	req := httptest.NewRequest("PURGE", "/product/123", nil)
+	req.Host = "my-cache-invalidation.production"
+	srv.ServeHTTP(httptest.NewRecorder(), req)
+
+	assert.Equal(t, float64(1),
+		testutil.ToFloat64(m.InvalidationTotal.WithLabelValues("my-cache", "production", "purge", "success")))
+	assert.Equal(t, float64(3),
+		testutil.ToFloat64(m.BroadcastTotal.WithLabelValues("10.0.0.1:8080", "success"))+
+			testutil.ToFloat64(m.BroadcastTotal.WithLabelValues("10.0.0.2:8080", "success"))+
+			testutil.ToFloat64(m.BroadcastTotal.WithLabelValues("10.0.0.3:8080", "success")))
 }
 
 // ---------- PURGE ----------

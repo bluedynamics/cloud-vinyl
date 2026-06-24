@@ -24,7 +24,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -45,14 +44,14 @@ func (r *VinylCacheReconciler) ensureFinalizer(ctx context.Context, vc *v1alpha1
 
 // handleDeletion removes resources not covered by OwnerReferences (cross-namespace
 // or explicitly excluded) and then removes the finalizer so Kubernetes can delete the object.
-func (r *VinylCacheReconciler) handleDeletion(ctx context.Context, vc *v1alpha1.VinylCache) (ctrl.Result, error) {
+func (r *VinylCacheReconciler) handleDeletion(ctx context.Context, vc *v1alpha1.VinylCache) error {
 	if !controllerutil.ContainsFinalizer(vc, finalizerName) {
-		return ctrl.Result{}, nil
+		return nil
 	}
 
 	// Delete EndpointSlices in vc.Namespace that belong to the invalidation service.
 	if err := r.deleteInvalidationEndpointSlices(ctx, vc); err != nil {
-		return ctrl.Result{}, err
+		return err
 	}
 
 	// Clean up proxy routing and pod map.
@@ -67,9 +66,9 @@ func (r *VinylCacheReconciler) handleDeletion(ctx context.Context, vc *v1alpha1.
 	// traffic service, secret) will be garbage-collected by Kubernetes automatically.
 	controllerutil.RemoveFinalizer(vc, finalizerName)
 	if err := r.Update(ctx, vc); err != nil {
-		return ctrl.Result{}, fmt.Errorf("removing finalizer: %w", err)
+		return fmt.Errorf("removing finalizer: %w", err)
 	}
-	return ctrl.Result{}, nil
+	return nil
 }
 
 // deleteInvalidationEndpointSlices removes EndpointSlices in vc.Namespace that were
