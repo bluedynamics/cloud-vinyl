@@ -27,7 +27,7 @@ func netpolVC(exp *v1alpha1.ExporterSpec) *v1alpha1.VinylCache {
 func getExporterNetpol(t *testing.T, r *VinylCacheReconciler, vc *v1alpha1.VinylCache) (*networkingv1.NetworkPolicy, error) {
 	t.Helper()
 	np := &networkingv1.NetworkPolicy{}
-	err := r.Client.Get(context.Background(), types.NamespacedName{Name: vc.Name + "-exporter", Namespace: vc.Namespace}, np)
+	err := r.Get(context.Background(), types.NamespacedName{Name: vc.Name + "-exporter", Namespace: vc.Namespace}, np)
 	return np, err
 }
 

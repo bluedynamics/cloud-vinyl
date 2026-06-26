@@ -210,7 +210,7 @@ func (r *VinylCacheReconciler) reconcileExporterNetworkPolicy(ctx context.Contex
 	exp := vc.Spec.Monitoring.Exporter
 	if exp == nil || !exp.Enabled {
 		// Exporter disabled: remove a previously created policy if present.
-		if err := r.Client.Delete(ctx, np); err != nil && !apierrors.IsNotFound(err) {
+		if err := r.Delete(ctx, np); err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("deleting exporter NetworkPolicy: %w", err)
 		}
 		return nil
