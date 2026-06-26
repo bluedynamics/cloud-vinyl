@@ -22,6 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -30,7 +31,7 @@ import (
 	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 )
 
-// reconcileNetworkPolicies creates or updates the three NetworkPolicies for a VinylCache.
+// reconcileNetworkPolicies creates or updates the NetworkPolicies for a VinylCache.
 func (r *VinylCacheReconciler) reconcileNetworkPolicies(ctx context.Context, vc *v1alpha1.VinylCache) error {
 	if err := r.reconcileTrafficNetworkPolicy(ctx, vc); err != nil {
 		return err
@@ -39,6 +40,9 @@ func (r *VinylCacheReconciler) reconcileNetworkPolicies(ctx context.Context, vc 
 		return err
 	}
 	if err := r.reconcileAgentNetworkPolicy(ctx, vc); err != nil {
+		return err
+	}
+	if err := r.reconcileExporterNetworkPolicy(ctx, vc); err != nil {
 		return err
 	}
 	return nil
@@ -185,6 +189,67 @@ func (r *VinylCacheReconciler) reconcileAgentNetworkPolicy(ctx context.Context, 
 	})
 	if err != nil {
 		return fmt.Errorf("reconciling agent NetworkPolicy: %w", err)
+	}
+	return nil
+}
+
+// reconcileExporterNetworkPolicy allows ingress to the varnish-exporter metrics
+// port so Prometheus can scrape it. The operator cannot know which namespace
+// Prometheus runs in, and the exposed data is read-only, low-sensitivity Varnish
+// metrics, so ingress is allowed from all sources — consistent with the
+// always-open Varnish HTTP port. The policy exists only while the exporter
+// sidecar is enabled; when disabled, a stale policy is removed.
+func (r *VinylCacheReconciler) reconcileExporterNetworkPolicy(ctx context.Context, vc *v1alpha1.VinylCache) error {
+	np := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      vc.Name + "-exporter",
+			Namespace: vc.Namespace,
+		},
+	}
+
+	exp := vc.Spec.Monitoring.Exporter
+	if exp == nil || !exp.Enabled {
+		// Exporter disabled: remove a previously created policy if present.
+		if err := r.Delete(ctx, np); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting exporter NetworkPolicy: %w", err)
+		}
+		return nil
+	}
+
+	port := exporterPort
+	if exp.Port != 0 {
+		port = exp.Port
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, np, func() error {
+		if err := ctrl.SetControllerReference(vc, np, r.Scheme); err != nil {
+			return err
+		}
+
+		np.Labels = map[string]string{labelVinylCacheName: vc.Name}
+
+		exporterPortVal := intstr.FromInt32(port)
+		proto := corev1.ProtocolTCP
+
+		np.Spec = networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": vc.Name},
+			},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{
+					// Empty From = allow from all sources, so Prometheus can scrape
+					// regardless of its namespace. Exporter metrics are read-only.
+					Ports: []networkingv1.NetworkPolicyPort{
+						{Port: &exporterPortVal, Protocol: &proto},
+					},
+				},
+			},
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("reconciling exporter NetworkPolicy: %w", err)
 	}
 	return nil
 }
