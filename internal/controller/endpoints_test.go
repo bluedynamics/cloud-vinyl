@@ -9,6 +9,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -26,6 +27,7 @@ func newScheme(t *testing.T) *runtime.Scheme {
 	require.NoError(t, corev1.AddToScheme(s))
 	require.NoError(t, appsv1.AddToScheme(s))
 	require.NoError(t, discoveryv1.AddToScheme(s))
+	require.NoError(t, networkingv1.AddToScheme(s))
 	require.NoError(t, v1alpha1.AddToScheme(s))
 	return s
 }
