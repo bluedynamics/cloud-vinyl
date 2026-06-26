@@ -42,14 +42,20 @@ func GenerateServiceMonitor(name, namespace string) *ServiceMonitor {
 			},
 		},
 		Spec: ServiceMonitorSpec{
+			// Must agree with the labels and port name the reconciler puts on
+			// the generated Services (internal/controller/service.go): they
+			// carry `app: <name>` and expose the exporter on a port named
+			// `exporter`. Selecting on `app.kubernetes.io/name` / port
+			// `metrics` matched nothing, so Prometheus never scraped the
+			// exporter despite a healthy sidecar.
 			Selector: metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"app.kubernetes.io/name": name,
+					"app": name,
 				},
 			},
 			Endpoints: []Endpoint{
 				{
-					Port:          "metrics",
+					Port:          "exporter",
 					Path:          "/metrics",
 					Interval:      "30s",
 					ScrapeTimeout: "10s",

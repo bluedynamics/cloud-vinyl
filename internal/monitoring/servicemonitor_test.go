@@ -15,3 +15,12 @@ func TestGenerateServiceMonitor_BasicFields(t *testing.T) {
 	assert.NotEmpty(t, sm.Spec.Endpoints)
 	assert.Equal(t, "30s", sm.Spec.Endpoints[0].Interval)
 }
+
+// The selector and endpoint port must match what the reconciler puts on the
+// generated Services (internal/controller/service.go), otherwise Prometheus
+// gets no target and never scrapes the exporter.
+func TestGenerateServiceMonitor_SelectorAndPortMatchService(t *testing.T) {
+	sm := monitoring.GenerateServiceMonitor("test", "ns")
+	assert.Equal(t, map[string]string{"app": "test"}, sm.Spec.Selector.MatchLabels)
+	assert.Equal(t, "exporter", sm.Spec.Endpoints[0].Port)
+}
