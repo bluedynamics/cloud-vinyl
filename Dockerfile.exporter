@@ -1,0 +1,40 @@
+# varnish-exporter: a thin, distroless image that runs the upstream
+# prometheus_varnish_exporter and bundles a matching `varnishstat` (plus its
+# shared libraries) copied from the official varnish image. The exporter shells
+# out to varnishstat, so the bundled varnishstat MUST match the varnishd version
+# that writes the VSM — keep VARNISH_IMAGE in sync with the cache image.
+#
+# Published as ghcr.io/bluedynamics/varnish-exporter:<EXPORTER_VERSION>.
+
+ARG VARNISH_IMAGE=varnish:7.6
+ARG EXPORTER_VERSION=1.6.1
+
+# Build the exporter from source. Upstream ships no arm64 binary for 1.6.1, and
+# the project is pure Go (it execs varnishstat; no cgo), so it cross-compiles.
+FROM golang:1.25 AS build
+ARG EXPORTER_VERSION
+ARG TARGETOS
+ARG TARGETARCH
+RUN git clone --depth 1 --branch "${EXPORTER_VERSION}" \
+        https://github.com/jonnenauha/prometheus_varnish_exporter /src
+WORKDIR /src
+RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
+        go build -trimpath -o /out/prometheus_varnish_exporter .
+
+# Source of a matching varnishstat + its runtime libraries.
+FROM ${VARNISH_IMAGE} AS varnish
+
+# Must match the Debian release of VARNISH_IMAGE (varnish:7.6 = Debian 13/trixie,
+# glibc 2.41) so the copied varnishstat/libvarnishapi find a compatible glibc.
+FROM gcr.io/distroless/base-debian13:nonroot
+# varnishstat and the libraries it needs that distroless/base does not provide.
+# (libc, libm and the loader come from distroless/base.)
+COPY --from=varnish /usr/bin/varnishstat /usr/bin/varnishstat
+COPY --from=varnish /usr/lib/libvarnishapi.so.3* /usr/lib/
+COPY --from=varnish /lib/*-linux-gnu/libncursesw.so.6 /usr/lib/libncursesw.so.6
+COPY --from=varnish /lib/*-linux-gnu/libtinfo.so.6 /usr/lib/libtinfo.so.6
+COPY --from=varnish /lib/*-linux-gnu/libpcre2-8.so.0 /usr/lib/libpcre2-8.so.0
+COPY --from=build /out/prometheus_varnish_exporter /usr/bin/prometheus_varnish_exporter
+# 9131 is the exporter's default listen port.
+EXPOSE 9131
+ENTRYPOINT ["/usr/bin/prometheus_varnish_exporter"]
