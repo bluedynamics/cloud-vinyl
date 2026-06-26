@@ -57,6 +57,15 @@ The exporter image and resources can be overridden:
         limits: {cpu: 200m, memory: 64Mi}
 ```
 
+```{note}
+The exporter shells out to `varnishstat`, so the default image
+`ghcr.io/bluedynamics/varnish-exporter:1.6.1` bundles a `varnishstat` built for
+**Varnish 7.x** (matching the `varnish:7.6` cache image used by default). If you
+run a different Varnish major version, override `exporter.image` with a matching
+build — a mismatched `varnishstat` cannot read the VSM and the sidecar will not
+produce metrics.
+```
+
 ## Show the cache hit rate in Grafana
 
 The hit ratio is computed from the exporter's raw counters, not from an operator
