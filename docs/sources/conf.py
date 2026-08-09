@@ -41,6 +41,52 @@ html_theme_options = {
     "dark_code": True,
     "nav_links": [
         {
+            "title": "Ecosystem",
+            "url": "https://bluedynamics.github.io/zodb-pgjsonb/ecosystem.html",
+            "children": [
+                {
+                    "title": "Dashboard",
+                    "url": "https://bluedynamics.github.io/zodb-pgjsonb/ecosystem.html",
+                    "summary": "Overview of all packages",
+                },
+                {
+                    "title": "zodb-pgjsonb",
+                    "url": "https://bluedynamics.github.io/zodb-pgjsonb/",
+                    "summary": "PostgreSQL JSONB storage",
+                },
+                {
+                    "title": "zodb-json-codec",
+                    "url": "https://bluedynamics.github.io/zodb-json-codec/",
+                    "summary": "Rust pickle↔JSON transcoder",
+                },
+                {
+                    "title": "plone-pgcatalog",
+                    "url": "https://bluedynamics.github.io/plone-pgcatalog/",
+                    "summary": "PostgreSQL-backed catalog",
+                },
+                {
+                    "title": "plone-pgthumbor",
+                    "url": "https://bluedynamics.github.io/plone-pgthumbor/",
+                    "summary": "Thumbor image scaling",
+                },
+                {
+                    "title": "cdk8s-plone",
+                    "url": "https://bluedynamics.github.io/cdk8s-plone/",
+                    "summary": "Deploy Plone to Kubernetes",
+                },
+                {
+                    "title": "cloud-vinyl",
+                    "url": "https://bluedynamics.github.io/cloud-vinyl/",
+                    "summary": "Vinyl Cache operator for Kubernetes",
+                },
+                {
+                    "title": "plone.observability",
+                    "url": "https://plone.github.io/plone.observability/",
+                    "summary": "Health probes, metrics, and tracing",
+                },
+            ],
+        },
+        {
             "title": "GitHub",
             "url": "https://github.com/bluedynamics/cloud-vinyl",
         },
