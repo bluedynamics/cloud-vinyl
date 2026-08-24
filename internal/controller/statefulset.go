@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"strconv"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -40,6 +41,24 @@ const (
 	exporterPort = int32(9131)
 	// defaultExporterImage is the default varnish exporter sidecar image.
 	defaultExporterImage = "ghcr.io/bluedynamics/varnish-exporter:1.6.1"
+)
+
+const (
+	// varnishPreStopSleepSeconds is how long the varnish container sleeps in its
+	// preStop hook, giving endpoint removal time to propagate before varnishd is
+	// signalled so in-flight requests are not cut off.
+	varnishPreStopSleepSeconds = 5
+
+	// varnishTerminationGracePeriodSeconds bounds pod shutdown. It must stay above
+	// varnishPreStopSleepSeconds and below the Kubernetes default of 30s.
+	//
+	// The upper bound matters beyond shutdown speed: the namespace controller uses
+	// the *declared* grace period, not the observed one, to estimate how long to
+	// wait before re-sweeping a terminating namespace, and requeues after
+	// estimate/2+1 seconds. Leaving this at the 30s default produced a 16s requeue
+	// quantum and made namespace teardown land at ~42s, overshooting the 30s
+	// Chainsaw cleanup timeout in E2E (see issue #63).
+	varnishTerminationGracePeriodSeconds = 15
 )
 
 // reconcileStatefulSet creates or updates the StatefulSet for the VinylCache.
@@ -119,7 +138,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 			Lifecycle: &corev1.Lifecycle{
 				PreStop: &corev1.LifecycleHandler{
 					Exec: &corev1.ExecAction{
-						Command: []string{"sleep", "5"},
+						Command: []string{"sleep", strconv.Itoa(varnishPreStopSleepSeconds)},
 					},
 				},
 			},
@@ -251,13 +270,15 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 		}
 
 		uid := int64(65532)
+		grace := int64(varnishTerminationGracePeriodSeconds)
 		podSpec := corev1.PodSpec{
-			Containers:        containers,
-			Volumes:           volumes,
-			NodeSelector:      vc.Spec.Pod.NodeSelector,
-			Tolerations:       vc.Spec.Pod.Tolerations,
-			Affinity:          vc.Spec.Pod.Affinity,
-			PriorityClassName: vc.Spec.Pod.PriorityClass,
+			Containers:                    containers,
+			Volumes:                       volumes,
+			NodeSelector:                  vc.Spec.Pod.NodeSelector,
+			Tolerations:                   vc.Spec.Pod.Tolerations,
+			Affinity:                      vc.Spec.Pod.Affinity,
+			PriorityClassName:             vc.Spec.Pod.PriorityClass,
+			TerminationGracePeriodSeconds: &grace,
 			SecurityContext: &corev1.PodSecurityContext{
 				RunAsUser:  &uid,
 				RunAsGroup: &uid,

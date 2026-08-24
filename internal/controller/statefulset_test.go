@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -250,4 +251,41 @@ func TestReconcileStatefulSet_NoUserVolumes_DefaultsUnchanged(t *testing.T) {
 		"no user claim templates -> VolumeClaimTemplates stays empty")
 	assert.Len(t, ss.Spec.Template.Spec.Volumes, 5,
 		"no user volumes -> only the 5 operator-managed volumes remain")
+}
+
+func TestReconcileStatefulSet_DeclaresTerminationGracePeriod(t *testing.T) {
+	ss := getStatefulSet(t, exporterBaseVC())
+
+	grace := ss.Spec.Template.Spec.TerminationGracePeriodSeconds
+	require.NotNil(t, grace,
+		"varnish pods must declare terminationGracePeriodSeconds; the Kubernetes "+
+			"default of 30s is what the namespace controller uses to size its "+
+			"re-sweep interval, which stalls namespace teardown (#63)")
+	assert.Equal(t, int64(varnishTerminationGracePeriodSeconds), *grace)
+
+	assert.Greater(t, *grace, int64(varnishPreStopSleepSeconds),
+		"grace period must outlast the preStop sleep, or varnishd is SIGKILLed mid-drain")
+	assert.Less(t, *grace, int64(30),
+		"grace period must stay below the Kubernetes default so namespace teardown "+
+			"stays inside Chainsaw's cleanup timeout")
+}
+
+func TestReconcileStatefulSet_PreStopSleepMatchesConstant(t *testing.T) {
+	ss := getStatefulSet(t, exporterBaseVC())
+
+	var varnish *corev1.Container
+	for i := range ss.Spec.Template.Spec.Containers {
+		if ss.Spec.Template.Spec.Containers[i].Name == "varnish" {
+			varnish = &ss.Spec.Template.Spec.Containers[i]
+		}
+	}
+	require.NotNil(t, varnish, "varnish container must be present")
+	require.NotNil(t, varnish.Lifecycle)
+	require.NotNil(t, varnish.Lifecycle.PreStop)
+	require.NotNil(t, varnish.Lifecycle.PreStop.Exec)
+
+	assert.Equal(t,
+		[]string{"sleep", strconv.Itoa(varnishPreStopSleepSeconds)},
+		varnish.Lifecycle.PreStop.Exec.Command,
+		"preStop sleep and the grace-period constant must not drift apart")
 }
