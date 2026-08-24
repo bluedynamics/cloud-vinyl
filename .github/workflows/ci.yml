@@ -47,7 +47,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # setup-go v6+ pins GOTOOLCHAIN=local so the job really runs the version
+      # go.mod names. setup-envtest is a separate module that requires go >= 1.26
+      # (only v0.24.0/v0.24.1 are published, both do), so installing it needs a
+      # newer toolchain than our go 1.25.3. Scoped to this step on purpose: the
+      # tool may build with a newer toolchain, the tests below still run on the
+      # version go.mod pins.
       - name: Setup envtest
+        env:
+          GOTOOLCHAIN: auto
         run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
       - name: Run integration tests
         run: |
