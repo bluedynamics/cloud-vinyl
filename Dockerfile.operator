@@ -8,6 +8,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o manager ./cmd/operator
 
 # Runtime stage
 FROM gcr.io/distroless/static:nonroot
+LABEL org.opencontainers.image.title="cloud-vinyl operator" \
+      org.opencontainers.image.source="https://github.com/bluedynamics/cloud-vinyl" \
+      org.opencontainers.image.licenses="Apache-2.0"
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532

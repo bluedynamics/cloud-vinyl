@@ -15,3 +15,5 @@ sources:
 maintainers:
   - name: bluedynamics
     url: https://github.com/bluedynamics
+annotations:
+  artifacthub.io/license: Apache-2.0

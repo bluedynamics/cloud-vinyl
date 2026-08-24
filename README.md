@@ -36,6 +36,9 @@ Maintainers are Jens Klein and the BlueDynamics Alliance developer team. We appr
 
 Copyright 2026 BlueDynamics Alliance.
 
+cloud-vinyl is distributed under the **Apache License, Version 2.0**
+(SPDX: `Apache-2.0`). The full text is in [`LICENSE`](LICENSE).
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
