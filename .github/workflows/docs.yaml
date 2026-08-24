@@ -22,13 +22,16 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
 
-      - uses: astral-sh/setup-uv@v6
+      # Pinned to a full version: setup-uv stopped publishing major/minor tags
+      # in v8 (deliberately, as supply-chain hardening), so "@v10" does not
+      # resolve. Bumping this means picking a new exact tag.
+      - uses: astral-sh/setup-uv@v10.0.1
 
       - name: Install docs dependencies
         working-directory: docs
@@ -42,7 +45,7 @@ jobs:
         working-directory: docs
         run: .venv/bin/sphinx-build sources html
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: docs/html
 
@@ -55,4 +58,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

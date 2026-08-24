@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Fix MTU for Kind cross-node networking
         run: sudo sysctl -w net.ipv4.tcp_mtu_probing=1
