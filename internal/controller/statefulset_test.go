@@ -52,7 +52,7 @@ func exporterBaseVC() *v1alpha1.VinylCache {
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
 		Spec: v1alpha1.VinylCacheSpec{
 			Replicas: 1,
-			Image:    "varnish:7.6",
+			Image:    "varnish:8.0.2",
 			Backends: []v1alpha1.BackendSpec{{Name: "app", ServiceRef: v1alpha1.ServiceRef{Name: "svc"}}},
 		},
 	}
@@ -110,7 +110,7 @@ func TestReconcileStatefulSet_UserVolumesAndMountsAppended(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
 		Spec: v1alpha1.VinylCacheSpec{
 			Replicas: 1,
-			Image:    "varnish:7.6",
+			Image:    "varnish:8.0.2",
 			Backends: []v1alpha1.BackendSpec{{
 				Name: "app", ServiceRef: v1alpha1.ServiceRef{Name: "svc"},
 			}},
@@ -188,7 +188,7 @@ func TestReconcileStatefulSet_VolumeClaimTemplatesPassthrough(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
 		Spec: v1alpha1.VinylCacheSpec{
 			Replicas: 2,
-			Image:    "varnish:7.6",
+			Image:    "varnish:8.0.2",
 			Backends: []v1alpha1.BackendSpec{{
 				Name: "app", ServiceRef: v1alpha1.ServiceRef{Name: "svc"},
 			}},
@@ -233,7 +233,7 @@ func TestReconcileStatefulSet_NoUserVolumes_DefaultsUnchanged(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
 		Spec: v1alpha1.VinylCacheSpec{
 			Replicas: 1,
-			Image:    "varnish:7.6",
+			Image:    "varnish:8.0.2",
 			Backends: []v1alpha1.BackendSpec{{
 				Name: "app", ServiceRef: v1alpha1.ServiceRef{Name: "svc"},
 			}},

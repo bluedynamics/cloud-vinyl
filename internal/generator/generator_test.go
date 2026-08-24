@@ -20,7 +20,7 @@ func makeMinimalInput() generator.Input {
 		Namespace: "production",
 		Spec: &vinylv1alpha1.VinylCacheSpec{
 			Replicas: 1,
-			Image:    "varnish:7.6",
+			Image:    "varnish:8.0.2",
 			Backends: []vinylv1alpha1.BackendSpec{
 				{Name: "app_backend", ServiceRef: vinylv1alpha1.ServiceRef{Name: "my-app"}},
 			},

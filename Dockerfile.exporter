@@ -6,7 +6,7 @@
 #
 # Published as ghcr.io/bluedynamics/varnish-exporter:<EXPORTER_VERSION>.
 
-ARG VARNISH_IMAGE=varnish:7.6
+ARG VARNISH_IMAGE=varnish:8.0.2
 ARG EXPORTER_VERSION=1.6.1
 
 # Build the exporter from source. Upstream ships no arm64 binary for 1.6.1, and
@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
 # Source of a matching varnishstat + its runtime libraries.
 FROM ${VARNISH_IMAGE} AS varnish
 
-# Must match the Debian release of VARNISH_IMAGE (varnish:7.6 = Debian 13/trixie,
+# Must match the Debian release of VARNISH_IMAGE (varnish:8.0.2 = Debian 13/trixie,
 # glibc 2.41) so the copied varnishstat/libvarnishapi find a compatible glibc.
 FROM gcr.io/distroless/base-debian13:nonroot
 # varnishstat and the libraries it needs that distroless/base does not provide.

@@ -4,7 +4,7 @@ metadata:
   name: invalid-cidr-test
 spec:
   replicas: 1
-  image: varnish:7.6
+  image: varnish:8.0.2
   backends:
     - name: echo
       serviceRef:

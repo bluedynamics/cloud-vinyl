@@ -60,10 +60,10 @@ The exporter image and resources can be overridden:
 ```{note}
 The exporter shells out to `varnishstat`, so the default image
 `ghcr.io/bluedynamics/varnish-exporter:1.6.1` bundles a `varnishstat` built for
-**Varnish 7.x** (matching the `varnish:7.6` cache image used by default). If you
+**Varnish 8.x** (matching the `varnish:8.0.2` cache image used by default). If you
 run a different Varnish major version, override `exporter.image` with a matching
-build — a mismatched `varnishstat` cannot read the VSM and the sidecar will not
-produce metrics.
+build. A mismatched `varnishstat` cannot read the VSM, and the sidecar then
+reports `varnish_up 0` and exports no `varnish_*` metrics at all.
 ```
 
 ## Show the cache hit rate in Grafana

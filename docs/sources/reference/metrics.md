@@ -32,7 +32,7 @@ relevant ones:
 |--------|------|-------------|
 | `varnish_main_cache_hit` | Counter | Cumulative cache hits (`MAIN.cache_hit`). |
 | `varnish_main_cache_miss` | Counter | Cumulative cache misses (`MAIN.cache_miss`). |
-| `varnish_backend_happy` | Gauge | Backend health-probe window (`VBE.*.happy`); `0` means the backend is sick. Label: `backend`. |
+| `varnish_backend_happy` | Gauge | Raw probe-history bitmap (`VBE.*.happy`), not a boolean. Each probe shifts one bit in, so a consistently failing backend only reaches `0` after the full 64-bit window has drained (~64 probe intervals). A backend declared without a `.probe` never produces a meaningful value. Label: `backend`. |
 
 Compute the hit ratio in PromQL/Grafana rather than relying on an operator gauge:
 

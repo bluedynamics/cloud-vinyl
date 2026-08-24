@@ -47,8 +47,8 @@ jobs:
 
       - name: Pre-pull varnish image into Kind
         run: |
-          docker pull varnish:7.6
-          kind load docker-image varnish:7.6 --name cloud-vinyl-e2e
+          docker pull varnish:8.0.2
+          kind load docker-image varnish:8.0.2 --name cloud-vinyl-e2e
 
       - uses: azure/setup-helm@v5
 

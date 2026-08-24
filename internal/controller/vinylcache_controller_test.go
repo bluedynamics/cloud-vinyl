@@ -82,7 +82,7 @@ var _ = Describe("VinylCache Controller", func() {
 					},
 					Spec: vinylv1alpha1.VinylCacheSpec{
 						Replicas: 1,
-						Image:    "varnish:7.6",
+						Image:    "varnish:8.0.2",
 						Backends: []vinylv1alpha1.BackendSpec{
 							{
 								Name:       "backend",

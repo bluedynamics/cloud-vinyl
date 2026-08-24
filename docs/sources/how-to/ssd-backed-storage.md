@@ -15,7 +15,7 @@ metadata:
   name: my-cache
 spec:
   replicas: 2
-  image: varnish:7.6
+  image: varnish:8.0.2
   backends:
     - name: app
       serviceRef:
@@ -52,7 +52,7 @@ metadata:
   name: my-cache
 spec:
   replicas: 2
-  image: varnish:7.6
+  image: varnish:8.0.2
   backends:
     - name: app
       serviceRef:

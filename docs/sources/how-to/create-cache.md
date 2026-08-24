@@ -12,7 +12,7 @@ metadata:
   namespace: default
 spec:
   replicas: 2
-  image: varnish:7.6
+  image: varnish:8.0.2
   backends:
     - name: app
       serviceRef:
@@ -62,7 +62,7 @@ spec:
 ```yaml
 spec:
   replicas: 2
-  image: varnish:7.6
+  image: varnish:8.0.2
   backends:
     - name: app
       serviceRef:
