@@ -8,7 +8,6 @@ spec:
     phase and all expected resources are created including the invalidation
     service for xkey purge broadcasting.
   timeouts:
-    apply: 10s
     assert: 180s
     delete: 60s
     exec: 30s

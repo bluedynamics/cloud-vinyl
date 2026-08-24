@@ -9,7 +9,6 @@ spec:
       - EndpointSlice watch fires on backend scale events.
       - VinylCache stays Ready under backend replica churn.
   timeouts:
-    apply: 10s
     assert: 180s
     delete: 60s
     exec: 30s

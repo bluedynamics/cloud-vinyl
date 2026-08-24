@@ -9,7 +9,6 @@ spec:
     with a user-declared EmptyDir mounted under a path consumed by
     spec.storage[].path.
   timeouts:
-    apply: 10s
     assert: 180s
     delete: 60s
     cleanup: 60s

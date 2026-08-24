@@ -60,3 +60,29 @@ tests:
             port: 443
             targetPort: 9443
             protocol: TCP
+
+  - it: ValidatingWebhook should set timeoutSeconds explicitly
+    template: validatingwebhook.yaml
+    asserts:
+      - equal:
+          path: webhooks[0].timeoutSeconds
+          value: 10
+
+  - it: MutatingWebhook should set timeoutSeconds explicitly
+    template: mutatingwebhook.yaml
+    asserts:
+      - equal:
+          path: webhooks[0].timeoutSeconds
+          value: 10
+
+  - it: webhook timeoutSeconds should be configurable
+    set:
+      webhook:
+        timeoutSeconds: 20
+    templates:
+      - validatingwebhook.yaml
+      - mutatingwebhook.yaml
+    asserts:
+      - equal:
+          path: webhooks[0].timeoutSeconds
+          value: 20
