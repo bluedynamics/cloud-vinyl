@@ -211,6 +211,20 @@ func main() {
 	vinylMetrics := monitoring.NewMetrics(ctrlmetrics.Registry)
 	proxyServer.SetMetrics(vinylMetrics)
 
+	// POD_IP is injected by the Helm chart via the downward API. Without it the
+	// operator cannot authorize itself in the agent and invalidation
+	// NetworkPolicies by IP, and falls back to requiring the operator namespace
+	// to carry the vinyl.bluedynamics.eu/operator-namespace=true label. On a
+	// cluster that enforces NetworkPolicies (k3s, Calico, Cilium) an unlabeled
+	// namespace means every VCL push fails. See issue #58.
+	operatorIP := os.Getenv("POD_IP")
+	if operatorIP == "" {
+		setupLog.Info("WARNING: POD_IP is not set. The operator cannot open the " +
+			"agent NetworkPolicy for its own IP. Label the operator namespace with " +
+			"vinyl.bluedynamics.eu/operator-namespace=true or VCL push and PURGE/BAN " +
+			"forwarding will be blocked on clusters that enforce NetworkPolicies.")
+	}
+
 	if err := (&controller.VinylCacheReconciler{
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
@@ -220,11 +234,7 @@ func main() {
 			HTTPClient: &http.Client{Timeout: agentClientTimeout},
 			K8sClient:  mgr.GetClient(),
 		},
-		// POD_IP is injected by the Helm chart via the downward API.
-		// Empty is safe (the ACL template and EndpointSlice reconciler both
-		// no-op on empty), but it means invalidation-proxy PURGE/BAN requests
-		// are rejected by Varnish's ACL — so in production this must be set.
-		OperatorIP:  os.Getenv("POD_IP"),
+		OperatorIP:  operatorIP,
 		ProxyRouter: proxyRouter,
 		ProxyPodMap: proxyPodMap,
 	}).SetupWithManager(mgr); err != nil {

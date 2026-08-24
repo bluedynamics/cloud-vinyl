@@ -130,16 +130,19 @@ func setCondition(vc *v1alpha1.VinylCache, condType string, status metav1.Condit
 	now := metav1.NewTime(time.Now())
 	for i, c := range vc.Status.Conditions {
 		if c.Type == condType {
-			if c.Status == status && c.Reason == reason {
-				// No effective change — preserve LastTransitionTime.
-				return
+			transitioned := now
+			if c.Status == status {
+				// Only a Status flip is a transition; reason, message and
+				// observedGeneration are always refreshed so a repeated failure
+				// with new details does not report a stale message.
+				transitioned = c.LastTransitionTime
 			}
 			vc.Status.Conditions[i] = metav1.Condition{
 				Type:               condType,
 				Status:             status,
 				Reason:             reason,
 				Message:            message,
-				LastTransitionTime: now,
+				LastTransitionTime: transitioned,
 				ObservedGeneration: vc.Generation,
 			}
 			return
