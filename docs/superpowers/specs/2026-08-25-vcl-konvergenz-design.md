@@ -1,6 +1,6 @@
 # Design: VCL-Konvergenz pro Pod (Issues #73, PR #77)
 
-Status: Entwurf, wartet auf Review
+Status: entschieden, bereit zur Umsetzung
 Anlass: drei aufeinanderfolgende E2E-Fehlschläge in PR #77, jeweils andere
 Ursache, jeweils dieselbe zugrundeliegende Eigenschaft.
 
@@ -59,7 +59,7 @@ erreichbaren Pod, dessen beobachteter VCL-Hash vom gewünschten abweicht. Der
 globale Hash-Vergleich entfällt als Auslöser und bleibt nur noch Reporting.
 
 **E2. Der beobachtete Hash wird beim Agent erfragt, nicht aus dem Status
-gelesen.** Begründung: ein Pod, dessen varnishd neu startet, verliert sein VCL
+gelesen.** Bestätigt im Review am 2026-08-25. Begründung: ein Pod, dessen varnishd neu startet, verliert sein VCL
 und fällt auf `boot` zurück, behält aber seinen Namen. Ein im Status
 gespeicherter Hash wäre dann falsch, der Pod bekäme nie wieder ein VCL, und wir
 hätten die vierte Instanz desselben Musters. Die Abfrage ist selbstheilend.
@@ -73,15 +73,16 @@ Schlägt die Abfrage fehl, gilt der Hash als unbekannt und es wird gepusht. Der
 Push ist idempotent, ein überflüssiger Push ist also folgenlos.
 
 **E3. `ClusterPeers` listet alle erreichbaren Pods, mit echten Werten.**
+Bestätigt im Review am 2026-08-25.
 `Ready` bekommt den tatsächlichen Zustand statt einer Konstanten,
 `ActiveVCLHash` den tatsächlich beobachteten Hash. Das ist genau das, was der
 Typ dokumentiert. Es ist eine reine Status-Änderung, kein Bruch am Schema, aber
 es verändert, was Nutzer sehen: nicht bereite Pods tauchen künftig auf.
 
-**E4. Drift-Detection fällt dabei ab.** Sobald der beobachtete Hash je Pod
-vorliegt, ist Drift die Menge der Pods, deren Hash vom gewünschten abweicht,
-obwohl sie zuletzt gepusht wurden. Ob die Metrik in derselben Änderung
-befüllt wird, ist eine offene Frage (siehe unten).
+**E4. Drift-Detection wird mitgemacht.** Bestätigt im Review am 2026-08-25.
+Sobald der beobachtete Hash je Pod vorliegt, ist Drift die Menge der Pods, deren
+Hash vom gewünschten abweicht, obwohl sie zuletzt gepusht wurden. Die
+Alerting-Regel `VinylCacheVCLDrift` bekommt damit erstmals eine Datenquelle.
 
 ## Architektur
 
@@ -125,6 +126,7 @@ ist der Fall, den eine im Status gespeicherte Buchführung nicht abdeckt.
 | `pushVCL` | unverändert, bekommt nur eine kleinere Zielmenge |
 | `updateStatus` | `ClusterPeers` aus `reachable` mit echten Werten; `ActiveVCL` weiterhin nur bei tatsächlichem Push |
 | `AgentClient` | keine Signaturänderung, die Methode wird endlich benutzt |
+| `monitoring` | neue Drift-Metrik, gespeist aus der Zahl der Pods mit abweichendem Hash (E4) |
 
 ## Tests
 
@@ -137,6 +139,8 @@ Unit, mit Fake-Client und Mock-AgentClient:
 - ein Pod, der auf den Bootstrap-Hash zurückfällt, wird erneut gepusht
 - `ClusterPeers` enthält nicht bereite Pods mit `ready: false`
 - konvergierter Zustand löst keinen Push aus
+- die Drift-Metrik zählt Pods mit abweichendem Hash und steht im konvergierten
+  Zustand auf null
 
 E2E: der bestehende `scaling`-Test mit drei Replicas deckt Runde 3 ab und muss
 grün werden. Ein zusätzlicher Fall für den Pod-Neustart wäre wünschenswert.
@@ -144,18 +148,19 @@ grün werden. Ein zusätzlicher Fall für den Pod-Neustart wäre wünschenswert.
 Jeder Test wird vor der Implementierung gegen das alte Verhalten scheitern
 gesehen, wie in PR #77 durchgehend gehandhabt.
 
-## Vor der Implementierung zu klären
+## Im Review geklärt (2026-08-25)
 
-1. **E2 bestätigen.** Abfrage je Reconcile statt Status-Buchführung. Der
-   Selbstheilungsvorteil ist der Grund, die Kosten sind N Requests. Falls N groß
-   werden kann, wäre ein Mittelweg denkbar: Status als Cache, Abfrage nur bei
-   Verdacht. Das ist mehr Mechanik und Komplexität und erst dann gerechtfertigt,
-   wenn N wirklich groß wird.
-2. **Drift-Metrik in derselben Änderung oder separat?** Sie fällt technisch ab,
-   vergrößert aber den Diff und hat eigene Testfläche.
-3. **Sichtbarkeitsänderung an `ClusterPeers`.** Nicht bereite Pods erscheinen
-   künftig im Status. Fachlich richtig, aber eine wahrnehmbare Änderung für
-   jeden, der die Liste auswertet.
+1. **Abfrage je Reconcile statt Status-Buchführung.** Bestätigt. Ein Status-Cache
+   mit Abfrage nur bei Verdacht bleibt eine spätere Option, falls die
+   Replica-Zahlen das je nötig machen.
+2. **Drift-Metrik gehört in dieselbe Änderung.** Bestätigt. Sie fällt aus dem
+   beobachteten Hash je Pod ohnehin ab, und die Alerting-Regel wartet seit ihrer
+   Einführung auf eine Datenquelle.
+3. **Sichtbarkeitsänderung an `ClusterPeers` ist in Ordnung.** Bestätigt. Nicht
+   bereite Pods erscheinen künftig im Status, mit `ready: false` und ihrem
+   tatsächlichen Hash.
+
+Damit ist die Spec vollständig entschieden und die Umsetzung kann beginnen.
 
 ## Bewusst nicht im Umfang
 
