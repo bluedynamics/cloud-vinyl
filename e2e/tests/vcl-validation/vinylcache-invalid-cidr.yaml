@@ -1,3 +1,8 @@
+# Rejected by the validating webhook: "not-an-ip" is not parseable as a CIDR.
+#
+# The CRD schema types allowedSources as a plain []string with no pattern, so
+# nothing rejects this before admission. Applying it therefore exercises the
+# webhook itself, which is the point of the test that uses it.
 apiVersion: vinyl.bluedynamics.eu/v1alpha1
 kind: VinylCache
 metadata:
@@ -13,3 +18,5 @@ spec:
   invalidation:
     purge:
       soft: true
+      allowedSources:
+        - "not-an-ip"

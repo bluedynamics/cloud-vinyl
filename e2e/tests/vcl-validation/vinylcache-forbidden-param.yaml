@@ -1,0 +1,21 @@
+# Rejected by the validating webhook: vcc_allow_inline_c would let VCL embed
+# arbitrary C, so it is on the varnishParameters blocklist.
+#
+# A second, unrelated rejection reason on purpose. One rejection test cannot
+# distinguish a webhook that validates correctly from one that refuses
+# everything, which is exactly what an unreachable webhook does under
+# failurePolicy: Fail.
+apiVersion: vinyl.bluedynamics.eu/v1alpha1
+kind: VinylCache
+metadata:
+  name: forbidden-param-test
+spec:
+  replicas: 1
+  image: varnish:8.0.2
+  backends:
+    - name: echo
+      serviceRef:
+        name: echo-backend
+      port: 80
+  varnishParameters:
+    vcc_allow_inline_c: "on"
