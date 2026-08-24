@@ -47,7 +47,12 @@ verdrahtet:
   aus Ready-Pods und setzt `Ready: true` hartkodiert, wodurch das Feld keine
   Information trägt.
 - `AgentClient.ActiveVCLHash(ctx, namespace, podIP)` ist deklariert und
-  implementiert, wird aber **nirgends aufgerufen**.
+  implementiert, wird aber **nirgends aufgerufen**. Bei der Umsetzung stellte
+  sich heraus, dass die Methode auch nie funktioniert hätte: der Agent antwortet
+  mit `{"name": …, "status": …}`, der Controller dekodierte `{"hash": …}`. Das
+  Feld existierte in der Antwort nie, der Rückgabewert war immer der leere
+  String. Der vorhandene Test dazu benutzte einen Fake-Server, der sich mit dem
+  Decoder des Clients einig war statt mit dem echten Agent.
 - `pushVCL` ist bereits idempotent, es wertet `Already a VCL named` als Erfolg.
 - Die Alerting-Regel `VinylCacheVCLDrift` existiert, aber nichts speist sie.
   `status.go` vermerkt dazu ausdrücklich "intentionally out of scope here".
@@ -58,8 +63,14 @@ verdrahtet:
 erreichbaren Pod, dessen beobachteter VCL-Hash vom gewünschten abweicht. Der
 globale Hash-Vergleich entfällt als Auslöser und bleibt nur noch Reporting.
 
-**E2. Der beobachtete Hash wird beim Agent erfragt, nicht aus dem Status
-gelesen.** Bestätigt im Review am 2026-08-25. Begründung: ein Pod, dessen varnishd neu startet, verliert sein VCL
+**E2. Der aktive VCL-Name wird beim Agent erfragt, nicht aus dem Status
+gelesen.** Bestätigt im Review am 2026-08-25.
+
+Verglichen werden **Namen**, nicht Hashes. Der Controller pusht unter
+`<ns>-<cache>-<hash8>`, varnishd meldet genau diesen Namen zurück, und das
+Bootstrap-VCL heißt `boot`. Beide Seiten kennen den Namen also ohne
+Zusatzaufwand, während einen Content-Hash niemand nachträglich bilden kann. Die
+Client-Methode heißt entsprechend `ActiveVCLName`. Begründung: ein Pod, dessen varnishd neu startet, verliert sein VCL
 und fällt auf `boot` zurück, behält aber seinen Namen. Ein im Status
 gespeicherter Hash wäre dann falsch, der Pod bekäme nie wieder ein VCL, und wir
 hätten die vierte Instanz desselben Musters. Die Abfrage ist selbstheilend.
@@ -121,7 +132,7 @@ ist der Fall, den eine im Status gespeicherte Buchführung nicht abdeckt.
 | Ort | Änderung |
 |---|---|
 | `collectPeers` | bleibt wie in PR #77: liefert `reachable` und `ready` |
-| neu: `observeVCLHashes` | fragt `AgentClient.ActiveVCLHash` für alle `reachable` ab, parallel, mit Timeout je Pod; Fehler ergeben einen leeren Hash |
+| neu: `observeVCLHashes` | fragt `AgentClient.ActiveVCLHash` für alle `reachable` ab und liefert `podIP -> hash`; Fehler ergeben einen leeren Hash, der Pod wird damit zum Push-Ziel. Sequenziell, unter dem Timeout des Reconcile-Kontexts. Parallelisierung ist eine spätere Option, falls die Replica-Zahlen sie rechtfertigen; sie wäre zusätzliche, schwer testbare Nebenläufigkeit ohne heutigen Nutzen |
 | `vinylcache_controller.go` | Push-Bedingung entfällt, stattdessen wird die Zielmenge aus dem Hash-Vergleich gebildet |
 | `pushVCL` | unverändert, bekommt nur eine kleinere Zielmenge |
 | `updateStatus` | `ClusterPeers` aus `reachable` mit echten Werten; `ActiveVCL` weiterhin nur bei tatsächlichem Push |

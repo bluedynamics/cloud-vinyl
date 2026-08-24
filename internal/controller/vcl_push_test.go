@@ -46,7 +46,7 @@ func (m *mockAgentClient) PushVCL(_ context.Context, _, _, _, _ string) error {
 	return m.pushErr
 }
 
-func (m *mockAgentClient) ActiveVCLHash(_ context.Context, _, _ string) (string, error) {
+func (m *mockAgentClient) ActiveVCLName(_ context.Context, _, _ string) (string, error) {
 	return m.activeHash, nil
 }
 
@@ -158,6 +158,6 @@ func (c *countingMock) PushVCL(_ context.Context, _, _, _, _ string) error {
 	return nil
 }
 
-func (c *countingMock) ActiveVCLHash(_ context.Context, _, _ string) (string, error) {
+func (c *countingMock) ActiveVCLName(_ context.Context, _, _ string) (string, error) {
 	return "", nil
 }

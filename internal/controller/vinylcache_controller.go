@@ -156,10 +156,11 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// are the reachable pods, which is who gets the VCL pushed. Pushing only to
 	// Ready pods deadlocks, because a pod is NotReady until it has been pushed
 	// a VCL. See collectPeers for the full reasoning.
-	targets, peers, err := r.collectPeers(ctx, vc)
+	obs, err := r.collectPeers(ctx, vc)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	peers := obs.ready
 
 	// Update proxy routing and pod map.
 	if r.ProxyRouter != nil {
@@ -171,11 +172,6 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			podIPs = append(podIPs, p.IP)
 		}
 		r.ProxyPodMap.Update(vc.Namespace, vc.Name, podIPs)
-	}
-
-	activeHash := ""
-	if vc.Status.ActiveVCL != nil {
-		activeHash = vc.Status.ActiveVCL.Hash
 	}
 
 	// Resolve backend endpoints from Kubernetes Services.
@@ -209,18 +205,35 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
+	// Ask each reachable pod what it currently carries, then push to exactly
+	// those that do not have the freshly generated VCL.
+	//
+	// The old condition compared one hash for the whole cache and one peer
+	// count against another. Neither could see a reachable pod that had simply
+	// never been pushed, which is how replicas joining after the first pod
+	// converged were left without VCL indefinitely. See
+	// docs/superpowers/specs/2026-08-25-vcl-konvergenz-design.md.
+	desiredVCLName := vclNameFor(vc, genResult.Hash)
+	obs.vclNames = r.observeVCLNames(ctx, vc, obs.reachable)
+	needing := podsNeedingVCL(obs.reachable, obs.vclNames, desiredVCLName)
+
 	pushedCount := 0
-	if genResult.Hash != activeHash || len(peers) != len(vc.Status.ClusterPeers) {
-		n, err := r.pushVCL(ctx, vc, genResult, targets)
+	if len(needing) > 0 {
+		n, err := r.pushVCL(ctx, vc, genResult, needing)
 		if err != nil {
 			r.setErrorStatus(ctx, vc, err)
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 		pushedCount = n
+		// Pods just pushed now carry the new VCL. Recording that here keeps the
+		// status consistent with reality without a second round of queries.
+		for _, p := range needing {
+			obs.vclNames[p.IP] = desiredVCLName
+		}
 	}
 
 	// 12. Update status and requeue.
-	r.updateStatus(ctx, vc, genResult, peers, pushedCount)
+	r.updateStatus(ctx, vc, genResult, obs, pushedCount)
 
 	// Requeue quickly if not all replicas are ready yet.
 	if int32(len(peers)) < vc.Spec.Replicas {

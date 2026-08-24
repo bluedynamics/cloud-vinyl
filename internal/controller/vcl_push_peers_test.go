@@ -58,7 +58,8 @@ func TestCollectPeers_PushTargetsIncludeNotReadyPods(t *testing.T) {
 		pod("cache-1", "10.0.0.2", corev1.PodRunning, true),
 	)
 
-	reachable, _, err := r.collectPeers(context.Background(), vc)
+	obs, err := r.collectPeers(context.Background(), vc)
+	reachable := obs.reachable
 	require.NoError(t, err)
 
 	ips := make([]string, 0, len(reachable))
@@ -78,7 +79,8 @@ func TestCollectPeers_ShardPeersOnlyReady(t *testing.T) {
 		pod("cache-1", "10.0.0.2", corev1.PodRunning, true),
 	)
 
-	_, ready, err := r.collectPeers(context.Background(), vc)
+	obs, err := r.collectPeers(context.Background(), vc)
+	ready := obs.ready
 	require.NoError(t, err)
 
 	ips := make([]string, 0, len(ready))
@@ -95,7 +97,8 @@ func TestCollectPeers_SkipsPodsWithoutIP(t *testing.T) {
 		pod("cache-1", "10.0.0.2", corev1.PodRunning, true),
 	)
 
-	reachable, ready, err := r.collectPeers(context.Background(), vc)
+	obs, err := r.collectPeers(context.Background(), vc)
+	reachable, ready := obs.reachable, obs.ready
 	require.NoError(t, err)
 
 	assert.Len(t, reachable, 1, "a pod without an IP cannot be reached")
@@ -112,7 +115,8 @@ func TestCollectPeers_SkipsNonRunningPods(t *testing.T) {
 		pod("cache-2", "10.0.0.3", corev1.PodRunning, false),
 	)
 
-	reachable, _, err := r.collectPeers(context.Background(), vc)
+	obs, err := r.collectPeers(context.Background(), vc)
+	reachable := obs.reachable
 	require.NoError(t, err)
 
 	require.Len(t, reachable, 1)

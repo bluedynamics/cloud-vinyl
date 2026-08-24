@@ -44,8 +44,11 @@ type AgentClient interface {
 	// The namespace is used to resolve the per-namespace agent token.
 	PushVCL(ctx context.Context, namespace, podIP, name, vcl string) error
 
-	// ActiveVCLHash returns the SHA-256 hash of the VCL currently active on podIP.
-	ActiveVCLHash(ctx context.Context, namespace, podIP string) (string, error)
+	// ActiveVCLName returns the name of the VCL currently active on podIP, as
+	// varnishd reports it. The controller pushes VCLs under a name that encodes
+	// the content hash, so comparing names answers "does this pod already carry
+	// the VCL we want" without either side having to remember anything.
+	ActiveVCLName(ctx context.Context, namespace, podIP string) (string, error)
 }
 
 // HTTPAgentClient implements AgentClient using the vinyl-agent HTTP API.
@@ -60,8 +63,12 @@ type pushVCLRequest struct {
 	VCL  string `json:"vcl"`
 }
 
+// activeVCLResponse mirrors what internal/agent's ActiveVCL handler writes.
+// It previously declared a "hash" field the agent has never sent, so decoding
+// silently yielded the empty string on every call.
 type activeVCLResponse struct {
-	Hash string `json:"hash"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
 }
 
 // readToken reads the agent-token from the per-namespace Secret.
@@ -112,8 +119,8 @@ func (c *HTTPAgentClient) PushVCL(ctx context.Context, namespace, podIP, name, v
 	return nil
 }
 
-// ActiveVCLHash returns the hash of the currently active VCL on the given pod.
-func (c *HTTPAgentClient) ActiveVCLHash(ctx context.Context, namespace, podIP string) (string, error) {
+// ActiveVCLName returns the name of the currently active VCL on the given pod.
+func (c *HTTPAgentClient) ActiveVCLName(ctx context.Context, namespace, podIP string) (string, error) {
 	token, err := c.readToken(ctx, namespace)
 	if err != nil {
 		return "", err
@@ -142,5 +149,5 @@ func (c *HTTPAgentClient) ActiveVCLHash(ctx context.Context, namespace, podIP st
 		return "", fmt.Errorf("decoding active-vcl response from %s: %w", podIP, err)
 	}
 
-	return result.Hash, nil
+	return result.Name, nil
 }

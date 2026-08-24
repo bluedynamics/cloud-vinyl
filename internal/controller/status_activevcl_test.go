@@ -27,7 +27,7 @@ func TestUpdateStatus_NoPushedPods_DoesNotClaimActiveVCL(t *testing.T) {
 	r, vc := statusFixture(t)
 
 	// Nothing reachable yet, so pushVCL reached zero pods.
-	r.updateStatus(context.Background(), vc, &generator.Result{Hash: "abc123"}, nil, 0)
+	r.updateStatus(context.Background(), vc, &generator.Result{Hash: "abc123"}, podObservation{}, 0)
 
 	assert.Nil(t, vc.Status.ActiveVCL,
 		"status must not claim a VCL is active when it was pushed to no pod")
@@ -37,7 +37,8 @@ func TestUpdateStatus_PushedPods_RecordsActiveVCL(t *testing.T) {
 	r, vc := statusFixture(t)
 	peers := []generator.PeerBackend{{Name: "cache_0", IP: "10.0.0.1", Port: 80}}
 
-	r.updateStatus(context.Background(), vc, &generator.Result{Hash: "abc123"}, peers, 1)
+	r.updateStatus(context.Background(), vc, &generator.Result{Hash: "abc123"},
+		podObservation{reachable: peers, ready: peers}, 1)
 
 	if assert.NotNil(t, vc.Status.ActiveVCL) {
 		assert.Equal(t, "abc123", vc.Status.ActiveVCL.Hash)
@@ -51,7 +52,8 @@ func TestUpdateStatus_PushedButNotYetReady_RecordsActiveVCL(t *testing.T) {
 	r, vc := statusFixture(t)
 
 	// pushed to 1 pod, but no Ready peers yet
-	r.updateStatus(context.Background(), vc, &generator.Result{Hash: "abc123"}, nil, 1)
+	r.updateStatus(context.Background(), vc, &generator.Result{Hash: "abc123"},
+		podObservation{reachable: []generator.PeerBackend{peer("cache_0", "10.0.0.1")}}, 1)
 
 	if assert.NotNil(t, vc.Status.ActiveVCL) {
 		assert.Equal(t, "abc123", vc.Status.ActiveVCL.Hash)

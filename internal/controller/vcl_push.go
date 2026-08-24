@@ -69,7 +69,7 @@ func (r *VinylCacheReconciler) pushVCL(
 		backoffBase = vc.Spec.Retry.BackoffBase.Duration
 	}
 
-	vclName := fmt.Sprintf("%s-%s-%s", vc.Namespace, vc.Name, result.Hash[:8])
+	vclName := vclNameFor(vc, result.Hash)
 
 	type pushResult struct {
 		peer generator.PeerBackend
@@ -138,6 +138,17 @@ func (r *VinylCacheReconciler) pushVCL(
 	return len(peers) - failCount, nil
 }
 
+// vclNameFor is the name a generated VCL is pushed under. It embeds the content
+// hash, so comparing this name against what varnishd reports tells the operator
+// whether a pod already carries the desired VCL.
+func vclNameFor(vc *v1alpha1.VinylCache, hash string) string {
+	short := hash
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	return fmt.Sprintf("%s-%s-%s", vc.Namespace, vc.Name, short)
+}
+
 // collectPeers lists the StatefulSet's pods once and returns two views of them.
 //
 // reachable is the set of pods the operator may push VCL to. A pod qualifies as
@@ -155,13 +166,14 @@ func (r *VinylCacheReconciler) pushVCL(
 func (r *VinylCacheReconciler) collectPeers(
 	ctx context.Context,
 	vc *v1alpha1.VinylCache,
-) (reachable, ready []generator.PeerBackend, err error) {
+) (podObservation, error) {
+	var reachable, ready []generator.PeerBackend
 	podList := &corev1.PodList{}
 	if err := r.List(ctx, podList,
 		client.InNamespace(vc.Namespace),
 		client.MatchingLabels(map[string]string{"app": vc.Name}),
 	); err != nil {
-		return nil, nil, fmt.Errorf("listing pods: %w", err)
+		return podObservation{}, fmt.Errorf("listing pods: %w", err)
 	}
 
 	for _, pod := range podList.Items {
@@ -180,7 +192,7 @@ func (r *VinylCacheReconciler) collectPeers(
 			ready = append(ready, peer)
 		}
 	}
-	return reachable, ready, nil
+	return podObservation{reachable: reachable, ready: ready}, nil
 }
 
 // isPodReady returns true if the pod has a Ready condition with status True.
