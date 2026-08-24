@@ -99,8 +99,18 @@ jobs:
       - name: Debug - operator logs
         if: failure()
         run: |
+          # Covers setup failures and anything outside a chainsaw test. Failures
+          # inside a test are captured far better by the catch block in
+          # .chainsaw.yaml, which runs before the namespace is torn down.
+          #
+          # --tail=100 used to cut this to the last ~25 seconds, which on run
+          # 32746861480 began 48s after the failure it was meant to explain.
           echo "=== Operator logs ==="
-          kubectl logs -n cloud-vinyl-system -l app.kubernetes.io/name=cloud-vinyl --tail=100 || true
+          kubectl logs -n cloud-vinyl-system -l app.kubernetes.io/name=cloud-vinyl \
+            --tail=-1 --since=30m || true
+          echo "=== Operator logs (previous container, if it restarted) ==="
+          kubectl logs -n cloud-vinyl-system -l app.kubernetes.io/name=cloud-vinyl \
+            --previous --tail=-1 2>/dev/null || echo "(no previous container)"
           echo "=== VinylCache resources ==="
           kubectl get vinylcaches -A -o yaml 2>/dev/null | head -200 || true
           echo "=== Pods in test namespaces ==="

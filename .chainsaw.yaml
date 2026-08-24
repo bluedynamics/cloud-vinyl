@@ -19,3 +19,35 @@ metadata:
 spec:
   timeouts:
     cleanup: 60s
+
+  error:
+    # Collected when a test fails, in that test's own namespace, before cleanup
+    # tears it down. Combined with any test- and step-level catch blocks.
+    #
+    # The job-level kubectl debug step in the workflow cannot do this. It runs
+    # after chainsaw has already deleted the namespace, so the interesting
+    # objects are gone, and its `kubectl logs --tail=100` on the operator covered
+    # only the last ~25 seconds. On run 32746861480 the failure happened 48s
+    # before that window opened, leaving no operator-side evidence at all for a
+    # VinylCache delete that ran past its timeout.
+    catch:
+      # The decisive artifact for a stuck delete: shows finalizers,
+      # deletionTimestamp and status at the moment things went wrong.
+      - get:
+          apiVersion: vinyl.bluedynamics.eu/v1alpha1
+          kind: VinylCache
+          format: yaml
+
+      # Varnish pods, to tell "still terminating" apart from "never came up".
+      - get:
+          apiVersion: v1
+          kind: Pod
+
+      - events: {}
+
+      # Operator logs. The reconcile that removes the finalizer lives here, and
+      # the tail is deliberately generous: a short one is what failed us before.
+      - podLogs:
+          namespace: cloud-vinyl-system
+          selector: app.kubernetes.io/name=cloud-vinyl
+          tail: 400
