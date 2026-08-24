@@ -32,7 +32,8 @@ import (
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 )
 
-// pushVCL pushes VCL to all ready peers in parallel.
+// pushVCL pushes VCL to all reachable pods in parallel. The caller passes the
+// reachable list, not the Ready one: see collectPeers for why.
 // Partial failure updates status per-pod but returns an error only if ALL pods fail.
 // VCL compilation errors are not retried.
 func (r *VinylCacheReconciler) pushVCL(
@@ -44,7 +45,7 @@ func (r *VinylCacheReconciler) pushVCL(
 	log := logf.FromContext(ctx)
 
 	if len(peers) == 0 {
-		log.Info("No ready peers to push VCL to, will requeue")
+		log.Info("No reachable pods to push VCL to, will requeue")
 		return nil // Not an error — updateStatus will set partial state, reconciler will requeue
 	}
 
@@ -133,31 +134,49 @@ func (r *VinylCacheReconciler) pushVCL(
 	return nil
 }
 
-// collectReadyPeers returns a PeerBackend list for all StatefulSet pods with the Ready condition.
-func (r *VinylCacheReconciler) collectReadyPeers(ctx context.Context, vc *v1alpha1.VinylCache) ([]generator.PeerBackend, error) {
+// collectPeers lists the StatefulSet's pods once and returns two views of them.
+//
+// reachable is the set of pods the operator may push VCL to. A pod qualifies as
+// soon as it is Running and has an IP. Readiness is deliberately NOT required:
+// a pod stays NotReady precisely until the operator has pushed it a real VCL,
+// so gating the push on readiness deadlocks. No push means never ready, which
+// means no push. That deadlock was latent for as long as the agent's vcl.list
+// parser reported the wrong VCL name and every pod therefore looked Ready
+// (#73). The operator talks to the agent over the pod IP, where readiness has
+// no bearing on reachability.
+//
+// ready is the set of pods that may receive traffic. It feeds the peer backends
+// of the generated VCL (the shard director) and the proxy pod map. Sharding to
+// a pod that is still on the bootstrap VCL would hand users a 503.
+func (r *VinylCacheReconciler) collectPeers(
+	ctx context.Context,
+	vc *v1alpha1.VinylCache,
+) (reachable, ready []generator.PeerBackend, err error) {
 	podList := &corev1.PodList{}
 	if err := r.List(ctx, podList,
 		client.InNamespace(vc.Namespace),
 		client.MatchingLabels(map[string]string{"app": vc.Name}),
 	); err != nil {
-		return nil, fmt.Errorf("listing pods: %w", err)
+		return nil, nil, fmt.Errorf("listing pods: %w", err)
 	}
 
-	var peers []generator.PeerBackend
 	for _, pod := range podList.Items {
-		if !isPodReady(&pod) {
+		// A terminated pod keeps its last PodIP in status, but nothing listens
+		// there any more. Pushing to it would burn the whole retry budget.
+		if pod.Status.Phase != corev1.PodRunning || pod.Status.PodIP == "" {
 			continue
 		}
-		if pod.Status.PodIP == "" {
-			continue
-		}
-		peers = append(peers, generator.PeerBackend{
+		peer := generator.PeerBackend{
 			Name: strings.ReplaceAll(pod.Name, "-", "_"),
 			IP:   pod.Status.PodIP,
 			Port: varnishPort,
-		})
+		}
+		reachable = append(reachable, peer)
+		if isPodReady(&pod) {
+			ready = append(ready, peer)
+		}
 	}
-	return peers, nil
+	return reachable, ready, nil
 }
 
 // isPodReady returns true if the pod has a Ready condition with status True.

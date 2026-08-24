@@ -149,8 +149,14 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{RequeueAfter: remaining}, nil
 	}
 
-	// 11. Collect ready peers, generate VCL, push if changed.
-	peers, err := r.collectReadyPeers(ctx, vc)
+	// 11. Collect peers, generate VCL, push if changed.
+	//
+	// Two lists, deliberately: `peers` are the Ready pods, which is what may
+	// take traffic (shard director backends, proxy routing, status). `targets`
+	// are the reachable pods, which is who gets the VCL pushed. Pushing only to
+	// Ready pods deadlocks, because a pod is NotReady until it has been pushed
+	// a VCL. See collectPeers for the full reasoning.
+	targets, peers, err := r.collectPeers(ctx, vc)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -204,7 +210,7 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if genResult.Hash != activeHash || len(peers) != len(vc.Status.ClusterPeers) {
-		if err := r.pushVCL(ctx, vc, genResult, peers); err != nil {
+		if err := r.pushVCL(ctx, vc, genResult, targets); err != nil {
 			r.setErrorStatus(ctx, vc, err)
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
