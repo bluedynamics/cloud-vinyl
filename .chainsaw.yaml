@@ -1,0 +1,21 @@
+# Chainsaw picks this file up automatically when it sits in the working
+# directory the `chainsaw test` command runs from (loaders/config: ".chainsaw.yaml").
+#
+# Without it every timeout is a Chainsaw default, and the cleanup default of 30s
+# is uncomfortably close to how long a namespace takes to drain. Namespace
+# teardown is not continuous: the namespace controller estimates
+# max(pod.spec.terminationGracePeriodSeconds) and requeues after estimate/2+1
+# seconds, so teardown moves in steps rather than smoothly. Capping the pod grace
+# periods (see #63, PR #64) moved those steps well below 30s, but the margin is
+# still only a few seconds and any future test with slower pods would silently
+# fall off the same cliff. 60s buys a whole extra step of headroom.
+#
+# Per-test `timeouts:` blocks still win over this, so `vcl-validation` and
+# `volumes-and-pvc` keep their explicit values.
+apiVersion: chainsaw.kyverno.io/v1alpha2
+kind: Configuration
+metadata:
+  name: cloud-vinyl-e2e
+spec:
+  timeouts:
+    cleanup: 60s
