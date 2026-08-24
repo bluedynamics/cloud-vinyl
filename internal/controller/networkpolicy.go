@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -46,6 +47,47 @@ func (r *VinylCacheReconciler) reconcileNetworkPolicies(ctx context.Context, vc 
 		return err
 	}
 	return nil
+}
+
+// operatorNamespaceLabel marks the namespace the operator runs in. It is the
+// legacy way of authorizing the operator against the agent and invalidation
+// policies and has to be applied by hand, so it is only a fallback now.
+const operatorNamespaceLabel = "vinyl.bluedynamics.eu/operator-namespace"
+
+// operatorPeers returns the NetworkPolicy peers that identify this operator.
+//
+// The operator's own pod IP comes first: it needs no cluster-wide labeling and
+// therefore works on a stock `helm install`. The namespace label is kept as a
+// fallback for setups that label their namespace and for operator replicas whose
+// POD_IP is not injected (see issue #58).
+func (r *VinylCacheReconciler) operatorPeers() []networkingv1.NetworkPolicyPeer {
+	peers := []networkingv1.NetworkPolicyPeer{
+		{
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{operatorNamespaceLabel: "true"},
+			},
+		},
+	}
+	if cidr := singleHostCIDR(r.OperatorIP); cidr != "" {
+		peers = append(peers, networkingv1.NetworkPolicyPeer{
+			IPBlock: &networkingv1.IPBlock{CIDR: cidr},
+		})
+	}
+	return peers
+}
+
+// singleHostCIDR turns an IP address into a host CIDR ("10.0.0.1/32",
+// "fd00::1/128"). It returns "" for empty or unparseable input, so a missing
+// POD_IP degrades to the label fallback instead of producing an invalid policy.
+func singleHostCIDR(ip string) string {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return ""
+	}
+	if parsed.To4() != nil {
+		return parsed.String() + "/32"
+	}
+	return parsed.String() + "/128"
 }
 
 // reconcileTrafficNetworkPolicy allows all ingress to the Varnish HTTP port (8080).
@@ -92,8 +134,9 @@ func (r *VinylCacheReconciler) reconcileTrafficNetworkPolicy(ctx context.Context
 	return nil
 }
 
-// reconcileInvalidationNetworkPolicy allows traffic from the operator namespace
-// to reach Varnish pods on port 8080 for PURGE/BAN forwarding.
+// reconcileInvalidationNetworkPolicy allows the operator to reach Varnish pods
+// on port 8080 for PURGE/BAN forwarding. See operatorPeers for how the operator
+// is identified.
 func (r *VinylCacheReconciler) reconcileInvalidationNetworkPolicy(ctx context.Context, vc *v1alpha1.VinylCache) error {
 	np := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -119,16 +162,7 @@ func (r *VinylCacheReconciler) reconcileInvalidationNetworkPolicy(ctx context.Co
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
 				{
-					From: []networkingv1.NetworkPolicyPeer{
-						{
-							// Allow from operator namespace (identified by label).
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"vinyl.bluedynamics.eu/operator-namespace": "true",
-								},
-							},
-						},
-					},
+					From: r.operatorPeers(),
 					Ports: []networkingv1.NetworkPolicyPort{
 						{Port: &httpPort, Protocol: &proto},
 					},
@@ -143,8 +177,9 @@ func (r *VinylCacheReconciler) reconcileInvalidationNetworkPolicy(ctx context.Co
 	return nil
 }
 
-// reconcileAgentNetworkPolicy allows traffic from the operator namespace to reach
-// the vinyl-agent sidecar on port 9090.
+// reconcileAgentNetworkPolicy allows the operator to reach the vinyl-agent
+// sidecar on port 9090, which is how VCL is pushed. See operatorPeers for how the
+// operator is identified.
 func (r *VinylCacheReconciler) reconcileAgentNetworkPolicy(ctx context.Context, vc *v1alpha1.VinylCache) error {
 	np := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -170,15 +205,7 @@ func (r *VinylCacheReconciler) reconcileAgentNetworkPolicy(ctx context.Context, 
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
 				{
-					From: []networkingv1.NetworkPolicyPeer{
-						{
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"vinyl.bluedynamics.eu/operator-namespace": "true",
-								},
-							},
-						},
-					},
+					From: r.operatorPeers(),
 					Ports: []networkingv1.NetworkPolicyPort{
 						{Port: &agentPortVal, Protocol: &proto},
 					},
