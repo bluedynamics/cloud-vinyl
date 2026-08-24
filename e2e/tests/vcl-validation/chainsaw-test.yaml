@@ -63,6 +63,56 @@ spec:
                 director:
                   type: shard
 
+    # The two steps below assert on the rejection *message*, not merely that the
+    # apply failed. A webhook that is unreachable also fails every apply, and
+    # under failurePolicy: Fail that looks identical to correct validation. Two
+    # distinct rules, each matched on its own message, is what separates
+    # "validates correctly" from "refuses everything".
+    #
+    # Neither field carries a CRD-level constraint (allowedSources is a plain
+    # []string, varnishParameters a plain map), so nothing rejects these before
+    # admission and the webhook really is what is under test here.
+
+    - name: reject-invalid-cidr
+      description: A malformed CIDR in invalidation.purge.allowedSources must be refused.
+      try:
+        - apply:
+            file: vinylcache-invalid-cidr.yaml
+            expect:
+              - check:
+                  # `|| ''` keeps this nil-safe. Without it, an admitted
+                  # resource makes $error nil and contains() raises an
+                  # internal type error instead of failing the assertion,
+                  # which buries the actual problem. Verified by mutation.
+                  (contains($error || '', 'invalid CIDR')): true
+
+    - name: reject-forbidden-varnish-parameter
+      description: A blocklisted varnishParameters key must be refused.
+      try:
+        - apply:
+            file: vinylcache-forbidden-param.yaml
+            expect:
+              - check:
+                  # `|| ''` keeps this nil-safe. Without it, an admitted
+                  # resource makes $error nil and contains() raises an
+                  # internal type error instead of failing the assertion,
+                  # which buries the actual problem. Verified by mutation.
+                  (contains($error || '', 'varnishParameters key')): true
+
+    - name: valid-resource-still-admitted-after-rejections
+      description: |
+        Guards the inverse failure: a webhook that rejects everything would pass
+        both steps above. The valid resource from earlier must still be present,
+        proving admission and rejection both work on the same running webhook in
+        the same run.
+      try:
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: valid-test
+
     - name: cleanup
       try:
         - delete:
