@@ -7,7 +7,6 @@ spec:
     Verify a 3-replica VinylCache with invalidation configured reaches Ready
     phase and the operator correctly reconciles all resources.
   timeouts:
-    apply: 10s
     assert: 180s
     delete: 60s
     exec: 30s

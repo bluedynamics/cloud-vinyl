@@ -7,7 +7,6 @@ spec:
     Full CRUD lifecycle of a VinylCache: create, wait for Ready,
     update spec, delete and verify cleanup.
   timeouts:
-    apply: 10s
     assert: 120s
     delete: 60s
     exec: 30s

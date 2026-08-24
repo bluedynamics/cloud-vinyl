@@ -18,6 +18,13 @@ metadata:
   name: cloud-vinyl-e2e
 spec:
   timeouts:
+    # Client-side patience for an apply. Every test used to pin this to 10s
+    # individually, which is exactly the admission webhook timeout, so the client
+    # gave up at the same instant the webhook did. A slow webhook then surfaced as
+    # `context deadline exceeded` on the POST rather than as an admission error,
+    # and there was no margin at all. Kept comfortably above the webhook's 10s so
+    # the server-side outcome is what we actually observe (#63).
+    apply: 30s
     cleanup: 60s
 
   error:

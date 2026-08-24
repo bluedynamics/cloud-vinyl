@@ -7,7 +7,6 @@ spec:
     Verify the operator periodically reconciles VinylCache and maintains
     VCLSynced=True. Patches to the spec trigger re-reconciliation.
   timeouts:
-    apply: 10s
     assert: 120s
     delete: 60s
     exec: 30s

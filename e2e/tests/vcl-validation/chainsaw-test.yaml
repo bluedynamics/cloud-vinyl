@@ -8,7 +8,6 @@ spec:
     VinylCache resources. Tests defaulting webhook (soft purge default)
     and that valid resources are accepted.
   timeouts:
-    apply: 10s
     assert: 60s
     delete: 60s
     cleanup: 60s

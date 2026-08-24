@@ -26,3 +26,4 @@ webhooks:
         operations: ["CREATE", "UPDATE"]
         resources: ["vinylcaches"]
     sideEffects: None
+    timeoutSeconds: {{ .Values.webhook.timeoutSeconds }}

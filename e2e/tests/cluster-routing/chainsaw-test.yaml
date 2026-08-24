@@ -7,7 +7,6 @@ spec:
     3-replica cluster with shard director: verify the StatefulSet is created
     with 3 replicas and the VinylCache reaches Ready phase.
   timeouts:
-    apply: 10s
     assert: 180s
     delete: 60s
     exec: 30s

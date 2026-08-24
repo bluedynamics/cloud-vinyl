@@ -51,6 +51,18 @@ webhook:
   certManager:
     # Use cert-manager to manage TLS (recommended). cert-manager must be installed.
     enabled: true
+  # Admission webhook timeout in seconds (Kubernetes allows 1-30).
+  #
+  # Set explicitly rather than relying on the API default, which is also 10 but is
+  # a server-side default we do not control. Because failurePolicy is Fail, a
+  # webhook that does not answer within this window makes the API server reject
+  # the VinylCache create or update outright.
+  #
+  # Keep any client-side timeout comfortably above this value. When the two are
+  # equal the client gives up at the same instant the webhook does, so a slow
+  # webhook surfaces as an opaque client deadline instead of an admission error
+  # (see issue #63).
+  timeoutSeconds: 10
   tls:
     # Base64-encoded CA certificate (used when certManager.enabled: false).
     caCert: ""

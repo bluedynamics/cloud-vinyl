@@ -7,7 +7,6 @@ spec:
     Scale-up from 1→3 replicas and scale-down 3→1: verify the StatefulSet
     spec is updated and the VinylCache reaches Ready phase after each change.
   timeouts:
-    apply: 10s
     assert: 180s
     delete: 60s
     exec: 30s
