@@ -18,6 +18,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,6 +38,16 @@ func varnishImage() string {
 }
 
 const testSecret = "cloud-vinyl-integration-test-secret"
+
+// stderrOf surfaces the stderr an *exec.ExitError carries. Without it a failing
+// docker call reports only "exit status 1", which says nothing about why.
+func stderrOf(err error) string {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+		return ": " + strings.TrimSpace(string(ee.Stderr))
+	}
+	return ""
+}
 
 // startVarnishd boots varnishd with the exact arguments the operator generates
 // and returns the host address of its admin CLI.
@@ -75,18 +86,26 @@ func startVarnishd(t *testing.T) string {
 		"-T", "0.0.0.0:6082", "-S", "/etc/varnish/secret",
 		"-s", "default=malloc,104857600",
 	)
-	out, err := run.CombinedOutput()
+	// Output(), not CombinedOutput(): docker writes the container id to stdout
+	// but image pull progress to stderr, so on a cold image cache the combined
+	// stream prepends "Unable to find image ... locally" and the whole pull log
+	// to the id. That is invisible on a warm cache and breaks every fresh
+	// checkout, CI included.
+	out, err := run.Output()
 	if err != nil {
-		t.Skipf("cannot start %s (%v): %s", varnishImage(), err, out)
+		t.Skipf("cannot start %s: %v%s", varnishImage(), err, stderrOf(err))
 	}
 	id := strings.TrimSpace(string(out))
+	if id == "" || strings.ContainsAny(id, " \n") {
+		t.Fatalf("docker run did not yield a clean container id, got %q", id)
+	}
 	t.Cleanup(func() {
 		_ = exec.Command("docker", "--context", "default", "rm", "-f", id).Run()
 	})
 
 	portOut, err := exec.Command("docker", "--context", "default", "port", id, "6082/tcp").Output()
 	if err != nil {
-		t.Fatalf("docker port: %v", err)
+		t.Fatalf("docker port %s: %v%s", id, err, stderrOf(err))
 	}
 	addr := strings.TrimSpace(strings.Split(string(portOut), "\n")[0])
 
