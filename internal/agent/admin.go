@@ -233,13 +233,22 @@ func (c *varnishAdminClient) ActiveVCL(ctx context.Context) (string, error) {
 	if code != 200 {
 		return "", fmt.Errorf("vcl.list failed (code %d): %s", code, body)
 	}
-	// Output format: "active       0 <name>"
+	// vcl.list emits one fixed-width row per loaded VCL:
+	//
+	//	<status>  <state>  <temperature>  <busy>  <name>  [<- (N labels) | -> <target>]
+	//	active    auto     warm           0       boot
+	//
+	// The name is the fifth column. It is NOT the last one: a VCL with labels
+	// attached grows trailing columns ("boot  <-  (1 label)"), so scanning from
+	// the end picks up label bookkeeping instead of the name.
+	//
+	// Matching the status field exactly rather than by prefix keeps a VCL named
+	// e.g. "active-config" on an "available" row from being mistaken for the
+	// active one.
 	for line := range strings.SplitSeq(body, "\n") {
-		if strings.HasPrefix(line, "active") {
-			parts := strings.Fields(line)
-			if len(parts) >= 3 {
-				return parts[2], nil
-			}
+		parts := strings.Fields(line)
+		if len(parts) >= 5 && parts[0] == "active" {
+			return parts[4], nil
 		}
 	}
 	return "", nil
