@@ -12,6 +12,11 @@ spec:
       labels:
         app: echo-multi
     spec:
+      # This fixture is scaled 3 -> 5 -> 2 and then deleted one second later, so
+      # pods are reliably still terminating when the namespace controller runs its
+      # first sweep. The 30s default grace period pushed teardown to ~42s and blew
+      # Chainsaw's 30s cleanup timeout on every run (#63).
+      terminationGracePeriodSeconds: 5
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

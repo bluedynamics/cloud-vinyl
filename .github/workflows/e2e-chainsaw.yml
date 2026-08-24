@@ -66,19 +66,26 @@ jobs:
       - name: Install chainsaw
         run: go install github.com/kyverno/chainsaw@v0.2.12
 
+      # NOTE on the "chainsaw/" prefix: chainsaw maps --include-test-regex and
+      # --exclude-test-regex onto Go's -test.run / -test.skip, which match
+      # elementwise along "/". Chainsaw registers one top-level test named
+      # "chainsaw" with one subtest per test, so a pattern without a "/" is only
+      # ever compared against "chainsaw" and silently matches nothing. Without the
+      # prefix the exclusion is a no-op and the "sequential" step runs zero tests
+      # while still exiting 0 (see issue #63).
       - name: Run E2E tests (parallel)
         run: |
           chainsaw test \
             --test-dir e2e/tests \
             --parallel 2 \
-            --exclude-test-regex "(ha-operator|drift-detection)"
+            --exclude-test-regex "chainsaw/(ha-operator|drift-detection)"
 
       - name: Run sequential E2E tests
         run: |
           chainsaw test \
             --test-dir e2e/tests \
             --parallel 1 \
-            --include-test-regex "(ha-operator|drift-detection)"
+            --include-test-regex "chainsaw/(ha-operator|drift-detection)"
 
       - name: Debug - operator logs
         if: failure()
