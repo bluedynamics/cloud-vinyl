@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual trigger so main can be re-run on demand. When a PR goes red there is
+  # otherwise no cheap way to check whether unmodified main is red too (#63).
+  workflow_dispatch:
 
 jobs:
   e2e:
@@ -15,11 +18,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
       - name: Fix MTU for Kind cross-node networking
         run: sudo sysctl -w net.ipv4.tcp_mtu_probing=1
 
@@ -28,10 +26,10 @@ jobs:
         with:
           config: e2e/setup/kind-config.yaml
           cluster_name: cloud-vinyl-e2e
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+          # Pinned so the Kubernetes version stops drifting between runs. Without
+          # it the action picks whatever its default kindest/node is that day, so
+          # a run can change behaviour with no change to this repo (#63).
+          node_image: kindest/node:v1.35.0
 
       - name: Build operator image
         run: |
@@ -63,8 +61,19 @@ jobs:
           AGENT_IMAGE: ghcr.io/bluedynamics/cloud-vinyl-agent:dev
         run: bash e2e/setup/install-operator.sh
 
+      # Downloads the prebuilt release binary. `go install` compiled chainsaw from
+      # source on every run, which cost 106-120s of a ~520s job (#63). The
+      # chainsaw version is unchanged; bumping it is a separate decision.
+      #
+      # `verify: true` is deliberately not set. The action verifies via
+      # `cosign verify-blob --bundle <archive>.sigstore.json`, and v0.2.12 predates
+      # those bundles: it ships only the older detached .pem/.sig pair, so the
+      # bundle download would 404. Enabling verification means bumping chainsaw to
+      # a release that publishes sigstore bundles and adding cosign-installer.
       - name: Install chainsaw
-        run: go install github.com/kyverno/chainsaw@v0.2.12
+        uses: kyverno/action-install-chainsaw@v0.2.15
+        with:
+          release: v0.2.12
 
       # NOTE on the "chainsaw/" prefix: chainsaw maps --include-test-regex and
       # --exclude-test-regex onto Go's -test.run / -test.skip, which match
