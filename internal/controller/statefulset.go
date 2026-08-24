@@ -351,7 +351,7 @@ func buildExporterContainer(exp *v1alpha1.ExporterSpec) corev1.Container {
 }
 
 // storageArgs renders spec.storage entries as varnishd "-s <name>=<type>,..."
-// command-line args. See https://varnish-cache.org/docs/7.6/reference/varnishd.html#argument-list
+// command-line args. See https://varnish-cache.org/docs/8.0/reference/varnishd.html#argument-list
 // for the syntax accepted by -s.
 func storageArgs(storage []v1alpha1.StorageSpec) []string {
 	if len(storage) == 0 {

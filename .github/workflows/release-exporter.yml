@@ -19,8 +19,13 @@ permissions:
 
 env:
   IMAGE: ghcr.io/bluedynamics/varnish-exporter
+  # EXPORTER_VERSION lives here because it also names the published tag, so the
+  # workflow needs the value regardless. VARNISH_IMAGE deliberately does NOT:
+  # it only selects which varnishstat gets bundled, and that must match the
+  # varnishd the sidecar reads the VSM from. Keeping a second copy here means
+  # two files that must agree, and a silent mismatch produces an exporter that
+  # cannot read the VSM at all. Dockerfile.exporter owns it. See #69.
   EXPORTER_VERSION: "1.6.1"
-  VARNISH_IMAGE: "varnish:7.6"
 
 jobs:
   docker-build:
@@ -60,7 +65,6 @@ jobs:
           provenance: false
           build-args: |
             EXPORTER_VERSION=${{ env.EXPORTER_VERSION }}
-            VARNISH_IMAGE=${{ env.VARNISH_IMAGE }}
           tags: ${{ env.IMAGE }}:${{ env.EXPORTER_VERSION }}-${{ steps.meta.outputs.platform_tag }}
 
   docker-manifest:

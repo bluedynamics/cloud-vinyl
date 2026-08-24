@@ -35,7 +35,7 @@ func minimalValidVC() *vinylv1alpha1.VinylCache {
 	return &vinylv1alpha1.VinylCache{
 		Spec: vinylv1alpha1.VinylCacheSpec{
 			Replicas: 1,
-			Image:    "ghcr.io/bluedynamics/cloud-vinyl-varnish:7.6.0",
+			Image:    "ghcr.io/bluedynamics/cloud-vinyl-varnish:8.0.2",
 			Backends: []vinylv1alpha1.BackendSpec{
 				{
 					Name:       "app",
@@ -443,7 +443,7 @@ func validBaseVinylCache() *vinylv1alpha1.VinylCache {
 		ObjectMeta: metav1.ObjectMeta{Name: "vc", Namespace: "ns"},
 		Spec: vinylv1alpha1.VinylCacheSpec{
 			Replicas: 1,
-			Image:    "varnish:7.6",
+			Image:    "varnish:8.0.2",
 			Backends: []vinylv1alpha1.BackendSpec{
 				{Name: "app", ServiceRef: vinylv1alpha1.ServiceRef{Name: "svc"}},
 			},
