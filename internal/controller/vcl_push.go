@@ -41,12 +41,16 @@ func (r *VinylCacheReconciler) pushVCL(
 	vc *v1alpha1.VinylCache,
 	result *generator.Result,
 	peers []generator.PeerBackend,
-) error {
+) (int, error) {
 	log := logf.FromContext(ctx)
 
 	if len(peers) == 0 {
 		log.Info("No reachable pods to push VCL to, will requeue")
-		return nil // Not an error — updateStatus will set partial state, reconciler will requeue
+		// Not an error: the reconciler requeues and tries again once a pod is
+		// up. Returning 0 matters, because updateStatus must not then record
+		// this VCL as active — doing so convinces the next reconcile that the
+		// push already happened and the cache never converges. See #77.
+		return 0, nil
 	}
 
 	pushStart := time.Now()
@@ -129,9 +133,9 @@ func (r *VinylCacheReconciler) pushVCL(
 	}
 
 	if failCount == len(peers) {
-		return fmt.Errorf("VCL push failed on all %d pods", len(peers))
+		return 0, fmt.Errorf("VCL push failed on all %d pods", len(peers))
 	}
-	return nil
+	return len(peers) - failCount, nil
 }
 
 // collectPeers lists the StatefulSet's pods once and returns two views of them.

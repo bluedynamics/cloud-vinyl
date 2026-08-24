@@ -45,7 +45,7 @@ func TestUpdateStatus_SetsVCLVersionsGauge(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).WithStatusSubresource(vc).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch, Metrics: m}
 
-	r.updateStatus(context.Background(), vc, &generator.Result{Hash: "abcdef1234"}, nil)
+	r.updateStatus(context.Background(), vc, &generator.Result{Hash: "abcdef1234"}, nil, 1)
 
 	assert.Equal(t, float64(1), testutil.ToFloat64(m.VCLVersionsLoaded.WithLabelValues("c1", "ns1")))
 }

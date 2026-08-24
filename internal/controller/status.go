@@ -34,15 +34,24 @@ func (r *VinylCacheReconciler) updateStatus(
 	vc *v1alpha1.VinylCache,
 	result *generator.Result,
 	peers []generator.PeerBackend,
+	pushedCount int,
 ) {
 	log := logf.FromContext(ctx)
 
-	now := metav1.NewTime(time.Now())
-
-	vc.Status.ActiveVCL = &v1alpha1.ActiveVCLStatus{
-		Name:     fmt.Sprintf("%s-%s", vc.Namespace, vc.Name),
-		Hash:     result.Hash,
-		PushedAt: &now,
+	// Only claim a VCL is active once it actually reached a pod. The reconciler
+	// decides whether to push by comparing this hash against the freshly
+	// generated one, so recording a hash that was pushed to nobody makes the
+	// next reconcile skip the push and the cache never converges (#77).
+	//
+	// pushedCount is also 0 when the push was skipped because the VCL had not
+	// changed. Leaving the existing status untouched is correct there too.
+	if pushedCount > 0 {
+		now := metav1.NewTime(time.Now())
+		vc.Status.ActiveVCL = &v1alpha1.ActiveVCLStatus{
+			Name:     fmt.Sprintf("%s-%s", vc.Namespace, vc.Name),
+			Hash:     result.Hash,
+			PushedAt: &now,
+		}
 	}
 
 	if r.Metrics != nil {
@@ -67,8 +76,12 @@ func (r *VinylCacheReconciler) updateStatus(
 
 	// VCLSynced reflects whether VCL was pushed to all available peers (not blocked).
 	// It stays True even when waiting for more replicas to start.
+	// Reads "ready", not "pushed": this counts pods carrying the Ready
+	// condition, not push targets. The old wording ("VCL pushed to 0/1 pods")
+	// read like a push failure during the #77 investigation when it was in fact
+	// reporting readiness.
 	setCondition(vc, v1alpha1.ConditionVCLSynced, metav1.ConditionTrue, "VCLPushed",
-		fmt.Sprintf("VCL pushed to %d/%d pods", len(peers), vc.Spec.Replicas))
+		fmt.Sprintf("VCL active on %d/%d ready pods", len(peers), vc.Spec.Replicas))
 	setCondition(vc, v1alpha1.ConditionBackendsAvailable, metav1.ConditionTrue, "BackendsConfigured", "backend configuration applied")
 
 	if allReplicasReady {

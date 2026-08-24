@@ -209,15 +209,18 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
+	pushedCount := 0
 	if genResult.Hash != activeHash || len(peers) != len(vc.Status.ClusterPeers) {
-		if err := r.pushVCL(ctx, vc, genResult, targets); err != nil {
+		n, err := r.pushVCL(ctx, vc, genResult, targets)
+		if err != nil {
 			r.setErrorStatus(ctx, vc, err)
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
+		pushedCount = n
 	}
 
 	// 12. Update status and requeue.
-	r.updateStatus(ctx, vc, genResult, peers)
+	r.updateStatus(ctx, vc, genResult, peers, pushedCount)
 
 	// Requeue quickly if not all replicas are ready yet.
 	if int32(len(peers)) < vc.Spec.Replicas {

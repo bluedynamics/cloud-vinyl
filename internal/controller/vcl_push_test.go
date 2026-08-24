@@ -82,7 +82,7 @@ func TestPushVCL_RecordsMetricsPerPeer(t *testing.T) {
 	r.Metrics = m
 
 	peers := makePeers(2)
-	if err := r.pushVCL(context.Background(), makeVC(), makeResult(), peers); err != nil {
+	if _, err := r.pushVCL(context.Background(), makeVC(), makeResult(), peers); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 	if got := testutil.ToFloat64(m.VCLPushTotal.WithLabelValues("test-cache", "default", "success")); got != 2 {
@@ -95,12 +95,15 @@ func TestPushVCL_AllPodsSuccess(t *testing.T) {
 	r := makeReconcilerWithMock(mock)
 
 	peers := makePeers(3)
-	err := r.pushVCL(context.Background(), makeVC(), makeResult(), peers)
+	pushed, err := r.pushVCL(context.Background(), makeVC(), makeResult(), peers)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 	if mock.pushCalled != 3 {
 		t.Errorf("expected 3 push calls, got %d", mock.pushCalled)
+	}
+	if pushed != 3 {
+		t.Errorf("expected pushed count 3, got %d", pushed)
 	}
 }
 
@@ -109,10 +112,16 @@ func TestPushVCL_PartialFailure(t *testing.T) {
 	r := makeReconcilerWithMock(customMock)
 
 	peers := makePeers(2)
-	err := r.pushVCL(context.Background(), makeVC(), makeResult(), peers)
+	pushed, err := r.pushVCL(context.Background(), makeVC(), makeResult(), peers)
 	// Partial failure: not all pods failed, so no error returned.
 	if err != nil {
 		t.Fatalf("expected nil error on partial failure, got: %v", err)
+	}
+	// countingMock fails call *index* 0, not a particular pod, so the retry
+	// recovers it and both peers end up carrying the VCL. The count reports
+	// pods reached, not attempts made.
+	if pushed != 2 {
+		t.Errorf("expected pushed count 2 once the retry recovers, got %d", pushed)
 	}
 }
 
@@ -121,9 +130,12 @@ func TestPushVCL_AllPodsFailure_ReturnsError(t *testing.T) {
 	r := makeReconcilerWithMock(mock)
 
 	peers := makePeers(2)
-	err := r.pushVCL(context.Background(), makeVC(), makeResult(), peers)
+	pushed, err := r.pushVCL(context.Background(), makeVC(), makeResult(), peers)
 	if err == nil {
 		t.Fatal("expected error when all pods fail, got nil")
+	}
+	if pushed != 0 {
+		t.Errorf("expected pushed count 0 when every pod fails, got %d", pushed)
 	}
 }
 
