@@ -12,6 +12,10 @@ spec:
       labels:
         app: echo-backend
     spec:
+      # echo-server exits on SIGTERM immediately. Declaring that keeps the
+      # namespace controller's teardown estimate low; the 30s default made
+      # namespace deletion overshoot Chainsaw's cleanup timeout (#63).
+      terminationGracePeriodSeconds: 5
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
