@@ -30,6 +30,8 @@ The source code is managed in a Git repository, with its main branches hosted on
 
 We'd be happy to see many forks and pull requests to make this package even better. We welcome AI-assisted contributions, but expect every contributor to fully understand and be able to explain the code they submit. Please don't send bulk auto-generated pull requests.
 
+Maintainers cutting a release should follow [RELEASING.md](RELEASING.md).
+
 Maintainers are Jens Klein and the BlueDynamics Alliance developer team. We appreciate any contribution and if support, coaching, integration or adaptations are needed, we also offer commercial support.
 
 ## License
