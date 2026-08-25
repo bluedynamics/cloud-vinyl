@@ -24,12 +24,18 @@ jobs:
       - name: Create kind cluster
         uses: helm/kind-action@v1
         with:
+          # The kind CLI and node_image below must come from the SAME kind
+          # release. The action defaults to kind v0.31.0, whose newest node
+          # image is v1.35.0; v1.36.1 ships with kind v0.32.0 and carries a
+          # containerd config the older CLI cannot read, so `kind load` fails
+          # with "unknown containerd config version: 4". Bump both together.
+          version: v0.32.0
           config: e2e/setup/kind-config.yaml
           cluster_name: cloud-vinyl-e2e
           # Pinned so the Kubernetes version stops drifting between runs. Without
           # it the action picks whatever its default kindest/node is that day, so
           # a run can change behaviour with no change to this repo (#63).
-          node_image: kindest/node:v1.35.0
+          node_image: kindest/node:v1.36.1
 
       - name: Build operator image
         run: |

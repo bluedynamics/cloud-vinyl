@@ -51,7 +51,7 @@ jobs:
         run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
       - name: Run integration tests
         run: |
-          KUBEBUILDER_ASSETS=$(setup-envtest use -p path 1.35.x) \
+          KUBEBUILDER_ASSETS=$(setup-envtest use -p path 1.36.x) \
           go test -tags integration -race ./... -v
 
   build:
