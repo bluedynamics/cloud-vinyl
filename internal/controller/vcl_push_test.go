@@ -102,8 +102,8 @@ func TestPushVCL_AllPodsSuccess(t *testing.T) {
 	if mock.pushCalled != 3 {
 		t.Errorf("expected 3 push calls, got %d", mock.pushCalled)
 	}
-	if pushed != 3 {
-		t.Errorf("expected pushed count 3, got %d", pushed)
+	if len(pushed) != 3 {
+		t.Errorf("expected 3 pods pushed, got %d", len(pushed))
 	}
 }
 
@@ -117,11 +117,13 @@ func TestPushVCL_PartialFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error on partial failure, got: %v", err)
 	}
-	// countingMock fails call *index* 0, not a particular pod, so the retry
-	// recovers it and both peers end up carrying the VCL. The count reports
-	// pods reached, not attempts made.
-	if pushed != 2 {
-		t.Errorf("expected pushed count 2 once the retry recovers, got %d", pushed)
+	// countingMock fails call *index* 0, so exactly one pod is refused. There
+	// is no inner retry to recover it any more: the reconcile loop retries by
+	// pushing again next time round, which is why only the pod that actually
+	// took the VCL is reported here. See
+	// docs/superpowers/specs/2026-08-25-reconcile-starvation-design.md.
+	if len(pushed) != 1 {
+		t.Errorf("expected 1 pod pushed, got %d", len(pushed))
 	}
 }
 
@@ -134,8 +136,8 @@ func TestPushVCL_AllPodsFailure_ReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when all pods fail, got nil")
 	}
-	if pushed != 0 {
-		t.Errorf("expected pushed count 0 when every pod fails, got %d", pushed)
+	if len(pushed) != 0 {
+		t.Errorf("expected 0 pods pushed when every pod fails, got %d", len(pushed))
 	}
 }
 

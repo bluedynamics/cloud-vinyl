@@ -41,16 +41,16 @@ func (r *VinylCacheReconciler) pushVCL(
 	vc *v1alpha1.VinylCache,
 	result *generator.Result,
 	peers []generator.PeerBackend,
-) (int, error) {
+) ([]generator.PeerBackend, error) {
 	log := logf.FromContext(ctx)
 
 	if len(peers) == 0 {
 		log.Info("No reachable pods to push VCL to, will requeue")
 		// Not an error: the reconciler requeues and tries again once a pod is
-		// up. Returning 0 matters, because updateStatus must not then record
-		// this VCL as active — doing so convinces the next reconcile that the
-		// push already happened and the cache never converges. See #77.
-		return 0, nil
+		// up. Returning nothing matters, because updateStatus must not then
+		// record this VCL as active — doing so convinces the next reconcile
+		// that the push already happened and the cache never converges. See #77.
+		return nil, nil
 	}
 
 	pushStart := time.Now()
@@ -59,15 +59,6 @@ func (r *VinylCacheReconciler) pushVCL(
 			r.Metrics.VCLPushDuration.Observe(time.Since(pushStart).Seconds())
 		}
 	}()
-
-	maxAttempts := int32(3)
-	if vc.Spec.Retry.MaxAttempts > 0 {
-		maxAttempts = vc.Spec.Retry.MaxAttempts
-	}
-	backoffBase := 5 * time.Second
-	if vc.Spec.Retry.BackoffBase.Duration > 0 {
-		backoffBase = vc.Spec.Retry.BackoffBase.Duration
-	}
 
 	vclName := vclNameFor(vc, result.Hash)
 
@@ -79,46 +70,34 @@ func (r *VinylCacheReconciler) pushVCL(
 	results := make([]pushResult, len(peers))
 	var wg sync.WaitGroup
 
+	// One attempt per pod, deliberately. Retrying is the reconcile loop's job:
+	// a pod that refused the push still lacks the desired VCL, so the next
+	// reconcile finds it again through podsNeedingVCL and pushes again, with
+	// the workqueue's rate limiting in front of it. An inner retry loop would
+	// repeat that work while holding the single reconcile worker, which is what
+	// let a VinylCache outlive its delete timeout with the finalizer attached.
+	// See docs/superpowers/specs/2026-08-25-reconcile-starvation-design.md.
 	for i, peer := range peers {
 		wg.Add(1)
 		go func(idx int, p generator.PeerBackend) {
 			defer wg.Done()
-			var lastErr error
-			for attempt := int32(0); attempt < maxAttempts; attempt++ {
-				if attempt > 0 {
-					backoff := time.Duration(attempt) * backoffBase
-					select {
-					case <-ctx.Done():
-						results[idx] = pushResult{peer: p, err: ctx.Err()}
-						return
-					case <-time.After(backoff):
-					}
-				}
-				err := r.AgentClient.PushVCL(ctx, vc.Namespace, p.IP, vclName, result.VCL)
-				if err == nil {
-					results[idx] = pushResult{peer: p, err: nil}
-					return
-				}
-				// VCL with this name already loaded — treat as success (idempotent).
-				if strings.Contains(err.Error(), "Already a VCL named") {
-					log.Info("VCL already loaded, skipping", "pod", p.Name, "vcl", vclName)
-					results[idx] = pushResult{peer: p, err: nil}
-					return
-				}
-				lastErr = err
-				// Do not retry VCL compilation errors.
-				if strings.Contains(err.Error(), "VCL compilation failed") {
-					log.Error(err, "VCL compilation error — not retrying", "pod", p.Name)
-					break
-				}
-				log.Error(err, "VCL push failed, retrying", "pod", p.Name, "attempt", attempt+1)
+			err := r.AgentClient.PushVCL(ctx, vc.Namespace, p.IP, vclName, result.VCL)
+			switch {
+			case err == nil:
+				results[idx] = pushResult{peer: p, err: nil}
+			case strings.Contains(err.Error(), "Already a VCL named"):
+				// Idempotent: the pod already carries this exact VCL.
+				log.Info("VCL already loaded, skipping", "pod", p.Name, "vcl", vclName)
+				results[idx] = pushResult{peer: p, err: nil}
+			default:
+				results[idx] = pushResult{peer: p, err: err}
 			}
-			results[idx] = pushResult{peer: p, err: lastErr}
 		}(i, peer)
 	}
 
 	wg.Wait()
 
+	var pushed []generator.PeerBackend
 	failCount := 0
 	for _, pr := range results {
 		res := "success"
@@ -126,6 +105,8 @@ func (r *VinylCacheReconciler) pushVCL(
 			res = "error"
 			failCount++
 			log.Error(pr.err, "VCL push failed for pod", "pod", pr.peer.Name)
+		} else {
+			pushed = append(pushed, pr.peer)
 		}
 		if r.Metrics != nil {
 			r.Metrics.VCLPushTotal.WithLabelValues(vc.Name, vc.Namespace, res).Inc()
@@ -133,10 +114,16 @@ func (r *VinylCacheReconciler) pushVCL(
 	}
 
 	if failCount == len(peers) {
-		return 0, fmt.Errorf("VCL push failed on all %d pods", len(peers))
+		return nil, fmt.Errorf("VCL push failed on all %d pods", len(peers))
 	}
-	return len(peers) - failCount, nil
+	// Only the pods that took the VCL are reported. The caller records these as
+	// carrying it, and a pod that refused must not be counted as converged.
+	return pushed, nil
 }
+
+// defaultPushRetryInterval is used when spec.retry.backoffBase is unset. It
+// matches the value the fixed requeue used before backoffBase drove it.
+const defaultPushRetryInterval = 30 * time.Second
 
 // vclNameFor is the name a generated VCL is pushed under. It embeds the content
 // hash, so comparing this name against what varnishd reports tells the operator
@@ -220,4 +207,14 @@ func (r *VinylCacheReconciler) debounceRemaining(vc *v1alpha1.VinylCache) time.D
 	}
 	key := types.NamespacedName{Name: vc.Name, Namespace: vc.Namespace}
 	return r.debouncer.remaining(key, window)
+}
+
+// pushRetryInterval is how long to wait before the reconcile loop retries a
+// failed VCL push. spec.retry.backoffBase drives it; the loop itself is the
+// retry mechanism, so this is the only knob that still has an effect.
+func pushRetryInterval(vc *v1alpha1.VinylCache) time.Duration {
+	if vc.Spec.Retry.BackoffBase.Duration > 0 {
+		return vc.Spec.Retry.BackoffBase.Duration
+	}
+	return defaultPushRetryInterval
 }

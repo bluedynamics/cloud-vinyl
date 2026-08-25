@@ -489,13 +489,21 @@ type DebounceSpec struct {
 
 // RetrySpec configures retry behaviour for failed VCL update operations.
 type RetrySpec struct {
-	// maxAttempts is the maximum number of VCL push attempts before the operator
-	// transitions to Error phase. Default: 3.
+	// maxAttempts has no effect.
+	//
+	// Deprecated: VCL pushes are retried by the reconcile loop, which pushes to
+	// every reachable pod that does not already carry the desired VCL. Bounding
+	// the attempts would leave a pod unconverged with no way back, so the field
+	// is inert and scheduled for removal in the next breaking version. It never
+	// had the semantics its name suggests: it bounded attempts per reconcile,
+	// never in total.
+	// See docs/superpowers/specs/2026-08-25-reconcile-starvation-design.md.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	MaxAttempts int32 `json:"maxAttempts,omitempty"`
 
-	// backoffBase is the initial backoff duration between retry attempts. Default: 5s.
+	// backoffBase is how long the reconcile loop waits before retrying a failed
+	// VCL push. Default: 30s.
 	// +optional
 	BackoffBase metav1.Duration `json:"backoffBase,omitempty"`
 
