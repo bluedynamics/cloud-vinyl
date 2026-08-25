@@ -1,6 +1,6 @@
 # Design: VCL-Konvergenz pro Pod (Issues #73, PR #77)
 
-Status: entschieden, bereit zur Umsetzung
+Status: umgesetzt in PR #77, gemergt am 2026-08-25
 Anlass: drei aufeinanderfolgende E2E-Fehlschläge in PR #77, jeweils andere
 Ursache, jeweils dieselbe zugrundeliegende Eigenschaft.
 
@@ -29,7 +29,9 @@ verschiedene Mechanismen am Laufen, die sich alle auf ihn stützten.
 |---|---|---|---|
 | 1 | `VCL pushed to 0/N pods`, alle 7 Pod-Tests rot | Ready-Filter auf der Zielliste | Push-Ziele nach Erreichbarkeit statt Readiness |
 | 2 | genau ein Reconcile-Log pro Cache, danach Stille | ein Hash für den ganzen Cache, nach Null-Pod-Push gesetzt | `ActiveVCL` nur bei tatsächlichem Push setzen |
-| 3 | Replica 0 Ready, 1 und 2 dauerhaft `1/2` | Peer-**Zahl** statt Peer-**Zustand** | offen, Gegenstand dieser Spec |
+| 3 | Replica 0 Ready, 1 und 2 dauerhaft `1/2` | Peer-**Zahl** statt Peer-**Zustand** | Konvergenz pro Pod, diese Spec |
+
+Nach Runde 4, der Umsetzung dieser Spec: 8 von 8 E2E-Tests grün.
 
 Nach Runde 3: 7 von 8 E2E-Tests grün. Der verbleibende Fehlschlag ist ein
 Cache mit drei Replicas. Sobald Pod 0 Ready ist, gilt `len(peers) == 1` und
