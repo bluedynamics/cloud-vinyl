@@ -33,31 +33,58 @@ func (r *VinylCacheReconciler) updateStatus(
 	ctx context.Context,
 	vc *v1alpha1.VinylCache,
 	result *generator.Result,
-	peers []generator.PeerBackend,
+	obs podObservation,
+	pushedCount int,
 ) {
+	peers := obs.ready
 	log := logf.FromContext(ctx)
 
-	now := metav1.NewTime(time.Now())
-
-	vc.Status.ActiveVCL = &v1alpha1.ActiveVCLStatus{
-		Name:     fmt.Sprintf("%s-%s", vc.Namespace, vc.Name),
-		Hash:     result.Hash,
-		PushedAt: &now,
+	// Only claim a VCL is active once it actually reached a pod. The reconciler
+	// decides whether to push by comparing this hash against the freshly
+	// generated one, so recording a hash that was pushed to nobody makes the
+	// next reconcile skip the push and the cache never converges (#77).
+	//
+	// pushedCount is also 0 when the push was skipped because the VCL had not
+	// changed. Leaving the existing status untouched is correct there too.
+	if pushedCount > 0 {
+		now := metav1.NewTime(time.Now())
+		vc.Status.ActiveVCL = &v1alpha1.ActiveVCLStatus{
+			Name:     fmt.Sprintf("%s-%s", vc.Namespace, vc.Name),
+			Hash:     result.Hash,
+			PushedAt: &now,
+		}
 	}
 
 	if r.Metrics != nil {
-		// One active VCL version after a successful generate/push. A richer
-		// drift count (via agent vcl.list) is intentionally out of scope here.
-		r.Metrics.VCLVersionsLoaded.WithLabelValues(vc.Name, vc.Namespace).Set(1)
+		// Distinct VCL versions actually observed across the pods. This is the
+		// quantity the VinylCacheVCLDrift alert describes ("more than 2 VCL
+		// versions loaded"); until now the gauge was hardcoded to 1, so the
+		// alert could never fire. A pod whose agent could not be reached
+		// reports no hash, which is absence of information rather than another
+		// version, so it does not count (spec E4).
+		distinct := make(map[string]struct{}, len(obs.vclNames))
+		for _, h := range obs.vclNames {
+			if h != "" {
+				distinct[h] = struct{}{}
+			}
+		}
+		r.Metrics.VCLVersionsLoaded.WithLabelValues(vc.Name, vc.Namespace).Set(float64(len(distinct)))
 	}
 
-	// Rebuild ClusterPeers from ready peers.
-	vc.Status.ClusterPeers = make([]v1alpha1.ClusterPeerStatus, 0, len(peers))
+	// Rebuild ClusterPeers from every reachable pod, not just the Ready ones,
+	// and with values that mean something: the pod's real Ready state and the
+	// VCL hash it actually reports. Recording the desired hash for everyone
+	// made drift undetectable by construction (spec E3/E4).
+	readyByName := make(map[string]bool, len(peers))
 	for _, p := range peers {
+		readyByName[p.Name] = true
+	}
+	vc.Status.ClusterPeers = make([]v1alpha1.ClusterPeerStatus, 0, len(obs.reachable))
+	for _, p := range obs.reachable {
 		vc.Status.ClusterPeers = append(vc.Status.ClusterPeers, v1alpha1.ClusterPeerStatus{
 			PodName:       p.Name,
-			Ready:         true,
-			ActiveVCLHash: result.Hash,
+			Ready:         readyByName[p.Name],
+			ActiveVCLHash: obs.vclNames[p.IP],
 		})
 	}
 	vc.Status.ReadyPeers = int32(len(peers))
@@ -67,8 +94,12 @@ func (r *VinylCacheReconciler) updateStatus(
 
 	// VCLSynced reflects whether VCL was pushed to all available peers (not blocked).
 	// It stays True even when waiting for more replicas to start.
+	// Reads "ready", not "pushed": this counts pods carrying the Ready
+	// condition, not push targets. The old wording ("VCL pushed to 0/1 pods")
+	// read like a push failure during the #77 investigation when it was in fact
+	// reporting readiness.
 	setCondition(vc, v1alpha1.ConditionVCLSynced, metav1.ConditionTrue, "VCLPushed",
-		fmt.Sprintf("VCL pushed to %d/%d pods", len(peers), vc.Spec.Replicas))
+		fmt.Sprintf("VCL active on %d/%d ready pods", len(peers), vc.Spec.Replicas))
 	setCondition(vc, v1alpha1.ConditionBackendsAvailable, metav1.ConditionTrue, "BackendsConfigured", "backend configuration applied")
 
 	if allReplicasReady {

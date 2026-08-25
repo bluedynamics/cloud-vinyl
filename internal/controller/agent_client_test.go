@@ -30,8 +30,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+// testNamespace is the namespace every agent-client test operates in.
+const testNamespace = "test-ns"
+
 // fakeK8sClientWithToken creates a fake K8s client with a pre-populated agent Secret.
-func fakeK8sClientWithToken(namespace, token string) *fake.ClientBuilder {
+func fakeK8sClientWithToken(token string) *fake.ClientBuilder {
+	namespace := testNamespace
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	secret := &corev1.Secret{
@@ -68,7 +72,7 @@ func TestHTTPAgentClient_PushVCL_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	k8sClient := fakeK8sClientWithToken("test-ns", "test-token-123").Build()
+	k8sClient := fakeK8sClientWithToken("test-token-123").Build()
 	client := &HTTPAgentClient{
 		HTTPClient: &http.Client{
 			Transport: rewriteTransport{base: server.Client().Transport, serverURL: server.URL},
@@ -91,18 +95,25 @@ func TestHTTPAgentClient_PushVCL_Success(t *testing.T) {
 	}
 }
 
-func TestHTTPAgentClient_ActiveVCLHash_Success(t *testing.T) {
+// The fake server here previously answered {"hash": "deadbeef"}, a shape the
+// real agent has never produced. It agreed with the client's decoder rather
+// than with internal/agent, so the test passed while the call returned the
+// empty string in production. The body below is byte-for-byte what
+// internal/agent's ActiveVCL handler writes.
+func TestHTTPAgentClient_ActiveVCLName_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/vcl/active" || r.Method != http.MethodGet {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"hash": "deadbeef"})
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"name": "test-ns-my-cache-deadbeef", "status": "active",
+		})
 	}))
 	defer server.Close()
 
-	k8sClient := fakeK8sClientWithToken("test-ns", "tok").Build()
+	k8sClient := fakeK8sClientWithToken("tok").Build()
 	client := &HTTPAgentClient{
 		HTTPClient: &http.Client{
 			Transport: rewriteTransport{base: server.Client().Transport, serverURL: server.URL},
@@ -110,12 +121,38 @@ func TestHTTPAgentClient_ActiveVCLHash_Success(t *testing.T) {
 		K8sClient: k8sClient,
 	}
 
-	hash, err := client.ActiveVCLHash(context.Background(), "test-ns", "10.0.0.1")
+	name, err := client.ActiveVCLName(context.Background(), "test-ns", "10.0.0.1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if hash != "deadbeef" {
-		t.Errorf("expected hash %q, got %q", "deadbeef", hash)
+	if name != "test-ns-my-cache-deadbeef" {
+		t.Errorf("expected name %q, got %q", "test-ns-my-cache-deadbeef", name)
+	}
+}
+
+// A freshly started varnishd runs the bootstrap VCL, which varnishd names
+// "boot". It must come back verbatim so the controller sees the difference and
+// pushes.
+func TestHTTPAgentClient_ActiveVCLName_BootstrapVCL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"name": "boot", "status": "active"})
+	}))
+	defer server.Close()
+
+	client := &HTTPAgentClient{
+		HTTPClient: &http.Client{
+			Transport: rewriteTransport{base: server.Client().Transport, serverURL: server.URL},
+		},
+		K8sClient: fakeK8sClientWithToken("tok").Build(),
+	}
+
+	name, err := client.ActiveVCLName(context.Background(), "test-ns", "10.0.0.1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if name != "boot" {
+		t.Errorf("expected name %q, got %q", "boot", name)
 	}
 }
 
@@ -125,7 +162,7 @@ func TestHTTPAgentClient_PushVCL_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	k8sClient := fakeK8sClientWithToken("test-ns", "tok").Build()
+	k8sClient := fakeK8sClientWithToken("tok").Build()
 	client := &HTTPAgentClient{
 		HTTPClient: &http.Client{
 			Transport: rewriteTransport{base: server.Client().Transport, serverURL: server.URL},
