@@ -2,6 +2,16 @@ package monitoring
 
 import "github.com/prometheus/client_golang/prometheus"
 
+const (
+	// labelCache is the Prometheus label carrying the VinylCache name. Every
+	// metric in this package is partitioned by it.
+	labelCache = "cache"
+	// labelNamespace is the namespace of that VinylCache.
+	labelNamespace = "namespace"
+	// labelResult partitions the operation counters into success and error.
+	labelResult = "result"
+)
+
 // Metrics holds all Prometheus metrics for cloud-vinyl.
 // Pass a prometheus.Registerer to NewMetrics — never use the global registry.
 // All fields are safe to use after NewMetrics returns.
@@ -36,7 +46,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m.VCLPushTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "vinyl_vcl_push_total",
 		Help: "Total number of VCL push attempts.",
-	}, []string{"cache", "namespace", "result"})
+	}, []string{labelCache, labelNamespace, labelResult})
 	reg.MustRegister(m.VCLPushTotal)
 
 	m.VCLPushDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -49,7 +59,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m.InvalidationTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "vinyl_invalidation_total",
 		Help: "Total number of cache invalidation requests.",
-	}, []string{"cache", "namespace", "type", "result"})
+	}, []string{labelCache, labelNamespace, "type", labelResult})
 	reg.MustRegister(m.InvalidationTotal)
 
 	m.InvalidationDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -62,25 +72,25 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m.BroadcastTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "vinyl_broadcast_total",
 		Help: "Total number of broadcast requests to individual Varnish pods.",
-	}, []string{"pod", "result"})
+	}, []string{"pod", labelResult})
 	reg.MustRegister(m.BroadcastTotal)
 
 	m.PartialFailureTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "vinyl_partial_failure_total",
 		Help: "Total number of partial broadcast failures (some pods unreachable).",
-	}, []string{"cache", "namespace"})
+	}, []string{labelCache, labelNamespace})
 	reg.MustRegister(m.PartialFailureTotal)
 
 	m.VCLVersionsLoaded = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "vinyl_vcl_versions_loaded",
 		Help: "Number of VCL versions currently loaded in Varnish.",
-	}, []string{"cache", "namespace"})
+	}, []string{labelCache, labelNamespace})
 	reg.MustRegister(m.VCLVersionsLoaded)
 
 	m.ReconcileTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "vinyl_reconcile_total",
 		Help: "Total number of reconcile operations.",
-	}, []string{"cache", "namespace", "result"})
+	}, []string{labelCache, labelNamespace, labelResult})
 	reg.MustRegister(m.ReconcileTotal)
 
 	m.ReconcileDuration = prometheus.NewHistogram(prometheus.HistogramOpts{

@@ -7,6 +7,19 @@ import (
 	"time"
 )
 
+const (
+	// statusError is the value the agent reports in statusResponse.Status when
+	// a request could not be carried out.
+	statusError = "error"
+	// keyStatus is the "status" key of the plain map responses used by the
+	// health endpoint, which does not use statusResponse.
+	keyStatus = "status"
+	// keyVarnish is the "varnish" key of those same health responses.
+	keyVarnish = "varnish"
+	// msgInvalidJSON is the message returned when a request body does not parse.
+	msgInvalidJSON = "invalid JSON"
+)
+
 // Handler holds all HTTP handlers for the agent.
 type Handler struct {
 	admin      AdminClient
@@ -66,11 +79,11 @@ func (h *Handler) PushVCL(w http.ResponseWriter, r *http.Request) {
 	}
 	var req pushVCLRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, statusResponse{Status: "error", Message: "invalid JSON"})
+		writeJSON(w, http.StatusBadRequest, statusResponse{Status: statusError, Message: msgInvalidJSON})
 		return
 	}
 	if req.Name == "" || req.VCL == "" {
-		writeJSON(w, http.StatusBadRequest, statusResponse{Status: "error", Message: "name and vcl are required"})
+		writeJSON(w, http.StatusBadRequest, statusResponse{Status: statusError, Message: "name and vcl are required"})
 		return
 	}
 
@@ -78,7 +91,7 @@ func (h *Handler) PushVCL(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := h.admin.PushVCL(ctx, req.Name, req.VCL); err != nil {
-		writeJSON(w, http.StatusInternalServerError, statusResponse{Status: "error", Message: err.Error()})
+		writeJSON(w, http.StatusInternalServerError, statusResponse{Status: statusError, Message: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
@@ -92,11 +105,11 @@ func (h *Handler) ValidateVCL(w http.ResponseWriter, r *http.Request) {
 	}
 	var req validateVCLRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, statusResponse{Status: "error", Message: "invalid JSON"})
+		writeJSON(w, http.StatusBadRequest, statusResponse{Status: statusError, Message: msgInvalidJSON})
 		return
 	}
 	if req.VCL == "" {
-		writeJSON(w, http.StatusBadRequest, statusResponse{Status: "error", Message: "vcl is required"})
+		writeJSON(w, http.StatusBadRequest, statusResponse{Status: statusError, Message: "vcl is required"})
 		return
 	}
 
@@ -105,11 +118,11 @@ func (h *Handler) ValidateVCL(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.admin.ValidateVCL(ctx, "validate_tmp", req.VCL)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, statusResponse{Status: "error", Message: err.Error()})
+		writeJSON(w, http.StatusInternalServerError, statusResponse{Status: statusError, Message: err.Error()})
 		return
 	}
 	if !result.Valid {
-		writeJSON(w, http.StatusBadRequest, statusResponse{Status: "error", Message: result.Message, Line: result.Line})
+		writeJSON(w, http.StatusBadRequest, statusResponse{Status: statusError, Message: result.Message, Line: result.Line})
 		return
 	}
 	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
@@ -126,7 +139,7 @@ func (h *Handler) ActiveVCL(w http.ResponseWriter, r *http.Request) {
 
 	name, err := h.admin.ActiveVCL(ctx)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, statusResponse{Status: "error", Message: err.Error()})
+		writeJSON(w, http.StatusInternalServerError, statusResponse{Status: statusError, Message: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, activeVCLResponse{Name: name, Status: "active"})
@@ -140,11 +153,11 @@ func (h *Handler) Ban(w http.ResponseWriter, r *http.Request) {
 	}
 	var req banRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, statusResponse{Status: "error", Message: "invalid JSON"})
+		writeJSON(w, http.StatusBadRequest, statusResponse{Status: statusError, Message: msgInvalidJSON})
 		return
 	}
 	if req.Expression == "" {
-		writeJSON(w, http.StatusBadRequest, statusResponse{Status: "error", Message: "expression is required"})
+		writeJSON(w, http.StatusBadRequest, statusResponse{Status: statusError, Message: "expression is required"})
 		return
 	}
 
@@ -152,7 +165,7 @@ func (h *Handler) Ban(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := h.admin.Ban(ctx, req.Expression); err != nil {
-		writeJSON(w, http.StatusInternalServerError, statusResponse{Status: "error", Message: err.Error()})
+		writeJSON(w, http.StatusInternalServerError, statusResponse{Status: statusError, Message: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
@@ -166,17 +179,17 @@ func (h *Handler) PurgeXkey(w http.ResponseWriter, r *http.Request) {
 	}
 	var req xkeyPurgeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, statusResponse{Status: "error", Message: "invalid JSON"})
+		writeJSON(w, http.StatusBadRequest, statusResponse{Status: statusError, Message: msgInvalidJSON})
 		return
 	}
 	if len(req.Keys) == 0 {
-		writeJSON(w, http.StatusBadRequest, statusResponse{Status: "error", Message: "keys array is required"})
+		writeJSON(w, http.StatusBadRequest, statusResponse{Status: statusError, Message: "keys array is required"})
 		return
 	}
 
 	purged, err := h.xkeyPurger.Purge(r.Context(), req.Keys, req.Soft)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, statusResponse{Status: "error", Message: err.Error()})
+		writeJSON(w, http.StatusInternalServerError, statusResponse{Status: statusError, Message: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, xkeyPurgeResponse{Status: "ok", Purged: purged})
@@ -191,14 +204,14 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	name, err := h.admin.ActiveVCL(ctx)
 	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "error", "varnish": "not responding"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{keyStatus: "error", keyVarnish: "not responding"})
 		return
 	}
 	// "boot" is the default VCL name loaded at varnish startup.
 	// The pod is not ready until the operator pushes a named VCL.
 	if name == "boot" {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "initializing", "varnish": "waiting for VCL push"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{keyStatus: "initializing", keyVarnish: "waiting for VCL push"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "varnish": "running", "vcl": name})
+	writeJSON(w, http.StatusOK, map[string]string{keyStatus: "ok", keyVarnish: "running", "vcl": name})
 }

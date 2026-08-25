@@ -63,15 +63,15 @@ func (r *VinylCacheReconciler) reconcileHeadlessService(ctx context.Context, vc 
 			return err
 		}
 		svc.Labels = map[string]string{
-			"app":               vc.Name,
+			labelApp:            vc.Name,
 			labelVinylCacheName: vc.Name,
 		}
 		svc.Spec = corev1.ServiceSpec{
 			ClusterIP: "None",
-			Selector:  map[string]string{"app": vc.Name},
+			Selector:  map[string]string{labelApp: vc.Name},
 			Ports: []corev1.ServicePort{
 				{
-					Name:       "cache-http",
+					Name:       portNameCacheHTTP,
 					Port:       varnishPort,
 					TargetPort: intstr.FromInt32(varnishPort),
 					Protocol:   corev1.ProtocolTCP,
@@ -114,7 +114,7 @@ func (r *VinylCacheReconciler) reconcileTrafficService(ctx context.Context, vc *
 		}
 
 		svc.Labels = map[string]string{
-			"app":               vc.Name,
+			labelApp:            vc.Name,
 			labelVinylCacheName: vc.Name,
 		}
 		// Merge user-defined service annotations.
@@ -127,10 +127,10 @@ func (r *VinylCacheReconciler) reconcileTrafficService(ctx context.Context, vc *
 
 		svc.Spec = corev1.ServiceSpec{
 			Type:     svcType,
-			Selector: map[string]string{"app": vc.Name},
+			Selector: map[string]string{labelApp: vc.Name},
 			Ports: []corev1.ServicePort{
 				{
-					Name:       "cache-http",
+					Name:       portNameCacheHTTP,
 					Port:       varnishPort,
 					TargetPort: intstr.FromInt32(varnishPort),
 					Protocol:   corev1.ProtocolTCP,
@@ -159,7 +159,7 @@ func (r *VinylCacheReconciler) reconcileInvalidationService(ctx context.Context,
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
 		// No OwnerReference — cleaned up by finalizer.
 		svc.Labels = map[string]string{
-			"app":               vc.Name,
+			labelApp:            vc.Name,
 			labelVinylCacheName: vc.Name,
 		}
 		svc.Spec = corev1.ServiceSpec{

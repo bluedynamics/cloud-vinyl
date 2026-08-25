@@ -185,7 +185,10 @@ func (c *varnishAdminClient) PushVCL(ctx context.Context, name, vcl string) erro
 
 	// 4. Discard old VCL asynchronously after grace period (§3.4)
 	if oldName != "" && oldName != name {
-		go func() {
+		// context.Background is deliberate: this goroutine has to outlive the
+		// request. With the request context the 5s grace period would be cut
+		// short the moment PushVCL returns and the old VCL would stay loaded.
+		go func() { //nolint:gosec // G118: must outlive the request, see above
 			time.Sleep(5 * time.Second)
 			discardCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -205,8 +208,11 @@ func (c *varnishAdminClient) ValidateVCL(ctx context.Context, name, vcl string) 
 		return ValidationResult{}, err
 	}
 	if code == 200 {
-		// Discard the loaded VCL immediately (it was just for validation)
-		go func() {
+		// Discard the loaded VCL immediately (it was just for validation).
+		// context.Background for the same reason as in PushVCL: ValidateVCL
+		// returns right away, so a request context would cancel the cleanup and
+		// leak the temporary VCL in varnishd.
+		go func() { //nolint:gosec // G118: must outlive the request, see above
 			discardCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = c.DiscardVCL(discardCtx, tempName)

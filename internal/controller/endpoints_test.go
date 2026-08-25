@@ -17,10 +17,6 @@ import (
 	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 )
 
-func ptrBool(b bool) *bool       { return &b }
-func ptrInt32(i int32) *int32    { return &i }
-func ptrString(s string) *string { return &s }
-
 func newScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	s := runtime.NewScheme()
@@ -46,13 +42,13 @@ func TestResolveBackendEndpoints_MultipleReadyPods(t *testing.T) {
 		},
 		AddressType: discoveryv1.AddressTypeIPv4,
 		Ports: []discoveryv1.EndpointPort{
-			{Name: ptrString("http"), Port: ptrInt32(8080)},
+			{Name: new("http"), Port: new(int32(8080))},
 		},
 		Endpoints: []discoveryv1.Endpoint{
-			{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: ptrBool(true)}},
-			{Addresses: []string{"10.0.0.2"}, Conditions: discoveryv1.EndpointConditions{Ready: ptrBool(true)}},
-			{Addresses: []string{"10.0.0.3"}, Conditions: discoveryv1.EndpointConditions{Ready: ptrBool(false)}},
-			{Addresses: []string{"10.0.0.4"}, Conditions: discoveryv1.EndpointConditions{Ready: ptrBool(true), Terminating: ptrBool(true)}},
+			{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: new(true)}},
+			{Addresses: []string{"10.0.0.2"}, Conditions: discoveryv1.EndpointConditions{Ready: new(true)}},
+			{Addresses: []string{"10.0.0.3"}, Conditions: discoveryv1.EndpointConditions{Ready: new(false)}},
+			{Addresses: []string{"10.0.0.4"}, Conditions: discoveryv1.EndpointConditions{Ready: new(true), Terminating: new(true)}},
 		},
 	}
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(svc, es).Build()
@@ -107,9 +103,9 @@ func TestResolveBackendEndpoints_PortOverride(t *testing.T) {
 			Labels:    map[string]string{"kubernetes.io/service-name": "plone-svc"},
 		},
 		AddressType: discoveryv1.AddressTypeIPv4,
-		Ports:       []discoveryv1.EndpointPort{{Name: ptrString("http"), Port: ptrInt32(8080)}},
+		Ports:       []discoveryv1.EndpointPort{{Name: new("http"), Port: new(int32(8080))}},
 		Endpoints: []discoveryv1.Endpoint{
-			{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: ptrBool(true)}},
+			{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: new(true)}},
 		},
 	}
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(svc, es).Build()
@@ -146,7 +142,7 @@ func TestResolveBackendEndpoints_SlicePortUnusable_IsSkipped(t *testing.T) {
 		AddressType: discoveryv1.AddressTypeIPv4,
 		Ports:       nil, // no usable port
 		Endpoints: []discoveryv1.Endpoint{
-			{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: ptrBool(true)}},
+			{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: new(true)}},
 		},
 	}
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(svc, es).Build()
@@ -176,7 +172,7 @@ func TestResolveBackendEndpoints_MultipleSlices_Aggregate(t *testing.T) {
 		for _, ip := range ips {
 			eps = append(eps, discoveryv1.Endpoint{
 				Addresses:  []string{ip},
-				Conditions: discoveryv1.EndpointConditions{Ready: ptrBool(true)},
+				Conditions: discoveryv1.EndpointConditions{Ready: new(true)},
 			})
 		}
 		return &discoveryv1.EndpointSlice{
@@ -185,7 +181,7 @@ func TestResolveBackendEndpoints_MultipleSlices_Aggregate(t *testing.T) {
 				Labels: map[string]string{"kubernetes.io/service-name": "plone-svc"},
 			},
 			AddressType: discoveryv1.AddressTypeIPv4,
-			Ports:       []discoveryv1.EndpointPort{{Name: ptrString("http"), Port: ptrInt32(8080)}},
+			Ports:       []discoveryv1.EndpointPort{{Name: new("http"), Port: new(int32(8080))}},
 			Endpoints:   eps,
 		}
 	}
@@ -224,12 +220,12 @@ func TestResolveBackendEndpoints_ResultIsSortedByIP(t *testing.T) {
 			Labels: map[string]string{"kubernetes.io/service-name": "plone-svc"},
 		},
 		AddressType: discoveryv1.AddressTypeIPv4,
-		Ports:       []discoveryv1.EndpointPort{{Name: ptrString("http"), Port: ptrInt32(8080)}},
+		Ports:       []discoveryv1.EndpointPort{{Name: new("http"), Port: new(int32(8080))}},
 		Endpoints: []discoveryv1.Endpoint{
 			// Deliberately unsorted.
-			{Addresses: []string{"10.0.0.3"}, Conditions: discoveryv1.EndpointConditions{Ready: ptrBool(true)}},
-			{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: ptrBool(true)}},
-			{Addresses: []string{"10.0.0.2"}, Conditions: discoveryv1.EndpointConditions{Ready: ptrBool(true)}},
+			{Addresses: []string{"10.0.0.3"}, Conditions: discoveryv1.EndpointConditions{Ready: new(true)}},
+			{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: new(true)}},
+			{Addresses: []string{"10.0.0.2"}, Conditions: discoveryv1.EndpointConditions{Ready: new(true)}},
 		},
 	}
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(svc, es).Build()

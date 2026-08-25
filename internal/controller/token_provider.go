@@ -52,7 +52,7 @@ func (p *K8sTokenProvider) GetToken(namespace string) string {
 		return ""
 	}
 
-	token, ok := secret.Data["agent-token"]
+	token, ok := secret.Data[agentTokenKey]
 	if !ok {
 		log.Info("Agent secret missing 'agent-token' key", "namespace", namespace)
 		return ""
