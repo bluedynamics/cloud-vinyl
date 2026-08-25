@@ -114,7 +114,7 @@ func (r *VinylCacheReconciler) reconcileTrafficNetworkPolicy(ctx context.Context
 
 		np.Spec = networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": vc.Name},
+				MatchLabels: map[string]string{labelApp: vc.Name},
 			},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
@@ -157,7 +157,7 @@ func (r *VinylCacheReconciler) reconcileInvalidationNetworkPolicy(ctx context.Co
 
 		np.Spec = networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": vc.Name},
+				MatchLabels: map[string]string{labelApp: vc.Name},
 			},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
@@ -200,7 +200,7 @@ func (r *VinylCacheReconciler) reconcileAgentNetworkPolicy(ctx context.Context, 
 
 		np.Spec = networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": vc.Name},
+				MatchLabels: map[string]string{labelApp: vc.Name},
 			},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
@@ -260,7 +260,7 @@ func (r *VinylCacheReconciler) reconcileExporterNetworkPolicy(ctx context.Contex
 
 		np.Spec = networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": vc.Name},
+				MatchLabels: map[string]string{labelApp: vc.Name},
 			},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{

@@ -1,6 +1,6 @@
 module github.com/bluedynamics/cloud-vinyl
 
-go 1.25.3
+go 1.26.7
 
 require (
 	github.com/onsi/ginkgo/v2 v2.27.2

@@ -13,6 +13,13 @@ const (
 	varnishPort      = "8080" // Varnish HTTP port for PURGE/xkey
 	agentPort        = "9090" // vinyl-agent API port for BAN
 	broadcastTimeout = 10 * time.Second
+	// methodPurge is the HTTP method Varnish expects for a single-URL purge.
+	methodPurge = "PURGE"
+	// outcomeSuccess and outcomeError are the values of the "result" metric
+	// label. Distinct from the "error" key of the JSON error body, which is a
+	// wire format detail and deliberately not shared with these.
+	outcomeSuccess = "success"
+	outcomeError   = "error"
 )
 
 // banRESTRequest is the JSON body for POST /ban and for the agent /ban endpoint.
@@ -30,16 +37,16 @@ func (s *Server) recordInvalidation(namespace, cacheName, typ string, start time
 	if s.metrics == nil {
 		return
 	}
-	outcome := "success"
+	outcome := outcomeSuccess
 	if res.Succeeded == 0 {
-		outcome = "error"
+		outcome = outcomeError
 	}
 	s.metrics.InvalidationTotal.WithLabelValues(cacheName, namespace, typ, outcome).Inc()
 	s.metrics.InvalidationDuration.Observe(time.Since(start).Seconds())
 	for _, pr := range res.Results {
-		r := "success"
+		r := outcomeSuccess
 		if pr.Status < 200 || pr.Status >= 300 {
-			r = "error"
+			r = outcomeError
 		}
 		s.metrics.BroadcastTotal.WithLabelValues(pr.Pod, r).Inc()
 	}
@@ -53,7 +60,7 @@ func (s *Server) handlePurge(w http.ResponseWriter, r *http.Request, namespace, 
 	start := time.Now()
 	podAddrs := withPort(pods, varnishPort)
 	req := BroadcastRequest{
-		Method:  "PURGE",
+		Method:  methodPurge,
 		Path:    r.URL.RequestURI(),
 		Headers: cloneHeaders(r.Header),
 	}
@@ -145,7 +152,7 @@ func (s *Server) handleXkey(w http.ResponseWriter, r *http.Request, namespace, c
 	totalSucceeded := 0
 	for _, key := range body.Keys {
 		req := BroadcastRequest{
-			Method: "PURGE",
+			Method: methodPurge,
 			Path:   "/",
 			Headers: map[string]string{
 				"X-Xkey-Purge": key,
@@ -191,8 +198,15 @@ func cloneHeaders(h http.Header) map[string]string {
 }
 
 // writeJSONError writes a plain JSON error response.
+//
+// msg can carry request-controlled data (r.Host and r.URL.Path both end up
+// here), so it goes through the JSON encoder rather than fmt %q. %q is Go
+// quoting, not JSON quoting: on invalid UTF-8 it emits \xNN escapes, which are
+// not valid JSON. nosniff keeps a browser from content-sniffing the response
+// into HTML despite the explicit Content-Type.
 func writeJSONError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(code)
-	_, _ = fmt.Fprintf(w, `{"error":%q}`, msg)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }

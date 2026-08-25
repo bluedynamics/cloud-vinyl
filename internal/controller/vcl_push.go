@@ -158,7 +158,7 @@ func (r *VinylCacheReconciler) collectPeers(
 	podList := &corev1.PodList{}
 	if err := r.List(ctx, podList,
 		client.InNamespace(vc.Namespace),
-		client.MatchingLabels(map[string]string{"app": vc.Name}),
+		client.MatchingLabels(map[string]string{labelApp: vc.Name}),
 	); err != nil {
 		return podObservation{}, fmt.Errorf("listing pods: %w", err)
 	}

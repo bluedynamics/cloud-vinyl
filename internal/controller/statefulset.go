@@ -37,6 +37,21 @@ import (
 const labelVinylCacheName = "vinyl.bluedynamics.eu/cache-name"
 
 const (
+	// labelApp is the label key carrying the VinylCache name. The StatefulSet
+	// selector, the Services and the NetworkPolicies all select on it, so they
+	// have to agree.
+	labelApp = "app"
+	// portNameCacheHTTP names the Varnish HTTP port on both the container and
+	// the Services that target it.
+	portNameCacheHTTP = "cache-http"
+	// varnishSecretPath is where the -S shared secret is mounted. It is passed
+	// to varnishd as an argument and to the agent via VARNISH_SECRET_FILE.
+	varnishSecretPath = "/etc/varnish/secret" //nolint:gosec // Mount path, not a credential
+	// volumeVarnishWorkdir is the emptyDir backing /var/lib/varnish.
+	volumeVarnishWorkdir = "varnish-workdir"
+)
+
+const (
 	// exporterPort is the default prometheus_varnish_exporter listen port.
 	exporterPort = int32(9131)
 	// defaultExporterImage is the default varnish exporter sidecar image.
@@ -79,7 +94,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 		replicas := vc.Spec.Replicas
 
 		podLabels := map[string]string{
-			"app":               vc.Name,
+			labelApp:            vc.Name,
 			labelVinylCacheName: vc.Name,
 		}
 		// Merge user-defined pod labels.
@@ -91,7 +106,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 		varnishArgs := []string{
 			"-j", "none",
 			"-T", "127.0.0.1:6082",
-			"-S", "/etc/varnish/secret",
+			"-S", varnishSecretPath,
 		}
 		// Append -s args for each spec.storage entry (after the fixed args).
 		varnishArgs = append(varnishArgs, storageArgs(vc.Spec.Storage)...)
@@ -106,22 +121,22 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 				{Name: "VARNISH_HTTP_PORT", Value: fmt.Sprintf("%d", varnishPort)},
 			},
 			Ports: []corev1.ContainerPort{
-				{Name: "cache-http", ContainerPort: varnishPort, Protocol: corev1.ProtocolTCP},
+				{Name: portNameCacheHTTP, ContainerPort: varnishPort, Protocol: corev1.ProtocolTCP},
 			},
 			VolumeMounts: []corev1.VolumeMount{
 				{
-					Name:      "agent-token",
+					Name:      agentTokenKey,
 					MountPath: "/run/vinyl",
 					ReadOnly:  true,
 				},
 				{
-					Name:      "varnish-secret",
-					MountPath: "/etc/varnish/secret",
-					SubPath:   "varnish-secret",
+					Name:      varnishSecretKey,
+					MountPath: varnishSecretPath,
+					SubPath:   varnishSecretKey,
 					ReadOnly:  true,
 				},
 				{
-					Name:      "varnish-workdir",
+					Name:      volumeVarnishWorkdir,
 					MountPath: "/var/lib/varnish",
 				},
 				{
@@ -143,9 +158,9 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 				},
 			},
 			SecurityContext: &corev1.SecurityContext{
-				RunAsNonRoot:             boolPtr(true),
-				ReadOnlyRootFilesystem:   boolPtr(true),
-				AllowPrivilegeEscalation: boolPtr(false),
+				RunAsNonRoot:             new(true),
+				ReadOnlyRootFilesystem:   new(true),
+				AllowPrivilegeEscalation: new(false),
 			},
 			Resources: vc.Spec.Resources,
 		}
@@ -182,19 +197,19 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 				{Name: "agent", ContainerPort: agentPort, Protocol: corev1.ProtocolTCP},
 			},
 			Env: []corev1.EnvVar{
-				{Name: "VARNISH_SECRET_FILE", Value: "/etc/varnish/secret"},
+				{Name: "VARNISH_SECRET_FILE", Value: varnishSecretPath},
 				{Name: "AGENT_TOKEN_FILE", Value: "/run/vinyl/agent-token"},
 			},
 			VolumeMounts: []corev1.VolumeMount{
 				{
-					Name:      "agent-token",
+					Name:      agentTokenKey,
 					MountPath: "/run/vinyl",
 					ReadOnly:  true,
 				},
 				{
-					Name:      "varnish-secret",
-					MountPath: "/etc/varnish/secret",
-					SubPath:   "varnish-secret",
+					Name:      varnishSecretKey,
+					MountPath: varnishSecretPath,
+					SubPath:   varnishSecretKey,
 					ReadOnly:  true,
 				},
 			},
@@ -210,37 +225,37 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 				FailureThreshold:    6,
 			},
 			SecurityContext: &corev1.SecurityContext{
-				RunAsNonRoot:             boolPtr(true),
-				ReadOnlyRootFilesystem:   boolPtr(true),
-				AllowPrivilegeEscalation: boolPtr(false),
+				RunAsNonRoot:             new(true),
+				ReadOnlyRootFilesystem:   new(true),
+				AllowPrivilegeEscalation: new(false),
 			},
 		}
 
 		volumes := []corev1.Volume{
 			{
-				Name: "agent-token",
+				Name: agentTokenKey,
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{
 						SecretName: agentSecretName,
 						Items: []corev1.KeyToPath{
-							{Key: "agent-token", Path: "agent-token"},
+							{Key: agentTokenKey, Path: agentTokenKey},
 						},
 					},
 				},
 			},
 			{
-				Name: "varnish-secret",
+				Name: varnishSecretKey,
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{
 						SecretName: agentSecretName,
 						Items: []corev1.KeyToPath{
-							{Key: "varnish-secret", Path: "varnish-secret"},
+							{Key: varnishSecretKey, Path: varnishSecretKey},
 						},
 					},
 				},
 			},
 			{
-				Name:         "varnish-workdir",
+				Name:         volumeVarnishWorkdir,
 				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 			},
 			{
@@ -290,7 +305,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 			Replicas:            &replicas,
 			PodManagementPolicy: parallel,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": vc.Name},
+				MatchLabels: map[string]string{labelApp: vc.Name},
 			},
 			ServiceName: vc.Name,
 			Template: corev1.PodTemplateSpec{
@@ -310,11 +325,6 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 		return fmt.Errorf("reconciling StatefulSet: %w", err)
 	}
 	return nil
-}
-
-// boolPtr returns a pointer to a bool value.
-func boolPtr(b bool) *bool {
-	return &b
 }
 
 // buildExporterContainer returns the prometheus_varnish_exporter sidecar. It
@@ -339,12 +349,12 @@ func buildExporterContainer(exp *v1alpha1.ExporterSpec) corev1.Container {
 			{Name: "exporter", ContainerPort: port, Protocol: corev1.ProtocolTCP},
 		},
 		VolumeMounts: []corev1.VolumeMount{
-			{Name: "varnish-workdir", MountPath: "/var/lib/varnish", ReadOnly: true},
+			{Name: volumeVarnishWorkdir, MountPath: "/var/lib/varnish", ReadOnly: true},
 		},
 		SecurityContext: &corev1.SecurityContext{
-			RunAsNonRoot:             boolPtr(true),
-			ReadOnlyRootFilesystem:   boolPtr(true),
-			AllowPrivilegeEscalation: boolPtr(false),
+			RunAsNonRoot:             new(true),
+			ReadOnlyRootFilesystem:   new(true),
+			AllowPrivilegeEscalation: new(false),
 		},
 		Resources: exp.Resources,
 	}

@@ -36,6 +36,13 @@ const (
 	varnishPort = 8080
 	// agentSecretName is the fixed Secret name used in every namespace.
 	agentSecretName = "cloud-vinyl-agent-token" //nolint:gosec // Secret name, not a credential
+	// agentTokenKey is the key under which the agent bearer token is stored in
+	// that Secret. The pod volume, its KeyToPath entry and the VolumeMount all
+	// reuse this name so the projected file path matches what the agent reads.
+	agentTokenKey = "agent-token" //nolint:gosec // Secret key name, not a credential
+	// varnishSecretKey is the key holding the varnishd -S shared secret, reused
+	// as volume, KeyToPath and SubPath name for the same reason.
+	varnishSecretKey = "varnish-secret" //nolint:gosec // Secret key name, not a credential
 )
 
 // AgentClient abstracts the vinyl-agent HTTP API.
@@ -78,7 +85,7 @@ func (c *HTTPAgentClient) readToken(ctx context.Context, namespace string) (stri
 	if err := c.K8sClient.Get(ctx, key, secret); err != nil {
 		return "", fmt.Errorf("reading agent secret %s/%s: %w", namespace, agentSecretName, err)
 	}
-	token, ok := secret.Data["agent-token"]
+	token, ok := secret.Data[agentTokenKey]
 	if !ok {
 		return "", fmt.Errorf("agent secret %s/%s missing 'agent-token' key", namespace, agentSecretName)
 	}

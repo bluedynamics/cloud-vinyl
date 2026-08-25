@@ -99,7 +99,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 5. Dispatch.
 	switch {
-	case r.Method == "PURGE":
+	case r.Method == methodPurge:
 		s.handlePurge(w, r, namespace, cacheName, pods)
 	case r.Method == "BAN":
 		s.handleBAN(w, r, namespace, cacheName, pods)

@@ -65,8 +65,8 @@ func (r *VinylCacheReconciler) reconcileSecret(ctx context.Context, vc *v1alpha1
 		},
 		Type: corev1.SecretTypeOpaque,
 		Data: map[string][]byte{
-			"agent-token":    []byte(hex.EncodeToString(agentRaw)),
-			"varnish-secret": []byte(hex.EncodeToString(varnishRaw)),
+			agentTokenKey:    []byte(hex.EncodeToString(agentRaw)),
+			varnishSecretKey: []byte(hex.EncodeToString(varnishRaw)),
 		},
 	}
 	// No OwnerReference — the Secret is shared across VinylCaches in the namespace.
