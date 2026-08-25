@@ -11,7 +11,7 @@ ARG EXPORTER_VERSION=1.6.1
 
 # Build the exporter from source. Upstream ships no arm64 binary for 1.6.1, and
 # the project is pure Go (it execs varnishstat; no cgo), so it cross-compiles.
-FROM golang:1.25 AS build
+FROM golang:1.26 AS build
 ARG EXPORTER_VERSION
 ARG TARGETOS
 ARG TARGETARCH
