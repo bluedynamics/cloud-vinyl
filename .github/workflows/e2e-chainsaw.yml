@@ -29,7 +29,7 @@ jobs:
           # Pinned so the Kubernetes version stops drifting between runs. Without
           # it the action picks whatever its default kindest/node is that day, so
           # a run can change behaviour with no change to this repo (#63).
-          node_image: kindest/node:v1.35.0
+          node_image: kindest/node:v1.36.1
 
       - name: Build operator image
         run: |

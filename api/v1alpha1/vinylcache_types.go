@@ -759,7 +759,3 @@ type VinylCacheList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []VinylCache `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&VinylCache{}, &VinylCacheList{})
-}
