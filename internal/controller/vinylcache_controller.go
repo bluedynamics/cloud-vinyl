@@ -46,6 +46,12 @@ const (
 
 // VinylCacheReconciler reconciles a VinylCache object.
 type VinylCacheReconciler struct {
+	// ObserveTimeout bounds a single ActiveVCLName query during the observation
+	// phase. Zero means defaultObserveTimeout. Kept separate from the agent
+	// client's timeout because observation is a read on the shared reconcile
+	// worker, while a push is a write worth waiting for.
+	ObserveTimeout time.Duration
+
 	client.Client
 	Scheme      *runtime.Scheme
 	Generator   generator.Generator
@@ -219,15 +225,19 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	pushedCount := 0
 	if len(needing) > 0 {
-		n, err := r.pushVCL(ctx, vc, genResult, needing)
+		pushed, err := r.pushVCL(ctx, vc, genResult, needing)
 		if err != nil {
 			r.setErrorStatus(ctx, vc, err)
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+			// Retrying is this loop's job, so come back after the configured
+			// base interval rather than a fixed one. The pod still lacks the
+			// VCL, so podsNeedingVCL will select it again.
+			return ctrl.Result{RequeueAfter: pushRetryInterval(vc)}, nil
 		}
-		pushedCount = n
-		// Pods just pushed now carry the new VCL. Recording that here keeps the
-		// status consistent with reality without a second round of queries.
-		for _, p := range needing {
+		pushedCount = len(pushed)
+		// Only the pods that actually took the VCL now carry it. Recording the
+		// ones that refused would have the status claim a convergence that did
+		// not happen, and would understate VCL drift.
+		for _, p := range pushed {
 			obs.vclNames[p.IP] = desiredVCLName
 		}
 	}

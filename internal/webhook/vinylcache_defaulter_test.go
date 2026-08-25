@@ -224,29 +224,37 @@ func TestDefault_Debounce_NotOverwrittenIfAlreadySet(t *testing.T) {
 
 // --- Retry defaults ---
 
-func TestDefault_RetryMaxAttempts_DefaultsTo3(t *testing.T) {
+// maxAttempts is inert and no longer defaulted: showing users a value for a
+// field that does nothing is worse than leaving it empty. See
+// docs/superpowers/specs/2026-08-25-reconcile-starvation-design.md.
+func TestDefault_RetryMaxAttempts_IsNotDefaulted(t *testing.T) {
 	vc := emptyVC()
 	webhook.DefaultVinylCache(vc)
 
-	assert.Equal(t, int32(3), vc.Spec.Retry.MaxAttempts,
-		"Retry.MaxAttempts should default to 3")
+	//nolint:staticcheck // asserting the deprecated field stays untouched
+	assert.Equal(t, int32(0), vc.Spec.Retry.MaxAttempts,
+		"maxAttempts must not be defaulted now that it has no effect")
 }
 
 func TestDefault_RetryMaxAttempts_NotOverwrittenIfAlreadySet(t *testing.T) {
 	vc := emptyVC()
+	//nolint:staticcheck // the field is inert, but the defaulter must still not clobber a user value
 	vc.Spec.Retry.MaxAttempts = 5
 	webhook.DefaultVinylCache(vc)
 
+	//nolint:staticcheck // see above
 	assert.Equal(t, int32(5), vc.Spec.Retry.MaxAttempts,
 		"Retry.MaxAttempts should not be overwritten")
 }
 
-func TestDefault_RetryBackoffBase_DefaultsTo5s(t *testing.T) {
+// 30s, not the 5s this held while it seeded an inner retry loop: it is now the
+// requeue interval after a failed push, and the interval the fixed requeue used.
+func TestDefault_RetryBackoffBase_DefaultsTo30s(t *testing.T) {
 	vc := emptyVC()
 	webhook.DefaultVinylCache(vc)
 
-	assert.Equal(t, 5*time.Second, vc.Spec.Retry.BackoffBase.Duration,
-		"Retry.BackoffBase should default to 5s")
+	assert.Equal(t, 30*time.Second, vc.Spec.Retry.BackoffBase.Duration,
+		"Retry.BackoffBase should default to 30s")
 }
 
 func TestDefault_RetryBackoffBase_NotOverwrittenIfAlreadySet(t *testing.T) {

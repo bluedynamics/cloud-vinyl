@@ -25,16 +25,19 @@ import (
 )
 
 const (
-	directorTypeShard    = "shard"
-	defaultShardWarmup   = 0.1
-	defaultShardRampup   = 30 * time.Second
-	defaultShardBy       = "HASH"
-	defaultShardHealthy  = "CHOSEN"
-	defaultDebounce      = 1 * time.Second
-	defaultRetryAttempts = int32(3)
-	defaultBackoffBase   = 5 * time.Second
-	defaultBackoffMax    = 5 * time.Minute
-	defaultProxyPort     = int32(8081)
+	directorTypeShard   = "shard"
+	defaultShardWarmup  = 0.1
+	defaultShardRampup  = 30 * time.Second
+	defaultShardBy      = "HASH"
+	defaultShardHealthy = "CHOSEN"
+	defaultDebounce     = 1 * time.Second
+	// defaultBackoffBase is how long the reconcile loop waits before retrying a
+	// failed VCL push. It is 30s rather than the 5s this constant held while it
+	// seeded an inner retry loop, so that removing that loop does not silently
+	// make failure retries six times more frequent.
+	defaultBackoffBase = 30 * time.Second
+	defaultBackoffMax  = 5 * time.Minute
+	defaultProxyPort   = int32(8081)
 )
 
 // applyShardDefaults fills ShardSpec defaults on a DirectorSpec whose Type is
@@ -79,8 +82,7 @@ func applyShardDefaults(ds *vinylv1alpha1.DirectorSpec) {
 //     (same values as top-level director)
 //   - Cluster.PeerRouting.Type = directorTypeShard
 //   - Debounce.Duration = 1s
-//   - Retry.MaxAttempts = 3
-//   - Retry.BackoffBase = 5s
+//   - Retry.BackoffBase = 30s
 //   - Retry.BackoffMax = 5m
 //   - ProxyProtocol.Port = 8081 (when ProxyProtocol.Enabled is true)
 func DefaultVinylCache(vc *vinylv1alpha1.VinylCache) {
@@ -130,9 +132,10 @@ func DefaultVinylCache(vc *vinylv1alpha1.VinylCache) {
 	}
 
 	// Retry defaults.
-	if vc.Spec.Retry.MaxAttempts == 0 {
-		vc.Spec.Retry.MaxAttempts = defaultRetryAttempts
-	}
+	//
+	// MaxAttempts is deliberately NOT defaulted any more. It no longer has any
+	// effect, and filling it in would show users a value that does nothing.
+	// See docs/superpowers/specs/2026-08-25-reconcile-starvation-design.md.
 	if vc.Spec.Retry.BackoffBase.Duration == 0 {
 		vc.Spec.Retry.BackoffBase = metav1.Duration{Duration: defaultBackoffBase}
 	}

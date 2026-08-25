@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
@@ -40,6 +41,12 @@ type podObservation struct {
 	vclNames map[string]string
 }
 
+// defaultObserveTimeout bounds a single ActiveVCLName query when
+// VinylCacheReconciler.ObserveTimeout is unset. It is deliberately far below
+// the agent client's 30s: this is a GET against a pod in the same cluster, and
+// the reconcile worker is a shared resource.
+const defaultObserveTimeout = 3 * time.Second
+
 // observeVCLNames asks every reachable pod's agent which VCL it currently
 // carries, keyed by pod IP.
 //
@@ -59,9 +66,24 @@ func (r *VinylCacheReconciler) observeVCLNames(
 	if len(pods) == 0 {
 		return nil
 	}
+	timeout := r.ObserveTimeout
+	if timeout <= 0 {
+		timeout = defaultObserveTimeout
+	}
+
 	observed := make(map[string]string, len(pods))
 	for _, p := range pods {
-		name, err := r.AgentClient.ActiveVCLName(ctx, vc.Namespace, p.IP)
+		// Each query gets its own short budget rather than the agent client's
+		// 30s. The queries are sequential, so an unresponsive pod would
+		// otherwise hold the single reconcile worker for the full client
+		// timeout, once per pod, delaying everything else this controller has
+		// to do — deletion included. An unanswered query is no worse than a
+		// late one here: it yields an unknown VCL, which makes the pod a push
+		// target, and the push is idempotent. See
+		// docs/superpowers/specs/2026-08-25-reconcile-starvation-design.md.
+		callCtx, cancel := context.WithTimeout(ctx, timeout)
+		name, err := r.AgentClient.ActiveVCLName(callCtx, vc.Namespace, p.IP)
+		cancel()
 		if err != nil {
 			observed[p.IP] = ""
 			continue

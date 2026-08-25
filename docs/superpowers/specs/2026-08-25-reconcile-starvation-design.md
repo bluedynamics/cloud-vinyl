@@ -2,7 +2,7 @@
 
 **Datum:** 2026-08-25
 **Issue:** [bluedynamics/cloud-vinyl#72](https://github.com/bluedynamics/cloud-vinyl/issues/72)
-**Status:** Vorschlag, E3 braucht eine ausdrückliche Entscheidung
+**Status:** Entschieden, bereit zur Umsetzung
 **Vorgänger:** [VCL-Konvergenz pro Pod](2026-08-25-vcl-konvergenz-design.md) (#73, PR #77)
 
 ## Problem
@@ -105,8 +105,9 @@ Alternativen".
 
 ### E3. Was mit `spec.retry.maxAttempts` und `spec.retry.backoffBase` geschieht
 
-**Diese Entscheidung ist offen und braucht ausdrückliche Zustimmung, weil sie
-öffentliche CRD-API betrifft.**
+Bestätigt im Review am 2026-08-25: `backoffBase` wird umgedeutet, `maxAttempts`
+stillgelegt. Die beiden Alternativen (beide Felder unangetastet stilllegen;
+Versuchszähler im Status führen) wurden erwogen und verworfen.
 
 Beide Felder existieren in `api/v1alpha1/vinylcache_types.go` und steuern
 ausschließlich die innere Schleife aus E2.
@@ -200,8 +201,7 @@ ohne heutigen Nutzen. E1 macht sie zusätzlich entbehrlich.
 
 ## Offene Punkte
 
-1. **E3** braucht eine Entscheidung, bevor implementiert wird. Es ist die einzige
-   Änderung an öffentlicher API in diesem Vorschlag.
+1. ~~E3 braucht eine Entscheidung~~ — entschieden im Review am 2026-08-25.
 2. Der konkrete Wert für den Observe-Timeout (Vorschlag 3s) ist gegriffen, nicht
    gemessen. Er sollte vor dem Merge einmal gegen einen realen Cluster geprüft
    werden — die Abfrage ist ein GET auf einen Pod im selben Cluster, 3s sind
