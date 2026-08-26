@@ -1133,3 +1133,28 @@ func TestGenerate_ClusterShardBy_LegacyHASH_CoercedToURL(t *testing.T) {
 	assert.NotContains(t, r.VCL, "by=HASH",
 		"by=HASH must never reach the rendered VCL, even for legacy stored objects")
 }
+
+// TestGenerate_ClusterShardBy_ArbitraryUnexpectedValue_CoercedToURL asserts
+// the coercion's scope: it is a whitelist ("only URL passes through"), not a
+// blacklist ("only HASH is rewritten"). Any other stored value — a
+// hand-edited object, a value from before/around a schema change, anything
+// that isn't "HASH" but also isn't the one value the enum allows — must be
+// coerced exactly like the legacy HASH case, not passed through verbatim.
+func TestGenerate_ClusterShardBy_ArbitraryUnexpectedValue_CoercedToURL(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Spec.Director = vinylv1alpha1.DirectorSpec{
+		Type:  "shard",
+		Shard: &vinylv1alpha1.ShardSpec{By: "RANDOM"},
+	}
+	input.Peers = []generator.PeerBackend{
+		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, ".backend(by=URL)",
+		"an unexpected by value must be coerced to by=URL, not passed through")
+	assert.NotContains(t, r.VCL, "by=RANDOM",
+		"an unexpected by value must never reach the rendered VCL verbatim")
+}
