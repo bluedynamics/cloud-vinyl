@@ -1,0 +1,44 @@
+# Three independent pods, WITHOUT spec.cluster.enabled: true.
+#
+# With clustering on, every pod's vcl_recv redirects unshredded requests
+# (GET and PURGE alike) through an internal Varnish-to-Varnish hop before
+# any of its own caching or ACL logic runs, so a client addressing a pod
+# directly does not straightforwardly observe that pod's own cache — see
+# the open issue on shard-by-HASH hashing nothing in vcl_recv. With
+# clustering off, that redirect is not generated at all, so a request to a
+# pod's own StatefulSet DNS name is served (and cached) by that pod
+# directly. Used by cache-per-pod to test real per-pod caching without the
+# shard machinery in the way.
+#
+# invalidation.purge.soft: false is set explicitly, not because this
+# fixture currently exercises purge (it doesn't — see cache-per-pod's
+# description for why), but so it's ready for a future invalidation test
+# once purge works. Note it currently has no effect: the defaulting webhook
+# coerces any falsy spec.invalidation.purge.soft back to true on every
+# admission (see the open issue on hard purge being unrequestable), so this
+# VinylCache actually runs with soft: true regardless of what's written
+# here.
+apiVersion: vinyl.bluedynamics.eu/v1alpha1
+kind: VinylCache
+metadata:
+  name: my-cache
+spec:
+  replicas: 3
+  image: varnish:8.0.2
+  backends:
+    - name: echo
+      serviceRef:
+        name: echo-backend
+      port: 80
+      probe:
+        url: /
+        interval: 5s
+        timeout: 1s
+        threshold: 2
+        window: 5
+  invalidation:
+    purge:
+      enabled: true
+      soft: false
+  debounce:
+    duration: 2s

@@ -7,7 +7,16 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o vinylprobe ./cmd/vinylprobe
 
 # Runtime stage
-FROM gcr.io/distroless/static:nonroot
+#
+# busybox, not distroless: the probe pod fixture (e2e/fixtures/probe/probe-pod.yaml)
+# overrides the container command with `sleep 3600` so it stays up long enough for
+# repeated `kubectl exec ... /vinylprobe` calls across a chainsaw test's steps.
+# distroless/static ships no shell and no coreutils, so `sleep` doesn't exist on
+# PATH there and the pod fails to start (StartError: "sleep": executable file not
+# found in $PATH) instead of reaching Running. This is a test-only image, never
+# folded into a product image, so trading distroless's smaller attack surface for
+# a shell here costs nothing in practice.
+FROM busybox:1.36.1-musl
 LABEL org.opencontainers.image.title="vinyl-probe" \
       org.opencontainers.image.source="https://github.com/bluedynamics/cloud-vinyl" \
       org.opencontainers.image.licenses="Apache-2.0"
