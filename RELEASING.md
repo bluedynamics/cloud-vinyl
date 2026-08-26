@@ -79,15 +79,16 @@ consumers may have pulled them. Fix the problem and cut the next patch version i
 
 ## Known wrinkles
 
-**The changelog filters are prefix-based and let internal work through.**
-`.goreleaser.yaml` excludes `^docs:`, `^ci:` and `^chore:`. Because the match is on the
-raw prefix, a scoped commit like `fix(ci): ...` or `fix(e2e): ...` does *not* match
-`^ci:` and lands in the user-facing release notes. Worth skimming the generated notes
-after a release and editing them if internal churn slipped in.
+**Toolchain work is invisible in the notes.** `.goreleaser.yaml` excludes `docs`, `ci`
+and `chore` commits, along with merge commits. That is usually right, but it means a
+release consisting mostly of dependency and toolchain updates will produce nearly empty
+notes. v0.6.0 is the cautionary example in the other direction: those filters were
+written without allowing for conventional-commit scopes, so `chore(ci):` never matched
+`^chore:` and its notes carried 44 entries, 32 of them noise.
 
-**Toolchain work is invisible in the notes.** Conversely, everything committed as
-`chore:` is filtered out entirely. That is usually right, but it means a release that
-consisted mostly of dependency and toolchain updates will produce nearly empty notes.
+**`fix` and `test` are never filtered, whatever their scope.** Internal commits like
+`fix(ci): ...` or `test(e2e): ...` do reach the user-facing notes by design, since the
+filters key on the type rather than the scope. Worth a skim after a release.
 
 **The exporter image is released separately.** `ghcr.io/bluedynamics/varnish-exporter`
 has its own workflow, [`release-exporter.yml`](.github/workflows/release-exporter.yml),
