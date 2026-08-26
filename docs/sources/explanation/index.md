@@ -6,6 +6,7 @@ Conceptual documentation that helps you understand how cloud-vinyl works and why
 :maxdepth: 1
 
 architecture
+testing-strategy
 vcl-lifecycle
 invalidation
 ```
