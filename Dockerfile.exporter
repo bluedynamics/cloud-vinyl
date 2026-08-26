@@ -22,7 +22,16 @@ RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
         go build -trimpath -o /out/prometheus_varnish_exporter .
 
 # Source of a matching varnishstat + its runtime libraries.
+#
+# The RUN below is a build guard, and it lives in this stage on purpose: BuildKit
+# only builds stages the final image depends on, so a standalone guard stage is
+# pruned and never runs. This stage is COPY'd from, so it always builds.
 FROM ${VARNISH_IMAGE} AS varnish
+RUN test -e /usr/lib/libvarnishapi.so.3 || { \
+        echo "ERROR: VARNISH_IMAGE ships no libvarnishapi.so.3, found:" >&2; \
+        ls -1 /usr/lib/libvarnishapi.so.* >&2; \
+        echo "varnish 6.0 LTS ships .so.1 and is unsupported. See #91." >&2; \
+        exit 1; }
 
 # Must match the Debian release of VARNISH_IMAGE (varnish:8.0.2 = Debian 13/trixie,
 # glibc 2.41) so the copied varnishstat/libvarnishapi find a compatible glibc.
@@ -30,6 +39,15 @@ FROM gcr.io/distroless/base-debian13:nonroot
 # varnishstat and the libraries it needs that distroless/base does not provide.
 # (libc, libm and the loader come from distroless/base.)
 COPY --from=varnish /usr/bin/varnishstat /usr/bin/varnishstat
+# libvarnishapi's soname is pinned deliberately. Varnish 7.6 through 9.0 all
+# ship .so.3 and their varnishstat/varnishd combinations interoperate; varnish
+# 6.0 LTS ships .so.1 and is not supported. Without the guard below, building
+# against 6.0 succeeds while the glob matches nothing, and the image only fails
+# once it is running:
+#
+#	varnishstat: error while loading shared libraries: libvarnishapi.so.1
+#
+# See #91.
 COPY --from=varnish /usr/lib/libvarnishapi.so.3* /usr/lib/
 COPY --from=varnish /lib/*-linux-gnu/libncursesw.so.6 /usr/lib/libncursesw.so.6
 COPY --from=varnish /lib/*-linux-gnu/libtinfo.so.6 /usr/lib/libtinfo.so.6

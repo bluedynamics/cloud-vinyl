@@ -6,6 +6,7 @@ Technical reference documentation for cloud-vinyl.
 :maxdepth: 1
 
 vinylcache-spec
+varnish-versions
 helm-values
 metrics
 ```

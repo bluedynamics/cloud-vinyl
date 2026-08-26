@@ -162,3 +162,72 @@ func TestHealthGatesOnBootstrapVCL(t *testing.T) {
 		})
 	}
 }
+
+// TestActiveVCLRejectsUnrecognisedShape covers what happens on a varnishd whose
+// vcl.list does not have the layout we parse. Varnish 6.0 LTS is the live
+// example: it collapses state and temperature into one column, so a row has
+// four fields where 7.6 and later have five.
+//
+//	varnish 6.0.18:  active      auto/warm          0 boot
+//	varnish 8.0.2:   active   auto   warm   0   boot
+//
+// Returning "" there is the worst possible answer. Health compares the name
+// against "boot", so an empty string reads as "operator VCL is live" and the
+// pod goes Ready while still serving the bootstrap 503 — the exact failure #73
+// was about. It also makes every pod look out of date forever, so the operator
+// re-pushes on every reconcile and never converges.
+//
+// An error is the honest answer: Health turns it into a 503, the pod stays
+// NotReady, and the operator logs why.
+func TestActiveVCLRejectsUnrecognisedShape(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "varnish 6.0 collapses state and temperature into one column",
+			body: "active      auto/warm          0 boot\n",
+		},
+		{
+			name: "no active row at all",
+			body: "available   auto   warm   0   boot\n",
+		},
+		{
+			name: "empty response",
+			body: "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			addr := fakeVarnishCLI(t, tc.body)
+			c := NewAdminClient(addr, "secret")
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			got, err := c.ActiveVCL(ctx)
+
+			if err == nil {
+				t.Fatalf("ActiveVCL() = %q with nil error; an unparseable vcl.list must "+
+					"surface, not silently look like a pushed VCL", got)
+			}
+			if got != "" {
+				t.Errorf("ActiveVCL() = %q, want empty alongside the error", got)
+			}
+		})
+	}
+}
+
+// TestHealthFailsClosedOnUnrecognisedShape is the consequence that matters:
+// a varnishd we cannot read must keep the pod out of the Service endpoints.
+func TestHealthFailsClosedOnUnrecognisedShape(t *testing.T) {
+	addr := fakeVarnishCLI(t, "active      auto/warm          0 boot\n")
+	h := NewHandler(NewAdminClient(addr, "secret"), NewXkeyPurger("http://127.0.0.1:8080"))
+
+	rr := httptest.NewRecorder()
+	h.Health(rr, httptest.NewRequest(http.MethodGet, "/health", nil))
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("Health() = %d, want 503 when vcl.list cannot be parsed\nbody: %s",
+			rr.Code, rr.Body.String())
+	}
+}

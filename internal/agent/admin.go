@@ -257,7 +257,22 @@ func (c *varnishAdminClient) ActiveVCL(ctx context.Context) (string, error) {
 			return parts[4], nil
 		}
 	}
-	return "", nil
+
+	// Nothing matched. Returning ("", nil) here would be the most damaging
+	// possible answer: Health compares the name against "boot", so an empty
+	// string reads as "the operator VCL is live" and the pod joins the Service
+	// endpoints while still serving the bootstrap 503. That is exactly the
+	// failure #73 was about, and it would come back silently on any varnishd
+	// whose vcl.list we cannot read. Varnish 6.0 LTS is a live example: it
+	// collapses state and temperature into a single column, so its rows carry
+	// four fields where 7.6 and later carry five.
+	//
+	//	varnish 6.0.18:  active      auto/warm          0 boot
+	//	varnish 8.0.2:   active   auto   warm   0   boot
+	//
+	// Failing here turns an unreadable varnishd into a 503 and a log line
+	// instead of a pod that lies about being ready.
+	return "", fmt.Errorf("no parseable active VCL in vcl.list output: %q", body)
 }
 
 // Ban pushes a ban expression via the admin protocol.
