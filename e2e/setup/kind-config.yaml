@@ -6,5 +6,9 @@ nodes:
   - role: worker
   - role: worker
 networking:
+  # kindnet ignores NetworkPolicies, so the four policies the operator ships
+  # were never enforced in CI. Calico enforces them; see
+  # docs/superpowers/specs/2026-08-26-e2e-rewrite-design.md.
+  disableDefaultCNI: true
   podSubnet: "10.244.0.0/16"
   serviceSubnet: "10.96.0.0/12"
