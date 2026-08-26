@@ -107,6 +107,13 @@ jobs:
           kind load docker-image ghcr.io/bluedynamics/cloud-vinyl-agent:dev \
             --name cloud-vinyl-e2e
 
+      - name: Build probe image
+        run: |
+          docker build -f Dockerfile.probe \
+            -t cloud-vinyl-probe:dev .
+          kind load docker-image cloud-vinyl-probe:dev \
+            --name cloud-vinyl-e2e
+
       - uses: azure/setup-helm@v5
 
       - name: Install cert-manager
