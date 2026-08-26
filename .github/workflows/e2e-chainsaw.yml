@@ -3,17 +3,47 @@ name: E2E Chainsaw Tests
 on:
   push:
     branches: [main]
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "e2e/**"
+      - "charts/**"
+      - "config/**"
+      - "Dockerfile.*"
+      - ".github/workflows/e2e-chainsaw.yml"
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled]
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "e2e/**"
+      - "charts/**"
+      - "config/**"
+      - "Dockerfile.*"
+      - ".github/workflows/e2e-chainsaw.yml"
   # Manual trigger so main can be re-run on demand. When a PR goes red there is
   # otherwise no cheap way to check whether unmodified main is red too (#63).
   workflow_dispatch:
 
 jobs:
   e2e:
-    name: Chainsaw E2E
+    # A labelled event fires for every label. Without this guard, adding
+    # "documentation" to a PR would start the full suite.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.action != 'labeled' ||
+      github.event.label.name == 'e2e-full'
+    name: >-
+      Chainsaw E2E
+      (${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'e2e-full')) && 'full' || 'fast' }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      SUITE: >-
+        ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'e2e-full')) && 'full' || 'fast' }}
 
     steps:
       - uses: actions/checkout@v7
@@ -97,13 +127,20 @@ jobs:
       # still exit 0 (#63). hack/check-suite-labels.sh guards the replacement.
       - name: Run E2E tests (parallel)
         run: |
+          if [ "$SUITE" = "full" ]; then
+            SELECTOR="suite in (fast,full)"
+          else
+            SELECTOR="suite=fast"
+          fi
+          echo "Running suite: $SUITE (selector: $SELECTOR)"
           chainsaw test \
             --test-dir e2e/tests \
             --parallel 2 \
-            --selector "suite in (fast,full)" \
+            --selector "$SELECTOR" \
             --exclude-test-regex "chainsaw/(ha-operator|drift-detection)"
 
       - name: Run sequential E2E tests
+        if: env.SUITE == 'full'
         run: |
           chainsaw test \
             --test-dir e2e/tests \
