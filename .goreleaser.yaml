@@ -32,6 +32,13 @@ changelog:
   sort: asc
   filters:
     exclude:
-      - "^docs:"
-      - "^ci:"
-      - "^chore:"
+      # The type must be followed by an optional scope. This repo commits as
+      # `chore(ci):` and `docs(spec):`, which a bare "^chore:" never matched,
+      # so these filters were inert: v0.6.0's notes carried 11 chore/ci/docs
+      # entries they were meant to drop.
+      - '^docs(\(.+\))?:'
+      - '^ci(\(.+\))?:'
+      - '^chore(\(.+\))?:'
+      # Merge commits were never filtered at all. They made up 21 of the 44
+      # entries in v0.6.0.
+      - '^Merge '
