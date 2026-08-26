@@ -7,6 +7,15 @@ on:
       - "**.go"
       - "go.mod"
       - "go.sum"
+      # internal/** is broader than "**.go" on purpose: it also catches
+      # non-.go assets pulled in via //go:embed, e.g.
+      # internal/generator/templates/*.vcl.tmpl, the Varnish VCL templates the
+      # operator ships. Those files are valid Go-template syntax but can still
+      # be invalid VCL, and only the E2E suite compiles the generated output
+      # with varnishd -- unit tests don't. Scoping to internal/** (rather than
+      # naming the templates dir) also means a future //go:embed added
+      # anywhere under internal/ is covered without editing this list.
+      - "internal/**"
       - "e2e/**"
       - "charts/**"
       - "config/**"
@@ -19,6 +28,8 @@ on:
       - "**.go"
       - "go.mod"
       - "go.sum"
+      # See the matching comment under push.paths above.
+      - "internal/**"
       - "e2e/**"
       - "charts/**"
       - "config/**"
