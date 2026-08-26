@@ -18,9 +18,9 @@ if ! deps="$(go list -deps ./cmd/vinylprobe 2>&1)"; then
   echo "FAIL: go list -deps ./cmd/vinylprobe failed; cannot verify the boundary"
   echo "$deps" | sed 's/^/       /'
   fail=1
-elif echo "$deps" | grep -q "^k8s.io/"; then
-  echo "FAIL: cmd/vinylprobe pulls in k8s.io packages; it must speak only HTTP"
-  echo "$deps" | grep "^k8s.io/" | sed 's/^/       /'
+elif echo "$deps" | grep -qE "^(k8s\.io|sigs\.k8s\.io)/"; then
+  echo "FAIL: cmd/vinylprobe pulls in k8s.io/sigs.k8s.io packages; it must speak only HTTP"
+  echo "$deps" | grep -E "^(k8s\.io|sigs\.k8s\.io)/" | sed 's/^/       /'
   fail=1
 fi
 

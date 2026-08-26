@@ -26,7 +26,7 @@ varnishd, real networking, real caching, real policy enforcement.
 
 One correction to the reasoning that led here. It is tempting to say
 "control-plane behaviour is already covered by envtest" — that is wrong. The
-coverage lives in **76 unit tests across nine files using fake clients**. The
+coverage lives in **75 unit tests across sixteen files using fake clients**. The
 envtest suite is effectively a stub: a single `It` block that reconciles once.
 
 Fake clients prove the operator *builds* the right objects. They do not prove a
@@ -109,14 +109,18 @@ monitoring for the first time.
 
 `vcl-validation` asserts that an invalid CIDR and a forbidden parameter are
 rejected, and that defaults are applied. The webhook envtest suite
-(`internal/webhook/v1alpha1/vinylcache_webhook_test.go`) already covers
-admission, rejection of missing required fields, defaulting and update
-validation — against a real API server with the real webhook, in seconds.
+(`internal/webhook/v1alpha1/vinylcache_webhook_test.go`) is scaffolded against
+a real API server with the real webhook, but all four of its `It` blocks
+(lines 53, 66, 72, 78) are commented out. It currently exercises zero
+admission decisions and proves nothing about admission, rejection of missing
+required fields, defaulting, or update validation.
 
-It does not yet cover those two specific rejection cases. So the order matters:
-**move the invalid-CIDR and forbidden-parameter cases into the webhook envtest
-suite first, then delete the E2E test.** Deleting first would lose coverage that
-nothing else holds.
+So the order matters, and the work is bigger than a move: **write test cases
+in the webhook envtest suite — covering admission, defaulting, update
+validation, and the invalid-CIDR and forbidden-parameter rejections
+`vcl-validation` currently covers — then delete the E2E test.** Deleting first
+would lose coverage that nothing else holds; deleting before writing would
+mean the coverage never existed to begin with.
 
 ### Dropped outright
 
@@ -258,15 +262,16 @@ than at the end.
    `shard-routing`, `scale-out-participation`, `ha-invalidation-after-failover`,
    `per-backend-routing`, and `exporter-scrape` with the monitoring fixture it
    needs.
-4. **Retire the old tests.** Move the invalid-CIDR and forbidden-parameter cases
-   into the webhook envtest suite, then delete `vcl-validation`. Add
-   `acceptance`, then delete `basic-lifecycle`, `volumes-and-pvc` and
+4. **Retire the old tests.** Write the invalid-CIDR and forbidden-parameter
+   rejection cases into the webhook envtest suite — its `It` blocks are
+   currently commented out and assert nothing — then delete `vcl-validation`.
+   Add `acceptance`, then delete `basic-lifecycle`, `volumes-and-pvc` and
    `drift-detection`. Deletions come last on purpose, so coverage is never
    reduced before its replacement is proven.
 
 ## Out of scope, proposed as follow-ups
 
-- **Deepen the envtest suite generally.** Distinct from phase 4, which moves two
+- **Deepen the envtest suite generally.** Distinct from phase 4, which writes two
   specific cases as a precondition for one deletion. The broader problem is that
   a single `It` block is why E2E had to carry real-API-server coverage at all.
 - **A varnish readiness probe** (#26 item 5), still unaddressed.

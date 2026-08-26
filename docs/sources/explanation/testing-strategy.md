@@ -6,7 +6,7 @@ confidence.
 
 ## Unit tests
 
-The bulk of the coverage: 76 test functions across `internal/controller/` alone,
+The bulk of the coverage: 75 test functions across `internal/controller/` alone,
 using fake clients. They prove the operator *builds* the right objects — the
 right StatefulSet, the right NetworkPolicies, the right VCL.
 
@@ -114,6 +114,7 @@ Every test carries `metadata.labels.suite`, either `fast` or `full`.
 | Pull request | `fast` |
 | Push to main | `full` |
 | PR labelled `e2e-full` | `full` |
+| Manual (`workflow_dispatch`) | `full` |
 
 Add the `e2e-full` label to a pull request to get the whole suite before
 merging, without waiting for the merge to main. The check name states which

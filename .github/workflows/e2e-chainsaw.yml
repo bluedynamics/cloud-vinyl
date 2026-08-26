@@ -20,6 +20,7 @@ on:
       - "charts/**"
       - "config/**"
       - "Dockerfile.*"
+      - ".chainsaw.yaml"
       - ".github/workflows/e2e-chainsaw.yml"
   pull_request:
     branches: [main]
@@ -34,6 +35,7 @@ on:
       - "charts/**"
       - "config/**"
       - "Dockerfile.*"
+      - ".chainsaw.yaml"
       - ".github/workflows/e2e-chainsaw.yml"
   # Manual trigger so main can be re-run on demand. When a PR goes red there is
   # otherwise no cheap way to check whether unmodified main is red too (#63).
@@ -143,6 +145,16 @@ jobs:
       # maps onto Go's -test.run and silently matches nothing when the
       # "chainsaw/" prefix is missing, which once let a step run zero tests and
       # still exit 0 (#63). hack/check-suite-labels.sh guards the replacement.
+      #
+      # Two concerns are deliberately kept separate here: --selector decides
+      # suite *membership* (fast vs full) and is the only thing that decides
+      # it -- labels in e2e/tests/*/chainsaw-test.yaml are the single source
+      # of truth. The ha-operator/drift-detection regex below decides nothing
+      # about membership; it only carves those two tests out of the parallel
+      # run because they mutate shared cluster state (leader election, drift
+      # correction) and cannot safely run concurrently with the rest. Both
+      # steps still apply --selector, so relabelling either test changes
+      # which suite runs it, not whether the regex finds it.
       - name: Run E2E tests (parallel)
         run: |
           if [ "$SUITE" = "full" ]; then
@@ -163,6 +175,7 @@ jobs:
           chainsaw test \
             --test-dir e2e/tests \
             --parallel 1 \
+            --selector "suite=full" \
             --include-test-regex "chainsaw/(ha-operator|drift-detection)"
 
       - name: Debug - operator logs

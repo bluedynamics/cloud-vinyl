@@ -6,7 +6,10 @@
 set -euo pipefail
 
 fail=0
-for f in e2e/tests/*/chainsaw-test.yaml; do
+# find, not a `*/` glob: chainsaw's --test-dir discovers chainsaw-test.yaml
+# recursively at any depth, so a one-level glob would let a nested test run
+# unchecked.
+while IFS= read -r f; do
   # `|| true` guards against grep's exit-1-on-no-match under `set -e
   # -o pipefail`: without it, a file with zero suite labels aborts the loop
   # silently instead of reporting FAIL for it and continuing to the rest.
@@ -15,6 +18,6 @@ for f in e2e/tests/*/chainsaw-test.yaml; do
     echo "FAIL: $f has $value suite labels, expected exactly 1"
     fail=1
   fi
-done
+done < <(find e2e/tests -name chainsaw-test.yaml)
 [ "$fail" -eq 0 ] && echo "OK: all chainsaw tests carry exactly one suite label"
 exit "$fail"
