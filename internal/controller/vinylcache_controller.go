@@ -198,6 +198,20 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 	}
 
+	// #92 migration: a VinylCache stored before HASH was removed from the
+	// director.shard.by enum may still carry that value (the API server only
+	// validates on write, so an existing object keeps reconciling with its
+	// stale stored spec). The generator coerces it to URL rather than
+	// reproducing the non-sharding bug, but surface it here so operators can
+	// see why the cache is running with an effectively different spec.by
+	// than the object claims, and know to update it on the object's next
+	// legitimate write.
+	if vc.Spec.Director.Shard != nil && vc.Spec.Director.Shard.By == "HASH" {
+		log.Info("spec.director.shard.by=HASH is no longer supported (#92) and is being treated as URL; "+
+			"update the object to by=URL to make the stored spec accurate",
+			"name", vc.Name, "namespace", vc.Namespace)
+	}
+
 	genResult, err := r.Generator.Generate(generator.Input{
 		Spec:       &vc.Spec,
 		Peers:      peers,

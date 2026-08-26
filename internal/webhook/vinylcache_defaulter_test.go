@@ -165,12 +165,16 @@ func TestDefault_ShardRampup_NotOverwrittenIfAlreadySet(t *testing.T) {
 		"ShardSpec.Rampup should not be overwritten")
 }
 
-func TestDefault_ShardBy_DefaultsToHASH(t *testing.T) {
+func TestDefault_ShardBy_DefaultsToURL(t *testing.T) {
+	// #92: by=HASH hashes req.hash, which is never populated on the
+	// request-time .backend() call path (vcl_recv, return(pass) never
+	// reaches vcl_hash). HASH cannot work at this call site, so URL is the
+	// only sane default, and the CRD enum no longer even offers HASH.
 	vc := emptyVC()
 	webhook.DefaultVinylCache(vc)
 
 	require.NotNil(t, vc.Spec.Director.Shard)
-	assert.Equal(t, "HASH", vc.Spec.Director.Shard.By, "ShardSpec.By should default to 'HASH'")
+	assert.Equal(t, "URL", vc.Spec.Director.Shard.By, "ShardSpec.By should default to 'URL'")
 }
 
 func TestDefault_ShardBy_NotOverwrittenIfAlreadySet(t *testing.T) {
@@ -373,7 +377,7 @@ func TestDefault_BackendDirector_ShardDefaults(t *testing.T) {
 	require.NotNil(t, s.Warmup)
 	assert.InDelta(t, 0.1, *s.Warmup, 1e-9)
 	assert.Equal(t, 30*time.Second, s.Rampup.Duration)
-	assert.Equal(t, "HASH", s.By)
+	assert.Equal(t, "URL", s.By)
 	assert.Equal(t, "CHOSEN", s.Healthy)
 }
 
