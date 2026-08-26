@@ -2,6 +2,8 @@ apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
   name: per-backend-directors
+  labels:
+    suite: full
 spec:
   description: |
     Exercises the per-backend director feature end-to-end:

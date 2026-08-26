@@ -2,6 +2,8 @@ apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
   name: cluster-routing
+  labels:
+    suite: full
 spec:
   description: |
     3-replica cluster with shard director: verify the StatefulSet is created

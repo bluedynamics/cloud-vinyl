@@ -3,17 +3,60 @@ name: E2E Chainsaw Tests
 on:
   push:
     branches: [main]
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      # internal/** is broader than "**.go" on purpose: it also catches
+      # non-.go assets pulled in via //go:embed, e.g.
+      # internal/generator/templates/*.vcl.tmpl, the Varnish VCL templates the
+      # operator ships. Those files are valid Go-template syntax but can still
+      # be invalid VCL, and only the E2E suite compiles the generated output
+      # with varnishd -- unit tests don't. Scoping to internal/** (rather than
+      # naming the templates dir) also means a future //go:embed added
+      # anywhere under internal/ is covered without editing this list.
+      - "internal/**"
+      - "e2e/**"
+      - "charts/**"
+      - "config/**"
+      - "Dockerfile.*"
+      - ".chainsaw.yaml"
+      - ".github/workflows/e2e-chainsaw.yml"
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled]
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      # See the matching comment under push.paths above.
+      - "internal/**"
+      - "e2e/**"
+      - "charts/**"
+      - "config/**"
+      - "Dockerfile.*"
+      - ".chainsaw.yaml"
+      - ".github/workflows/e2e-chainsaw.yml"
   # Manual trigger so main can be re-run on demand. When a PR goes red there is
   # otherwise no cheap way to check whether unmodified main is red too (#63).
   workflow_dispatch:
 
 jobs:
   e2e:
-    name: Chainsaw E2E
+    # A labelled event fires for every label. Without this guard, adding
+    # "documentation" to a PR would start the full suite.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.action != 'labeled' ||
+      github.event.label.name == 'e2e-full'
+    name: >-
+      Chainsaw E2E
+      (${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'e2e-full')) && 'full' || 'fast' }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      SUITE: >-
+        ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'e2e-full')) && 'full' || 'fast' }}
 
     steps:
       - uses: actions/checkout@v7
@@ -37,6 +80,21 @@ jobs:
           # a run can change behaviour with no change to this repo (#63).
           node_image: kindest/node:v1.36.1
 
+      - name: Pre-pull images into Kind
+        run: |
+          docker pull varnish:8.0.2
+          kind load docker-image varnish:8.0.2 --name cloud-vinyl-e2e
+          for img in \
+            quay.io/calico/cni:v3.31.1 \
+            quay.io/calico/node:v3.31.1 \
+            quay.io/calico/kube-controllers:v3.31.1; do
+            docker pull "$img"
+            kind load docker-image "$img" --name cloud-vinyl-e2e
+          done
+
+      - name: Install Calico
+        run: bash e2e/setup/install-calico.sh
+
       - name: Build operator image
         run: |
           docker build -f Dockerfile.operator \
@@ -51,10 +109,12 @@ jobs:
           kind load docker-image ghcr.io/bluedynamics/cloud-vinyl-agent:dev \
             --name cloud-vinyl-e2e
 
-      - name: Pre-pull varnish image into Kind
+      - name: Build probe image
         run: |
-          docker pull varnish:8.0.2
-          kind load docker-image varnish:8.0.2 --name cloud-vinyl-e2e
+          docker build -f Dockerfile.probe \
+            -t cloud-vinyl-probe:dev .
+          kind load docker-image cloud-vinyl-probe:dev \
+            --name cloud-vinyl-e2e
 
       - uses: azure/setup-helm@v5
 
@@ -81,25 +141,41 @@ jobs:
         with:
           release: v0.2.12
 
-      # NOTE on the "chainsaw/" prefix: chainsaw maps --include-test-regex and
-      # --exclude-test-regex onto Go's -test.run / -test.skip, which match
-      # elementwise along "/". Chainsaw registers one top-level test named
-      # "chainsaw" with one subtest per test, so a pattern without a "/" is only
-      # ever compared against "chainsaw" and silently matches nothing. Without the
-      # prefix the exclusion is a no-op and the "sequential" step runs zero tests
-      # while still exiting 0 (see issue #63).
+      # Selection is by label rather than by --include-test-regex. The regex form
+      # maps onto Go's -test.run and silently matches nothing when the
+      # "chainsaw/" prefix is missing, which once let a step run zero tests and
+      # still exit 0 (#63). hack/check-suite-labels.sh guards the replacement.
+      #
+      # Two concerns are deliberately kept separate here: --selector decides
+      # suite *membership* (fast vs full) and is the only thing that decides
+      # it -- labels in e2e/tests/*/chainsaw-test.yaml are the single source
+      # of truth. The ha-operator/drift-detection regex below decides nothing
+      # about membership; it only carves those two tests out of the parallel
+      # run because they mutate shared cluster state (leader election, drift
+      # correction) and cannot safely run concurrently with the rest. Both
+      # steps still apply --selector, so relabelling either test changes
+      # which suite runs it, not whether the regex finds it.
       - name: Run E2E tests (parallel)
         run: |
+          if [ "$SUITE" = "full" ]; then
+            SELECTOR="suite in (fast,full)"
+          else
+            SELECTOR="suite=fast"
+          fi
+          echo "Running suite: $SUITE (selector: $SELECTOR)"
           chainsaw test \
             --test-dir e2e/tests \
             --parallel 2 \
+            --selector "$SELECTOR" \
             --exclude-test-regex "chainsaw/(ha-operator|drift-detection)"
 
       - name: Run sequential E2E tests
+        if: env.SUITE == 'full'
         run: |
           chainsaw test \
             --test-dir e2e/tests \
             --parallel 1 \
+            --selector "suite=full" \
             --include-test-regex "chainsaw/(ha-operator|drift-detection)"
 
       - name: Debug - operator logs

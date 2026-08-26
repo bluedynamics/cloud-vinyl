@@ -2,6 +2,8 @@ apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
   name: basic-lifecycle
+  labels:
+    suite: fast
 spec:
   description: |
     Full CRUD lifecycle of a VinylCache: create, wait for Ready,

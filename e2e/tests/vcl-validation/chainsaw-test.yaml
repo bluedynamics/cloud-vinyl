@@ -2,6 +2,8 @@ apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
   name: vcl-validation
+  labels:
+    suite: fast
 spec:
   description: |
     Verify the admission webhook applies defaults correctly and validates

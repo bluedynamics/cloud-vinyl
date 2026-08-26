@@ -1,0 +1,16 @@
+# Runs inside the test namespace so its traffic is subject to the same
+# NetworkPolicies as any other client. A kubectl port-forward would bypass them
+# and defeat the point of enforcing policy at all.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: probe
+  labels:
+    app: probe
+spec:
+  restartPolicy: Never
+  containers:
+    - name: probe
+      image: cloud-vinyl-probe:dev
+      imagePullPolicy: Never
+      command: ["sleep", "3600"]
