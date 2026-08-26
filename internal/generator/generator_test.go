@@ -203,13 +203,41 @@ func TestGenerate_SoftPurge_AddsGraceDelivery(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
 	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
-		Purge: &vinylv1alpha1.PurgeSpec{Soft: true},
+		Purge: &vinylv1alpha1.PurgeSpec{Soft: new(true)},
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
 	// vcl_hit must handle grace delivery for soft-purged objects.
 	assert.Contains(t, r.VCL, "obj.grace",
 		"soft-purge: vcl_hit must reference obj.grace for stale-while-revalidate")
+}
+
+func TestGenerate_HardPurge_NoGraceDelivery(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
+		Purge: &vinylv1alpha1.PurgeSpec{Soft: new(false)},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	// vcl_hit must NOT handle grace delivery when hard purge is explicitly requested.
+	assert.NotContains(t, r.VCL, "obj.grace",
+		"hard-purge (soft: false): vcl_hit must not reference obj.grace")
+}
+
+func TestGenerate_SoftPurge_NilDefaultsToTrue_AddsGraceDelivery(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
+		Purge: &vinylv1alpha1.PurgeSpec{Soft: nil},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	// A nil Soft must behave as true here, matching the CRD default: a unit
+	// test constructing the struct directly bypasses the API server's
+	// defaulting, so the generator must be nil-safe on its own.
+	assert.Contains(t, r.VCL, "obj.grace",
+		"nil Soft must default to true (matching the CRD default) and add grace delivery")
 }
 
 func TestGenerate_ProxyProtocol_ExportsRealIP(t *testing.T) {

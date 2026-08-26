@@ -392,9 +392,10 @@ type PurgeSpec struct {
 	Enabled bool `json:"enabled,omitempty"`
 
 	// soft enables soft purges, which mark objects as expired rather than removing them.
-	// This allows Varnish to serve stale content while revalidating. Default: true.
+	// This allows Varnish to serve stale content while revalidating.
 	// +optional
-	Soft bool `json:"soft,omitempty"`
+	// +kubebuilder:default=true
+	Soft *bool `json:"soft,omitempty"`
 
 	// allowedSources is a list of CIDR ranges permitted to send PURGE requests.
 	// If empty, no source restriction is applied.
@@ -424,9 +425,10 @@ type XkeySpec struct {
 	// +optional
 	Enabled bool `json:"enabled,omitempty"`
 
-	// softPurge enables soft purging via xkey. Default: true.
+	// softPurge enables soft purging via xkey.
 	// +optional
-	SoftPurge bool `json:"softPurge,omitempty"`
+	// +kubebuilder:default=true
+	SoftPurge *bool `json:"softPurge,omitempty"`
 
 	// allowedSources is a list of CIDR ranges permitted to send xkey invalidation requests.
 	// +optional

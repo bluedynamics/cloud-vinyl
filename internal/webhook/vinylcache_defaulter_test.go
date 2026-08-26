@@ -34,44 +34,66 @@ func emptyVC() *vinylv1alpha1.VinylCache {
 }
 
 // --- Purge.Soft default ---
+//
+// Soft defaulting to true now happens at the CRD level via
+// +kubebuilder:default=true (api/v1alpha1/vinylcache_types.go), applied by
+// the API server during admission, before the webhook ever sees the object.
+// The webhook itself must leave an already-set Soft value alone in every
+// case, and must not invent a value where none was set.
 
-func TestDefault_SoftPurge_DefaultsToTrue(t *testing.T) {
+func TestDefault_SoftPurge_UnsetStaysNil(t *testing.T) {
+	// Unset Soft must remain nil after the webhook runs: applying the
+	// true default is the CRD's job, not the webhook's.
 	vc := emptyVC()
 	webhook.DefaultVinylCache(vc)
 
 	require.NotNil(t, vc.Spec.Invalidation.Purge)
-	assert.True(t, vc.Spec.Invalidation.Purge.Soft, "Purge.Soft should default to true")
+	assert.Nil(t, vc.Spec.Invalidation.Purge.Soft,
+		"Purge.Soft must stay nil; defaulting to true happens at the CRD level")
 }
 
 func TestDefault_SoftPurge_NotOverwrittenIfFalseIsExplicitlyMeant(t *testing.T) {
-	// Since bool zero value is false, we can't distinguish "not set" from "explicitly false".
-	// The defaulter always sets Soft=true if it was false — this is by design.
-	// This test documents and verifies that behaviour.
+	// Soft is now a *bool, so "not set" (nil) and "explicitly false" are
+	// distinguishable. An explicit false must survive the webhook unchanged.
 	vc := emptyVC()
-	vc.Spec.Invalidation.Purge = &vinylv1alpha1.PurgeSpec{Soft: false}
+	vc.Spec.Invalidation.Purge = &vinylv1alpha1.PurgeSpec{Soft: new(false)}
 	webhook.DefaultVinylCache(vc)
 
-	// The defaulter applies the default (true) because false is the zero value.
-	assert.True(t, vc.Spec.Invalidation.Purge.Soft,
-		"Purge.Soft defaults to true (bool zero value cannot be distinguished from 'not set')")
+	require.NotNil(t, vc.Spec.Invalidation.Purge.Soft,
+		"an explicit soft:false must not be nilled out by the webhook")
+	assert.False(t, *vc.Spec.Invalidation.Purge.Soft,
+		"an explicit soft:false must survive the webhook unchanged, not be forced to true")
 }
 
 func TestDefault_SoftPurge_AlreadyTrue_NotChanged(t *testing.T) {
 	vc := emptyVC()
-	vc.Spec.Invalidation.Purge = &vinylv1alpha1.PurgeSpec{Soft: true}
+	vc.Spec.Invalidation.Purge = &vinylv1alpha1.PurgeSpec{Soft: new(true)}
 	webhook.DefaultVinylCache(vc)
 
-	assert.True(t, vc.Spec.Invalidation.Purge.Soft)
+	require.NotNil(t, vc.Spec.Invalidation.Purge.Soft)
+	assert.True(t, *vc.Spec.Invalidation.Purge.Soft)
 }
 
 // --- Xkey.SoftPurge default ---
 
-func TestDefault_XkeySoftPurge_DefaultsToTrue_WhenXkeySet(t *testing.T) {
+func TestDefault_XkeySoftPurge_UnsetStaysNil_WhenXkeySet(t *testing.T) {
 	vc := emptyVC()
 	vc.Spec.Invalidation.Xkey = &vinylv1alpha1.XkeySpec{Enabled: true}
 	webhook.DefaultVinylCache(vc)
 
-	assert.True(t, vc.Spec.Invalidation.Xkey.SoftPurge, "Xkey.SoftPurge should default to true")
+	assert.Nil(t, vc.Spec.Invalidation.Xkey.SoftPurge,
+		"Xkey.SoftPurge must stay nil; defaulting to true happens at the CRD level")
+}
+
+func TestDefault_XkeySoftPurge_NotOverwrittenIfFalseIsExplicitlyMeant(t *testing.T) {
+	vc := emptyVC()
+	vc.Spec.Invalidation.Xkey = &vinylv1alpha1.XkeySpec{Enabled: true, SoftPurge: new(false)}
+	webhook.DefaultVinylCache(vc)
+
+	require.NotNil(t, vc.Spec.Invalidation.Xkey.SoftPurge,
+		"an explicit softPurge:false must not be nilled out by the webhook")
+	assert.False(t, *vc.Spec.Invalidation.Xkey.SoftPurge,
+		"an explicit softPurge:false must survive the webhook unchanged, not be forced to true")
 }
 
 func TestDefault_XkeySoftPurge_NotApplied_WhenXkeyNil(t *testing.T) {
