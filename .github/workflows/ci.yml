@@ -20,6 +20,8 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.13.1
+      - name: Check chainsaw suite labels
+        run: bash hack/check-suite-labels.sh
 
   test:
     name: Unit Tests

@@ -91,18 +91,16 @@ jobs:
         with:
           release: v0.2.12
 
-      # NOTE on the "chainsaw/" prefix: chainsaw maps --include-test-regex and
-      # --exclude-test-regex onto Go's -test.run / -test.skip, which match
-      # elementwise along "/". Chainsaw registers one top-level test named
-      # "chainsaw" with one subtest per test, so a pattern without a "/" is only
-      # ever compared against "chainsaw" and silently matches nothing. Without the
-      # prefix the exclusion is a no-op and the "sequential" step runs zero tests
-      # while still exiting 0 (see issue #63).
+      # Selection is by label rather than by --include-test-regex. The regex form
+      # maps onto Go's -test.run and silently matches nothing when the
+      # "chainsaw/" prefix is missing, which once let a step run zero tests and
+      # still exit 0 (#63). hack/check-suite-labels.sh guards the replacement.
       - name: Run E2E tests (parallel)
         run: |
           chainsaw test \
             --test-dir e2e/tests \
             --parallel 2 \
+            --selector "suite in (fast,full)" \
             --exclude-test-regex "chainsaw/(ha-operator|drift-detection)"
 
       - name: Run sequential E2E tests

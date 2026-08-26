@@ -2,6 +2,8 @@ apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
   name: purge-broadcast
+  labels:
+    suite: fast
 spec:
   description: |
     Verify a 3-replica VinylCache with invalidation configured reaches Ready

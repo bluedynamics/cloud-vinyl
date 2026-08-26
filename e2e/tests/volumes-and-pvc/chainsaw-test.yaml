@@ -2,6 +2,8 @@ apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
   name: volumes-and-pvc
+  labels:
+    suite: full
 spec:
   description: |
     Verify spec.pod.volumes and spec.pod.volumeMounts are passed through

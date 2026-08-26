@@ -2,6 +2,8 @@ apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
   name: ha-operator
+  labels:
+    suite: full
 spec:
   description: |
     2 operator replicas with leader-election: verify exactly one leader holds

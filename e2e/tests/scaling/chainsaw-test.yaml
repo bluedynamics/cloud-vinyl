@@ -2,6 +2,8 @@ apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
   name: scaling
+  labels:
+    suite: full
 spec:
   description: |
     Scale-up from 1→3 replicas and scale-down 3→1: verify the StatefulSet
