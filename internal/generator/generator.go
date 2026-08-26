@@ -207,7 +207,11 @@ func buildTemplateData(input Input) TemplateData {
 		data.HasXkey = input.Spec.Invalidation.Xkey.Enabled
 	}
 	if input.Spec.Invalidation.Purge != nil {
-		data.HasSoftPurge = input.Spec.Invalidation.Purge.Soft
+		// A nil Soft means "unset": treat it as true, matching the CRD's
+		// +kubebuilder:default=true. Callers that construct the struct
+		// directly (e.g. unit tests) bypass the API server's defaulting, so
+		// this must be nil-safe rather than relying on admission having run.
+		data.HasSoftPurge = input.Spec.Invalidation.Purge.Soft == nil || *input.Spec.Invalidation.Purge.Soft
 	}
 	if input.Spec.Invalidation.BAN != nil {
 		data.HasBAN = input.Spec.Invalidation.BAN.Enabled

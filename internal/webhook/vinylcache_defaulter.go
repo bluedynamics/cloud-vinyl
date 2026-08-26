@@ -67,11 +67,14 @@ func applyShardDefaults(ds *vinylv1alpha1.DirectorSpec) {
 
 // DefaultVinylCache applies default values to a VinylCache resource.
 // It is idempotent: calling it multiple times on the same object produces the same result.
-// Existing non-zero values are never overwritten.
+// Existing non-zero values are preserved, but only for fields whose zero value
+// genuinely means "unset" (numbers, strings, durations). Plain bool fields
+// cannot make that distinction: false is indistinguishable from unset, so a
+// default that "fills in false" would silently overwrite an explicit false.
+// Such fields (e.g. Invalidation.Purge.Soft) are therefore *bool and are
+// defaulted at the CRD level via +kubebuilder:default, never in this function.
 //
 // Defaults applied:
-//   - Invalidation.Purge.Soft = true (soft purge preserves stale-while-revalidate semantics)
-//   - Invalidation.Xkey.SoftPurge = true (when Xkey is set)
 //   - Director.Type = directorTypeShard (Varnish upstream recommendation for clustering)
 //   - Director.Shard.Warmup = 0.1 (pre-populate alternate backend cache)
 //   - Director.Shard.Rampup = 30s (throttle traffic to newly healthy backends)
@@ -86,17 +89,11 @@ func applyShardDefaults(ds *vinylv1alpha1.DirectorSpec) {
 //   - Retry.BackoffMax = 5m
 //   - ProxyProtocol.Port = 8081 (when ProxyProtocol.Enabled is true)
 func DefaultVinylCache(vc *vinylv1alpha1.VinylCache) {
-	// Ensure Purge spec exists and apply soft purge default.
+	// Ensure Purge spec exists. Soft is intentionally left untouched here:
+	// its true default is applied at the CRD level (+kubebuilder:default on
+	// PurgeSpec.Soft), which can tell "unset" apart from an explicit false.
 	if vc.Spec.Invalidation.Purge == nil {
 		vc.Spec.Invalidation.Purge = &vinylv1alpha1.PurgeSpec{}
-	}
-	if !vc.Spec.Invalidation.Purge.Soft {
-		vc.Spec.Invalidation.Purge.Soft = true
-	}
-
-	// Xkey soft purge default (only when Xkey is explicitly configured).
-	if vc.Spec.Invalidation.Xkey != nil && !vc.Spec.Invalidation.Xkey.SoftPurge {
-		vc.Spec.Invalidation.Xkey.SoftPurge = true
 	}
 
 	// Director type default: shard.
