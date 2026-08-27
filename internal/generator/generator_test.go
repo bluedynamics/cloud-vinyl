@@ -199,7 +199,17 @@ func TestGenerate_CustomSnippet_Included(t *testing.T) {
 		"custom vcl_recv snippet content must appear in generated VCL")
 }
 
-func TestGenerate_SoftPurge_AddsGraceDelivery(t *testing.T) {
+// The tests below assert on the actual purge construct rendered into
+// vcl_hit/vcl_miss (vmod_purge's purge.soft()/purge.hard()), not merely on
+// whether some soft-purge-flavored text appears anywhere in the file. The
+// previous version of these tests asserted "obj.grace" appears/doesn't
+// appear — that text came from a vcl_hit block that was dead code (Varnish
+// 8's builtin vcl_hit already handles grace/keep in the core; see #94
+// diagnosis), so those tests passed throughout the whole time `soft` was a
+// no-op for the real purge action in vcl_recv. Asserting on the construct
+// that Varnish actually executes on PURGE closes that gap.
+
+func TestGenerate_SoftPurge_UsesVmodPurgeSoft(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
 	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
@@ -207,12 +217,14 @@ func TestGenerate_SoftPurge_AddsGraceDelivery(t *testing.T) {
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
-	// vcl_hit must handle grace delivery for soft-purged objects.
-	assert.Contains(t, r.VCL, "obj.grace",
-		"soft-purge: vcl_hit must reference obj.grace for stale-while-revalidate")
+	assert.Contains(t, r.VCL, "purge.soft()",
+		"soft: true must call vmod_purge's purge.soft(), which marks the object "+
+			"stale and lets grace serve it while it revalidates")
+	assert.NotContains(t, r.VCL, "purge.hard()",
+		"soft: true must not fall back to the unconditional hard-purge construct")
 }
 
-func TestGenerate_HardPurge_NoGraceDelivery(t *testing.T) {
+func TestGenerate_HardPurge_UsesVmodPurgeHard(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
 	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
@@ -220,12 +232,13 @@ func TestGenerate_HardPurge_NoGraceDelivery(t *testing.T) {
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
-	// vcl_hit must NOT handle grace delivery when hard purge is explicitly requested.
-	assert.NotContains(t, r.VCL, "obj.grace",
-		"hard-purge (soft: false): vcl_hit must not reference obj.grace")
+	assert.Contains(t, r.VCL, "purge.hard()",
+		"soft: false must call vmod_purge's purge.hard(), the explicit immediate-eviction construct")
+	assert.NotContains(t, r.VCL, "purge.soft(",
+		"soft: false must not call purge.soft()")
 }
 
-func TestGenerate_SoftPurge_NilDefaultsToTrue_AddsGraceDelivery(t *testing.T) {
+func TestGenerate_SoftPurge_NilDefaultsToTrue_UsesVmodPurgeSoft(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
 	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
@@ -236,8 +249,76 @@ func TestGenerate_SoftPurge_NilDefaultsToTrue_AddsGraceDelivery(t *testing.T) {
 	// A nil Soft must behave as true here, matching the CRD default: a unit
 	// test constructing the struct directly bypasses the API server's
 	// defaulting, so the generator must be nil-safe on its own.
-	assert.Contains(t, r.VCL, "obj.grace",
-		"nil Soft must default to true (matching the CRD default) and add grace delivery")
+	assert.Contains(t, r.VCL, "purge.soft()",
+		"nil Soft must default to true (matching the CRD default) and use purge.soft()")
+	assert.NotContains(t, r.VCL, "purge.hard()")
+}
+
+func TestGenerate_SoftVsHardPurge_RenderedVCLDiffers(t *testing.T) {
+	g := newGenerator(t)
+
+	softInput := makeMinimalInput()
+	softInput.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
+		Purge: &vinylv1alpha1.PurgeSpec{Soft: new(true)},
+	}
+	hardInput := makeMinimalInput()
+	hardInput.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
+		Purge: &vinylv1alpha1.PurgeSpec{Soft: new(false)},
+	}
+
+	softVCL, err := g.Generate(softInput)
+	require.NoError(t, err)
+	hardVCL, err := g.Generate(hardInput)
+	require.NoError(t, err)
+
+	// The whole point of the `soft` field is that it changes the rendered
+	// VCL's actual purge action. Before this fix, the only difference
+	// between soft:true and soft:false anywhere in the file was an inert
+	// vcl_hit grace block; vcl_recv's real purge action (return(purge)) was
+	// byte-identical between the two (#94).
+	assert.NotEqual(t, softVCL.VCL, hardVCL.VCL,
+		"soft:true and soft:false must render different VCL")
+	assert.Contains(t, softVCL.VCL, "purge.soft()")
+	assert.Contains(t, hardVCL.VCL, "purge.hard()")
+	assert.NotContains(t, softVCL.VCL, "purge.hard()")
+	assert.NotContains(t, hardVCL.VCL, "purge.soft(")
+}
+
+func TestGenerate_Purge_ImportsVmodPurge(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(makeMinimalInput())
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "import purge;",
+		"vmod_purge must be imported to back the soft/hard purge construct")
+}
+
+func TestGenerate_Purge_NoUnconditionalReturnPurge(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(makeMinimalInput())
+	require.NoError(t, err)
+	// return(purge) is unconditionally hard — there is no "soft" mode of it.
+	// vmod_purge's soft()/hard() functions can only be called from
+	// vcl_hit/vcl_miss, so vcl_recv must hash the PURGE request through
+	// rather than short-circuiting with return(purge).
+	assert.NotContains(t, r.VCL, "return(purge)",
+		"return(purge) is always a hard purge; soft/hard must be decided in vcl_hit/vcl_miss via vmod_purge instead")
+}
+
+func TestGenerate_VCLHit_NoManualGraceBookkeeping(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
+		Purge: &vinylv1alpha1.PurgeSpec{Soft: new(true)},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	// Varnish 8's builtin vcl_hit is empty; ttl/grace/keep bookkeeping moved
+	// into the core in 6.0. Re-implementing those checks in vcl_hit is dead
+	// code that looks like it does something but doesn't — that's how #94
+	// stayed hidden. Confirm the generated vcl_hit no longer replicates that
+	// pre-6.0 boilerplate.
+	assert.NotContains(t, r.VCL, "obj.grace")
+	assert.NotContains(t, r.VCL, "obj.keep")
 }
 
 func TestGenerate_ProxyProtocol_ExportsRealIP(t *testing.T) {

@@ -1,5 +1,21 @@
 
 sub vcl_miss {
+    # See vcl_hit for why PURGE is handled here via vmod_purge rather than in
+    # vcl_recv. Called here too (not only from vcl_hit) so a PURGE for a URL
+    # whose primary hash exists but this particular Vary variant does not
+    # still resolves the object rather than silently falling through to a
+    # normal backend fetch.
+{{- if .HasSoftPurge }}
+    if (req.method == "PURGE") {
+        set req.http.n-gone = purge.soft();
+        return(synth(200, "Purged " + req.http.n-gone + " objects"));
+    }
+{{- else }}
+    if (req.method == "PURGE") {
+        set req.http.n-gone = purge.hard();
+        return(synth(200, "Purged " + req.http.n-gone + " objects"));
+    }
+{{- end }}
 {{ if .Spec.VCL.Snippets.VCLMiss }}
     # --- custom vcl_miss snippet ---
     {{ .Spec.VCL.Snippets.VCLMiss }}

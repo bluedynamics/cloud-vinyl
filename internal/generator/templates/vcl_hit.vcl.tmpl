@@ -1,26 +1,37 @@
 
 sub vcl_hit {
+    # PURGE handling: the vmod_purge functions used below are restricted to
+    # vcl_hit/vcl_miss, which is why vcl_recv hashes PURGE requests through
+    # rather than purging directly. spec.invalidation.purge.soft selects
+    # between them at render time: the soft variant only reduces the
+    # object's ttl (grace/keep untouched by default), so Varnish's core
+    # keeps serving it from grace while asynchronously revalidating — the
+    # same "soft" semantics xkey.softpurge() already provides for
+    # xkey-based invalidation. The hard variant evicts immediately.
 {{- if .HasSoftPurge }}
-    if (obj.ttl >= 0s) {
-        return(deliver);
-    }
-    # Soft-purge: serve stale while revalidating if within grace period
-    if (obj.ttl + obj.grace > 0s) {
-        return(deliver);
-    }
-    # Object is within keep period for a soft-purged object
-    if (obj.ttl + obj.keep > 0s) {
-        return(restart);
+    if (req.method == "PURGE") {
+        set req.http.n-gone = purge.soft();
+        return(synth(200, "Purged " + req.http.n-gone + " objects"));
     }
 {{- else }}
-    if (obj.ttl >= 0s) {
-        return(deliver);
+    if (req.method == "PURGE") {
+        set req.http.n-gone = purge.hard();
+        return(synth(200, "Purged " + req.http.n-gone + " objects"));
     }
 {{- end }}
+    #
+    # No manual ttl/grace/keep bookkeeping below: Varnish 8's builtin vcl_hit
+    # is empty (that logic moved into the C core in 6.0), so a plain
+    # return(deliver) here is equivalent to calling vcl_builtin_hit. Earlier
+    # versions of this template replicated pre-6.0 ttl/grace/keep checks by
+    # hand; that block never affected anything Varnish's core wasn't already
+    # doing on its own, but its presence made it look like `soft` was wired
+    # into cache-hit handling when it never touched the actual purge action
+    # (#94).
 {{ if .Spec.VCL.Snippets.VCLHit }}
     # --- custom vcl_hit snippet ---
     {{ .Spec.VCL.Snippets.VCLHit }}
     # --- end custom vcl_hit snippet ---
 {{ end }}
-    return(restart);
+    return(deliver);
 }
