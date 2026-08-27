@@ -8,27 +8,6 @@ sub vcl_recv {
 
     # Sort query string for better cache hit ratio
     set req.url = std.querysort(req.url);
-{{- if .HasCluster }}
-
-    # Cluster routing: strip spoofed X-Vinyl-Shard from untrusted clients
-    if (req.http.X-Vinyl-Shard && !(client.ip ~ vinyl_cluster_peers)) {
-        unset req.http.X-Vinyl-Shard;
-    }
-    # Route to responsible peer; if already routed, proceed to cache lookup
-    if (!req.http.X-Vinyl-Shard) {
-        set req.http.X-Vinyl-Shard = "1";
-        set req.backend_hint = {{ .DirectorName }}.backend(by={{ .ClusterShardBy }}{{ if .ClusterShardHealthy }}, healthy={{ .ClusterShardHealthy }}{{ end }});
-        return(pass);
-    }
-    unset req.http.X-Vinyl-Shard;
-{{- end }}
-{{- if .HasProxyProtocol }}
-
-    # PROXY Protocol: extract real client IP from X-Forwarded-For
-    if (req.http.X-Forwarded-For) {
-        set req.http.X-Real-IP = regsub(req.http.X-Forwarded-For, ",.*$", "");
-    }
-{{- end }}
 
     # PURGE handling
     if (req.method == "PURGE") {
@@ -65,6 +44,38 @@ sub vcl_recv {
         return(synth(200, "Banned"));
     }
 {{- end }}
+{{- if .HasCluster }}
+
+    # Cluster routing. MUST run after PURGE/BAN handling above, never before
+    # (#93). PURGE and BAN are control commands addressed to the specific pod
+    # that receives them, authorized by checking the real client.ip against
+    # vinyl_purge_allowed / vinyl_ban_allowed. This block's `return(pass)`
+    # relays every method it sees to a peer; if it ran first, an operator's
+    # PURGE/BAN would be relayed to a peer before that ACL check ran, and the
+    # peer would see client.ip as the relaying Varnish pod instead of the
+    # operator and reject it with 403. Do not move this block back above
+    # PURGE/BAN handling.
+    #
+    # Strip spoofed X-Vinyl-Shard from untrusted clients
+    if (req.http.X-Vinyl-Shard && !(client.ip ~ vinyl_cluster_peers)) {
+        unset req.http.X-Vinyl-Shard;
+    }
+    # Route to responsible peer; if already routed, proceed to cache lookup
+    if (!req.http.X-Vinyl-Shard) {
+        set req.http.X-Vinyl-Shard = "1";
+        set req.backend_hint = {{ .DirectorName }}.backend(by={{ .ClusterShardBy }}{{ if .ClusterShardHealthy }}, healthy={{ .ClusterShardHealthy }}{{ end }});
+        return(pass);
+    }
+    unset req.http.X-Vinyl-Shard;
+{{- end }}
+{{- if .HasProxyProtocol }}
+
+    # PROXY Protocol: extract real client IP from X-Forwarded-For
+    if (req.http.X-Forwarded-For) {
+        set req.http.X-Real-IP = regsub(req.http.X-Forwarded-For, ",.*$", "");
+    }
+{{- end }}
+
     # Only handle GET and HEAD for caching (pass everything else)
     if (req.method != "GET" && req.method != "HEAD") {
         return(pass);

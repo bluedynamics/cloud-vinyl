@@ -835,26 +835,6 @@ func TestGenerate_ClusterShardBy_DefaultsToURL(t *testing.T) {
 		"no healthy= argument when spec.director.shard.healthy is unset")
 }
 
-func TestGenerate_ClusterShardBy_HonorsSpecOverride(t *testing.T) {
-	g := newGenerator(t)
-	input := makeMinimalInput()
-	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
-	input.Spec.Director = vinylv1alpha1.DirectorSpec{
-		Type:  "shard",
-		Shard: &vinylv1alpha1.ShardSpec{By: "HASH"},
-	}
-	input.Peers = []generator.PeerBackend{
-		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
-		{Name: "my_cache_1", IP: "10.0.2.2", Port: 8080},
-	}
-	r, err := g.Generate(input)
-	require.NoError(t, err)
-	assert.Contains(t, r.VCL, ".backend(by=HASH)",
-		"spec.director.shard.by=HASH must reach vcl_recv")
-	assert.NotContains(t, r.VCL, ".backend(by=URL)",
-		"hardcoded URL must not leak through when spec overrides it")
-}
-
 func TestGenerate_ClusterShardHealthy_HonorsSpecOverride(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
@@ -1037,4 +1017,144 @@ func TestGenerate_BAN_EnabledButNotConfigured_OnlyLocalhost(t *testing.T) {
 	banACL = strings.SplitN(banACL, "}", 2)[0]
 	assert.Equal(t, 1, strings.Count(banACL, `"127.0.0.1";`),
 		"BAN ACL with no AllowedSources and no OperatorIP must contain exactly one entry (localhost)")
+}
+
+// --- #93: PURGE/BAN must run before the cluster shard redirect ---
+//
+// The cluster block's `return(pass)` relays every method it sees to a peer.
+// If PURGE or BAN reach it first, the operator's control command gets
+// relayed through a second Varnish hop before the ACL check ever runs, and
+// the peer sees client.ip as the relaying pod rather than the operator —
+// every PURGE/BAN is then rejected 403. These tests assert ordering, not
+// mere presence: both markers must appear in the VCL AND the control-command
+// handler must appear first.
+
+func clusterInputWithBAN(banEnabled bool) generator.Input {
+	input := makeMinimalInput()
+	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Peers = []generator.PeerBackend{
+		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
+	}
+	if banEnabled {
+		input.Spec.Invalidation.BAN = &vinylv1alpha1.BANSpec{Enabled: true}
+	}
+	return input
+}
+
+func TestGenerate_Cluster_PurgeHandlingPrecedesShardRedirect(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(clusterInputWithBAN(false))
+	require.NoError(t, err)
+
+	purgeIdx := strings.Index(r.VCL, `if (req.method == "PURGE")`)
+	// "set req.backend_hint = " is the shard-redirect assignment inside
+	// vcl_recv itself — unlike "vinyl_cluster_peers", which also names the
+	// ACL declared much earlier in the file, this marker is unique to the
+	// cluster block under test.
+	clusterIdx := strings.Index(r.VCL, "set req.backend_hint = ")
+	require.NotEqual(t, -1, purgeIdx, "PURGE handling must be present")
+	require.NotEqual(t, -1, clusterIdx, "cluster redirect must be present")
+	assert.Less(t, purgeIdx, clusterIdx,
+		"PURGE handling must appear before the cluster shard redirect (#93): "+
+			"otherwise an operator PURGE is relayed to a peer before the ACL check runs")
+}
+
+func TestGenerate_Cluster_BanHandlingPrecedesShardRedirect(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(clusterInputWithBAN(true))
+	require.NoError(t, err)
+
+	banIdx := strings.Index(r.VCL, `if (req.method == "BAN")`)
+	// "set req.backend_hint = " is the shard-redirect assignment inside
+	// vcl_recv itself — unlike "vinyl_cluster_peers", which also names the
+	// ACL declared much earlier in the file, this marker is unique to the
+	// cluster block under test.
+	clusterIdx := strings.Index(r.VCL, "set req.backend_hint = ")
+	require.NotEqual(t, -1, banIdx, "BAN handling must be present")
+	require.NotEqual(t, -1, clusterIdx, "cluster redirect must be present")
+	assert.Less(t, banIdx, clusterIdx,
+		"BAN handling must appear before the cluster shard redirect (#93): "+
+			"otherwise an operator BAN is relayed to a peer before the ACL check runs")
+}
+
+// --- #92: the shard director must hash req.url (by=URL), never by=HASH ---
+//
+// by=HASH hashes req.hash, which is only populated by vcl_hash — and this
+// call site is in vcl_recv, which takes return(pass) and never reaches
+// vcl_hash. by=HASH therefore hashes nothing; sharding does not shard by
+// URL at all. URL is now the only value the CRD allows going forward, but
+// generator-level defense in depth matters too: a stored object written
+// before this fix may still carry the old "HASH" value (migration, below).
+
+func TestGenerate_ClusterShardBy_RendersURL_NeverHASH(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Spec.Director = vinylv1alpha1.DirectorSpec{
+		Type:  "shard",
+		Shard: &vinylv1alpha1.ShardSpec{By: "URL"},
+	}
+	input.Peers = []generator.PeerBackend{
+		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, ".backend(by=URL)",
+		"cluster-peer director must hash by=URL")
+	assert.NotContains(t, r.VCL, "by=HASH",
+		"by=HASH must never be rendered: req.hash is unset at this call site (vcl_recv, return(pass))")
+}
+
+// TestGenerate_ClusterShardBy_LegacyHASH_CoercedToURL is the migration test.
+//
+// Stored VinylCaches from before this fix may carry spec.director.shard.by:
+// HASH (it used to be the schema default). The API server rejects that value
+// on the next write once HASH is removed from the enum, but the object
+// itself is not rewritten and the operator keeps reconciling it with the
+// stale stored value. The generator must not pass a legacy "HASH" through
+// into the VCL — that would silently reproduce #92 forever for exactly the
+// objects this fix is meant to repair. Treat a stored "HASH" the same as
+// unset: fall back to "URL".
+func TestGenerate_ClusterShardBy_LegacyHASH_CoercedToURL(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Spec.Director = vinylv1alpha1.DirectorSpec{
+		Type:  "shard",
+		Shard: &vinylv1alpha1.ShardSpec{By: "HASH"}, // simulates a pre-fix stored object
+	}
+	input.Peers = []generator.PeerBackend{
+		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, ".backend(by=URL)",
+		"a legacy stored by=HASH must be coerced to by=URL, not passed through")
+	assert.NotContains(t, r.VCL, "by=HASH",
+		"by=HASH must never reach the rendered VCL, even for legacy stored objects")
+}
+
+// TestGenerate_ClusterShardBy_ArbitraryUnexpectedValue_CoercedToURL asserts
+// the coercion's scope: it is a whitelist ("only URL passes through"), not a
+// blacklist ("only HASH is rewritten"). Any other stored value — a
+// hand-edited object, a value from before/around a schema change, anything
+// that isn't "HASH" but also isn't the one value the enum allows — must be
+// coerced exactly like the legacy HASH case, not passed through verbatim.
+func TestGenerate_ClusterShardBy_ArbitraryUnexpectedValue_CoercedToURL(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Spec.Director = vinylv1alpha1.DirectorSpec{
+		Type:  "shard",
+		Shard: &vinylv1alpha1.ShardSpec{By: "RANDOM"},
+	}
+	input.Peers = []generator.PeerBackend{
+		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, ".backend(by=URL)",
+		"an unexpected by value must be coerced to by=URL, not passed through")
+	assert.NotContains(t, r.VCL, "by=RANDOM",
+		"an unexpected by value must never reach the rendered VCL verbatim")
 }

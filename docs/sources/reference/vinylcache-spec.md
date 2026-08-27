@@ -57,7 +57,7 @@ Per-backend director override. If unset, the generator emits a `shard` director 
 | `type` | enum | no | One of `shard`, `round_robin`, `random`, `hash`, `fallback`. Defaults to `shard`. |
 | `shard.warmup` | float | no | `0.0`–`1.0`; share of traffic sent to alternate backend to warm its cache. Default `0.1`. |
 | `shard.rampup` | duration | no | Ramp-up window after adding a backend. Default `30s`. |
-| `shard.by` | enum | no | `HASH` (default) or `URL`. Request-time selector passed to `<backend>.backend(by=...)`. |
+| `shard.by` | enum | no | `URL` (default and only supported value). Request-time selector passed to `<backend>.backend(by=...)`. |
 | `shard.healthy` | enum | no | `CHOSEN` (default) or `ALL`. Which backends must be healthy for the director to route. |
 | `hash.header` | string | no | Header used as hash key for the `hash` director. |
 
@@ -70,7 +70,7 @@ See the [per-backend directors how-to](../how-to/per-backend-directors.md) for w
 | `type` | string | `shard` | Director type. Currently only `shard` is supported. |
 | `shard.warmup` | float | `0.1` | Fraction of requests sent to alternate backend to pre-populate its cache. |
 | `shard.rampup` | duration | `30s` | Traffic throttle duration for newly healthy backends. |
-| `shard.by` | string | `HASH` | Shard key source (`HASH`, `URL`). |
+| `shard.by` | string | `URL` | Shard key source. `URL` is the only supported value; `HASH` was removed (it hashed `req.hash`, which cluster routing in `vcl_recv` never populates — see #92). |
 | `shard.healthy` | string | `CHOSEN` | Health evaluation strategy (`CHOSEN`, `ALL`). |
 
 > Note on `shard.by` and `shard.healthy`:
@@ -78,7 +78,7 @@ See the [per-backend directors how-to](../how-to/per-backend-directors.md) for w
 >   the operator emits `<director>.backend(by=<by>, healthy=<healthy>)` in `vcl_recv`.
 > - **Per-backend directors**: still request-time arguments. The CRD accepts
 >   the fields but you must use them in your own VCL snippet, e.g.
->   `set req.backend_hint = plone.backend(by=HASH, healthy=CHOSEN);`.
+>   `set req.backend_hint = plone.backend(by=URL, healthy=CHOSEN);`.
 
 ### cluster
 

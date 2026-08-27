@@ -253,10 +253,13 @@ type ShardSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	Replicas int32 `json:"replicas,omitempty"`
 
-	// by determines what value is hashed for shard selection. "HASH" uses the Varnish
-	// hash (default); "URL" uses the request URL.
+	// by determines what value the cluster-peer shard director hashes to pick a
+	// backend, at the point in vcl_recv where cluster routing runs. "URL" (default)
+	// hashes the request URL. "HASH" is not offered: it would hash Varnish's
+	// req.hash, which is only populated by vcl_hash, and vcl_recv's cluster routing
+	// never reaches vcl_hash — so HASH cannot work at this call site.
 	// +optional
-	// +kubebuilder:validation:Enum=HASH;URL
+	// +kubebuilder:validation:Enum=URL
 	By string `json:"by,omitempty"`
 
 	// healthy controls which backends the director considers when selecting a shard.

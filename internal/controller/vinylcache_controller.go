@@ -198,6 +198,11 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 	}
 
+	// #92 migration: see legacyShardByLogFields.
+	if msg, kvs, ok := legacyShardByLogFields(vc); ok {
+		log.Info(msg, kvs...)
+	}
+
 	genResult, err := r.Generator.Generate(generator.Input{
 		Spec:       &vc.Spec,
 		Peers:      peers,

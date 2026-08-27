@@ -71,8 +71,12 @@ type TemplateData struct {
 	DirectorName     string
 
 	// ClusterShardBy is the hash-key strategy for the cluster-peer shard
-	// director's request-time .backend() call. Defaults to "URL" (matches
-	// previous hardcoded behaviour). Overridable via spec.director.shard.by.
+	// director's request-time .backend() call. Always "URL": it is the only
+	// value the CRD enum allows (#92 — by=HASH hashes req.hash, which is
+	// never populated on this call site, so it cannot work here and was
+	// removed from the enum). Kept as a template field, rather than a
+	// hardcoded literal, so buildTemplateData has somewhere to coerce a
+	// legacy stored "HASH" value to (see the migration comment there).
 	ClusterShardBy string
 	// ClusterShardHealthy is the health policy the cluster-peer director
 	// evaluates at request time. Empty means "Varnish default" — template
@@ -226,10 +230,18 @@ func buildTemplateData(input Input) TemplateData {
 	// Cluster-peer shard director parameters (request-time).
 	// Fall back to "URL" for by (preserves pre-#36 behaviour) and to empty
 	// for healthy (so the template omits the arg and Varnish uses its default).
+	//
+	// "URL" is the only value the CRD enum allows going forward (#92), but
+	// stored objects written before that enum change may still carry the old
+	// "HASH" value: the API server only validates on write, so an existing
+	// object keeps reconciling with its stale stored spec indefinitely. Only
+	// pass through an explicit "URL"; anything else (empty, the legacy
+	// "HASH", or any value validation didn't yet catch) falls back to "URL"
+	// rather than reproducing #92's silent non-sharding for those objects.
 	data.ClusterShardBy = "URL"
 	data.ClusterShardHealthy = ""
 	if input.Spec.Director.Shard != nil {
-		if input.Spec.Director.Shard.By != "" {
+		if input.Spec.Director.Shard.By == "URL" {
 			data.ClusterShardBy = input.Spec.Director.Shard.By
 		}
 		if input.Spec.Director.Shard.Healthy != "" {

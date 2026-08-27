@@ -28,7 +28,7 @@ const (
 	directorTypeShard   = "shard"
 	defaultShardWarmup  = 0.1
 	defaultShardRampup  = 30 * time.Second
-	defaultShardBy      = "HASH"
+	defaultShardBy      = "URL"
 	defaultShardHealthy = "CHOSEN"
 	defaultDebounce     = 1 * time.Second
 	// defaultBackoffBase is how long the reconcile loop waits before retrying a
@@ -78,7 +78,8 @@ func applyShardDefaults(ds *vinylv1alpha1.DirectorSpec) {
 //   - Director.Type = directorTypeShard (Varnish upstream recommendation for clustering)
 //   - Director.Shard.Warmup = 0.1 (pre-populate alternate backend cache)
 //   - Director.Shard.Rampup = 30s (throttle traffic to newly healthy backends)
-//   - Director.Shard.By = "HASH" (standard shard key)
+//   - Director.Shard.By = "URL" (the only shard key that works on the
+//     request-time .backend() call in vcl_recv; see #92)
 //   - Director.Shard.Healthy = "CHOSEN" (standard health evaluation)
 //   - Backends[*].Director.Type = directorTypeShard (when .Director is non-nil)
 //   - Backends[*].Director.Shard.{Warmup, Rampup, By, Healthy} defaults

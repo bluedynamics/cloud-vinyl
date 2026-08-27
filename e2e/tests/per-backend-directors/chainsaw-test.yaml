@@ -53,7 +53,7 @@ spec:
                     director:
                       type: shard
                       shard:
-                        by: HASH
+                        by: URL
                         healthy: CHOSEN
 
     - name: scale-backend-up-to-5
