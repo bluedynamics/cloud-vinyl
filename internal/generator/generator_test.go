@@ -321,6 +321,30 @@ func TestGenerate_VCLHit_NoManualGraceBookkeeping(t *testing.T) {
 	assert.NotContains(t, r.VCL, "obj.keep")
 }
 
+func TestGenerate_VCLHit_NonPurgeFallsThroughToDeliver(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(makeMinimalInput())
+	require.NoError(t, err)
+
+	hitIdx := strings.Index(r.VCL, "sub vcl_hit {")
+	require.NotEqual(t, -1, hitIdx, "vcl_hit must be present")
+	hitEnd := strings.Index(r.VCL[hitIdx:], "\n}\n")
+	require.NotEqual(t, -1, hitEnd, "vcl_hit must be closed")
+	hitBody := r.VCL[hitIdx : hitIdx+hitEnd]
+
+	// The non-PURGE fallback at the end of vcl_hit must be return(deliver),
+	// matching Varnish 8's builtin vcl_hit (call vcl_builtin_hit — empty —
+	// then return(deliver)). Before #94 this was return(restart), pre-6.0
+	// boilerplate that would re-run vcl_recv from scratch on every plain
+	// cache hit. Removing the dead grace block changed this fallback too;
+	// noted here explicitly since it is a behavior change beyond the
+	// soft/hard purge construct itself.
+	assert.Contains(t, hitBody, "return(deliver);",
+		"vcl_hit's non-PURGE fallback must be return(deliver)")
+	assert.NotContains(t, hitBody, "return(restart)",
+		"vcl_hit must not restart on a plain cache hit")
+}
+
 func TestGenerate_ProxyProtocol_ExportsRealIP(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
