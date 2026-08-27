@@ -7,6 +7,11 @@ name: Release Exporter Image
 
 on:
   workflow_dispatch:
+    inputs:
+      overwrite_tag:
+        description: "Republish even if the tag already exists (see #91 before using)"
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -28,7 +33,45 @@ env:
   EXPORTER_VERSION: "1.6.1"
 
 jobs:
+  # Exporter tags are immutable. The #74 varnish bump changed the bundled
+  # varnishstat while EXPORTER_VERSION stayed 1.6.1, so this workflow
+  # republished :1.6.1 with different contents. Since the operator does not set
+  # imagePullPolicy, Kubernetes defaults to IfNotPresent for a non-latest tag,
+  # and which build a pod gets became a per-node cache lottery (#91).
+  #
+  # Any change to VARNISH_IMAGE in Dockerfile.exporter therefore requires an
+  # EXPORTER_VERSION bump here. This job enforces that.
+  guard-tag:
+    name: Refuse to overwrite a published tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check whether the tag already exists in GHCR
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event.inputs.overwrite_tag }}" = "true" ]; then
+            echo "::warning::overwrite_tag was requested, skipping the immutability check"
+            exit 0
+          fi
+
+          token=$(curl -sSf -u "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
+            "https://ghcr.io/token?scope=repository:bluedynamics/varnish-exporter:pull&service=ghcr.io" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $token" \
+            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+            "https://ghcr.io/v2/bluedynamics/varnish-exporter/manifests/${EXPORTER_VERSION}")
+
+          if [ "$code" = "200" ]; then
+            echo "::error::${IMAGE}:${EXPORTER_VERSION} already exists."
+            echo "Publishing over it would change what a pinned tag means, which is what #91 is about."
+            echo "Bump EXPORTER_VERSION in this workflow, or re-run with overwrite_tag if you are certain."
+            exit 1
+          fi
+          echo "${IMAGE}:${EXPORTER_VERSION} is free (HTTP $code), proceeding."
+
   docker-build:
+    needs: guard-tag
     strategy:
       matrix:
         include:
