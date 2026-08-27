@@ -155,6 +155,72 @@ func TestHTTPBroadcaster_ParallelExecution(t *testing.T) {
 		"parallel execution of 3×100ms pods should finish in <200ms, got %s", elapsed)
 }
 
+// TestHTTPBroadcaster_SetsHostHeader is the receiver-side check for #101: the
+// bug was that the outbound PURGE carried no Host at all, so Varnish hashed
+// it against the pod's own address instead of the cache's real hostname.
+//
+// This asserts on what a real HTTP server actually observed on the wire
+// (net/http parses the request line + Host header into r.Host itself, on the
+// receiving side of a real TCP connection) rather than on the
+// BroadcastRequest map the producer built. A map-shaped assertion would have
+// passed even with the old bug, because the bug was specifically that Host
+// never made it into any map/header at all — asserting "the map contains
+// what we put in the map" cannot catch "we forgot to put Host anywhere".
+func TestHTTPBroadcaster_SetsHostHeader(t *testing.T) {
+	var gotHost string
+	var gotHostHeaderValues []string
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		gotHostHeaderValues = r.Header["Host"]
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer s.Close()
+
+	b := NewHTTPBroadcaster(5 * time.Second)
+	pods := []string{podAddr(s.URL)}
+	req := BroadcastRequest{
+		Method: "PURGE",
+		Path:   "/product/123",
+		Host:   "my-cache.example.com",
+	}
+
+	result := b.Broadcast(context.Background(), pods, req)
+
+	require.Equal(t, "ok", result.Status)
+	assert.Equal(t, "my-cache.example.com", gotHost,
+		"the receiving HTTP server must see the real cache hostname as Host, "+
+			"not the pod's own address — otherwise Varnish hashes the purge "+
+			"against a URL that was never cached")
+	// Go's server never surfaces Host via r.Header; guard against a future
+	// "fix" that sets it as a regular header instead of httpReq.Host, which
+	// would look right in a map-shaped test but not survive an actual
+	// HTTP/1.1 request line + Host: header on the wire the way r.Host does.
+	assert.Empty(t, gotHostHeaderValues,
+		"Host must be carried as the request's Host, not as a regular header")
+}
+
+// TestHTTPBroadcaster_EmptyHost_LeavesDefaultHost confirms the zero-value
+// BroadcastRequest.Host (e.g. from a caller that never populates it) does not
+// break the request — Go falls back to its usual default (the dial address)
+// rather than sending an empty Host line.
+func TestHTTPBroadcaster_EmptyHost_LeavesDefaultHost(t *testing.T) {
+	var gotHost string
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer s.Close()
+
+	b := NewHTTPBroadcaster(5 * time.Second)
+	pods := []string{podAddr(s.URL)}
+	req := BroadcastRequest{Method: "PURGE", Path: "/"}
+
+	result := b.Broadcast(context.Background(), pods, req)
+
+	require.Equal(t, "ok", result.Status)
+	assert.NotEmpty(t, gotHost, "an empty BroadcastRequest.Host must not produce an empty Host header")
+}
+
 func TestStatusString(t *testing.T) {
 	tests := []struct {
 		total, succeeded int

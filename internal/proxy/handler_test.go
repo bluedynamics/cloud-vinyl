@@ -92,6 +92,10 @@ func TestHandlePurge(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "PURGE", mb.LastReq.Method)
 	assert.Equal(t, "/product/123", mb.LastReq.Path)
+	// #101: the broadcast request must carry the inbound Host so the
+	// forwarded PURGE hashes against the object that was actually cached,
+	// not the pod's own address.
+	assert.Equal(t, "my-cache-invalidation.production", mb.LastReq.Host)
 }
 
 // ---------- BAN via method ----------
@@ -109,6 +113,7 @@ func TestHandleBANMethod(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "/ban", mb.LastReq.Path)
+	assert.Equal(t, "my-cache-invalidation.production", mb.LastReq.Host)
 
 	// Check that the expression was forwarded in the JSON body.
 	var body banRESTRequest
@@ -211,6 +216,7 @@ func TestHandleXkey(t *testing.T) {
 	var result BroadcastResult
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&result))
 	assert.Equal(t, "ok", result.Status)
+	assert.Equal(t, "my-cache-invalidation.production", mb.LastReq.Host)
 }
 
 func TestHandleXkey_EmptyKeys(t *testing.T) {
