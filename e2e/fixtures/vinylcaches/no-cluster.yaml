@@ -12,12 +12,12 @@
 #
 # invalidation.purge.soft: false is set explicitly, not because this
 # fixture currently exercises purge (it doesn't — see cache-per-pod's
-# description for why), but so it's ready for a future invalidation test
-# once purge works. Note it currently has no effect: the defaulting webhook
-# coerces any falsy spec.invalidation.purge.soft back to true on every
-# admission (see the open issue on hard purge being unrequestable), so this
-# VinylCache actually runs with soft: true regardless of what's written
-# here.
+# description for why), but so it's ready for a future invalidation test.
+# As of #95, the defaulting webhook no longer touches Soft (it's a *bool
+# defaulted at the CRD level), and as of #94 soft/hard now render genuinely
+# different VCL via vmod_purge, so this explicit false is honored: this
+# VinylCache actually runs with hard purge. That is still unverified by any
+# test in this suite — nothing here sends a PURGE.
 apiVersion: vinyl.bluedynamics.eu/v1alpha1
 kind: VinylCache
 metadata:

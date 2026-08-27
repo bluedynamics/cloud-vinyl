@@ -13,8 +13,15 @@ import (
 
 // BroadcastRequest describes the request to fan out to all pods.
 type BroadcastRequest struct {
-	Method  string
-	Path    string
+	Method string
+	Path   string
+	// Host is the virtual host to send as the outbound request's Host,
+	// e.g. the cache's real hostname. Go's net/http server never puts Host
+	// in a request's Header map — it parses it into the separate Host
+	// field — so Headers alone cannot carry it. Left empty, callPod falls
+	// back to Go's default (the dial address), which is almost never what a
+	// hash-based VCL (e.g. hash_data(req.http.host)) expects to see.
+	Host    string
 	Headers map[string]string
 	Body    []byte
 }
@@ -98,6 +105,12 @@ func (b *HTTPBroadcaster) callPod(ctx context.Context, pod string, req Broadcast
 
 	for k, v := range req.Headers {
 		httpReq.Header.Set(k, v)
+	}
+	// Host must be set on the request itself, not via Header: net/http's
+	// client sends whatever is in httpReq.Host (falling back to the dial
+	// address when empty), and never consults a "Host" entry in Header.
+	if req.Host != "" {
+		httpReq.Host = req.Host
 	}
 
 	resp, err := b.client.Do(httpReq)

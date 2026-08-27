@@ -1,4 +1,11 @@
 
+# vcl_purge only runs when a request returns from the "purge" built-in
+# action. Nothing in the generated dispatch does that anymore (#94):
+# vcl_recv hashes PURGE requests through, and vcl_hit/vcl_miss purge via
+# vmod_purge directly, ending in a synth response themselves. This sub is
+# unreachable by default and survives only as a target for a custom
+# VCLRecv snippet that returns to the purge action itself — do not assume
+# it is live.
 sub vcl_purge {
 {{ if .Spec.VCL.Snippets.VCLPurge }}
     # --- custom vcl_purge snippet ---

@@ -62,6 +62,7 @@ func (s *Server) handlePurge(w http.ResponseWriter, r *http.Request, namespace, 
 	req := BroadcastRequest{
 		Method:  methodPurge,
 		Path:    r.URL.RequestURI(),
+		Host:    r.Host,
 		Headers: cloneHeaders(r.Header),
 	}
 
@@ -117,6 +118,7 @@ func (s *Server) handleBAN(w http.ResponseWriter, r *http.Request, namespace, ca
 	req := BroadcastRequest{
 		Method:  http.MethodPost,
 		Path:    "/ban",
+		Host:    r.Host,
 		Headers: headers,
 		Body:    bodyBytes,
 	}
@@ -154,6 +156,7 @@ func (s *Server) handleXkey(w http.ResponseWriter, r *http.Request, namespace, c
 		req := BroadcastRequest{
 			Method: methodPurge,
 			Path:   "/",
+			Host:   r.Host,
 			Headers: map[string]string{
 				"X-Xkey-Purge": key,
 			},

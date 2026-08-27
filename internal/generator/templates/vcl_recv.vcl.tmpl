@@ -24,7 +24,10 @@ sub vcl_recv {
             return(synth(200, "Softpurged " + req.http.n-gone + " objects"));
         }
 {{- end }}
-        return(purge);
+        # vmod_purge's soft/hard purge functions are restricted to
+        # vcl_hit/vcl_miss (see those subs), so hash the request through
+        # rather than purging directly here, which would always be hard.
+        return(hash);
     }
 {{- if .HasBAN }}
 
