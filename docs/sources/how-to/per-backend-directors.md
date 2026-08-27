@@ -21,7 +21,7 @@ director for that backend with defaults matching Plone-style workloads:
 
 | Parameter | Default |
 |-----------|---------|
-| `by` | `HASH` |
+| `by` | `URL` |
 | `healthy` | `CHOSEN` |
 | `warmup` | `0.1` |
 | `rampup` | `30s` |

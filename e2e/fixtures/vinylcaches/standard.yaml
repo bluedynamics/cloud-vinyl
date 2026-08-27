@@ -21,7 +21,7 @@ spec:
     shard:
       warmup: 0.1
       rampup: 30s
-      by: HASH
+      by: URL
       healthy: CHOSEN
   cluster:
     enabled: true
