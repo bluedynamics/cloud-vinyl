@@ -1263,3 +1263,97 @@ func TestGenerate_ClusterShardBy_ArbitraryUnexpectedValue_CoercedToURL(t *testin
 	assert.NotContains(t, r.VCL, "by=RANDOM",
 		"an unexpected by value must never reach the rendered VCL verbatim")
 }
+
+// The tests below cover #103: a purge synth response must carry the object
+// count as a header (X-Vinyl-Purged), not only in the human-readable reason
+// phrase, across all four purge constructs. vcl_synth's header-copying line
+// (`set resp.http.X-Vinyl-Purged = req.http.n-gone;`) is unconditional VCL —
+// it isn't gated by any Go template flag — so it renders into every cache's
+// VCL regardless of which invalidation features are enabled; what varies
+// per path is only which sub sets req.http.n-gone before reaching synth.
+
+func TestGenerate_VCLSynth_AlwaysCopiesNGoneToHeader(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(makeMinimalInput())
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "set resp.http.X-Vinyl-Purged = req.http.n-gone;",
+		"vcl_synth must copy the purge count onto a response header even "+
+			"when no invalidation feature is explicitly configured, since "+
+			"URL purge (vcl_hit/vcl_miss) is always available")
+}
+
+func TestGenerate_HardPurge_ObjectsPurgedHeaderPath(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
+		Purge: &vinylv1alpha1.PurgeSpec{Soft: new(false)},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "set req.http.n-gone = purge.hard();",
+		"hard purge must feed vmod_purge's count into req.http.n-gone")
+	assert.Contains(t, r.VCL, "set resp.http.X-Vinyl-Purged = req.http.n-gone;",
+		"vcl_synth must forward that count onto the response header")
+}
+
+func TestGenerate_SoftPurge_ObjectsPurgedHeaderPath(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
+		Purge: &vinylv1alpha1.PurgeSpec{Soft: new(true)},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "set req.http.n-gone = purge.soft();",
+		"soft purge must feed vmod_purge's count into req.http.n-gone")
+	assert.Contains(t, r.VCL, "set resp.http.X-Vinyl-Purged = req.http.n-gone;",
+		"vcl_synth must forward that count onto the response header")
+}
+
+func TestGenerate_XkeyPurge_ObjectsPurgedHeaderPath(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
+		Xkey: &vinylv1alpha1.XkeySpec{Enabled: true},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "set req.http.n-gone = xkey.purge(req.http.X-Xkey-Purge);",
+		"xkey hard purge must feed vmod_xkey's count into req.http.n-gone")
+	assert.Contains(t, r.VCL, "set resp.http.X-Vinyl-Purged = req.http.n-gone;",
+		"vcl_synth must forward that count onto the response header")
+}
+
+func TestGenerate_XkeySoftpurge_ObjectsPurgedHeaderPath(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
+		Xkey: &vinylv1alpha1.XkeySpec{Enabled: true},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "set req.http.n-gone = xkey.softpurge(req.http.X-Xkey-Softpurge);",
+		"xkey softpurge must feed vmod_xkey's count into req.http.n-gone")
+	assert.Contains(t, r.VCL, "set resp.http.X-Vinyl-Purged = req.http.n-gone;",
+		"vcl_synth must forward that count onto the response header")
+}
+
+// TestGenerate_VCLSynth_HeaderGatedOnNGone confirms the header copy is
+// wrapped in a VCL-level `if (req.http.n-gone)` guard, not emitted
+// unconditionally into resp — synth responses that have nothing to do with
+// purging (403 Forbidden from the ACL check, 400 from an invalid ban
+// expression, ...) never set n-gone and so must never carry the header.
+func TestGenerate_VCLSynth_HeaderGatedOnNGone(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(makeMinimalInput())
+	require.NoError(t, err)
+	synthIdx := strings.Index(r.VCL, "sub vcl_synth {")
+	require.NotEqual(t, -1, synthIdx, "vcl_synth must be present")
+	synthEnd := strings.Index(r.VCL[synthIdx:], "\n}\n")
+	require.NotEqual(t, -1, synthEnd, "vcl_synth must be closed")
+	synthBody := r.VCL[synthIdx : synthIdx+synthEnd]
+	assert.Contains(t, synthBody, "if (req.http.n-gone) {",
+		"the header copy must be conditional on n-gone being set, so "+
+			"non-purge synth responses (403 Forbidden, 400 invalid ban "+
+			"expression, ...) never carry a stray X-Vinyl-Purged header")
+}

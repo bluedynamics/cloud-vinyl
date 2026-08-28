@@ -1,5 +1,21 @@
 
 sub vcl_synth {
+    # All four purge paths (vcl_recv's xkey purge and xkey softpurge, and
+    # vcl_hit/vcl_miss's vmod_purge soft and hard variants) stash the object
+    # count vmod_purge/vmod_xkey returned in req.http.n-gone before calling
+    # return(synth(200, ...)); this is the one place all of them pass
+    # through on the way out, so it is the one place the count needs to be
+    # copied onto the response. A header is a stable, machine-readable
+    # contract; the reason phrase it also lands in ("Purged N objects") is
+    # for humans and must not be the only way to read the count (#103) —
+    # without this, a purge that removed nothing was indistinguishable from
+    # one that removed everything at every layer above Varnish. Nothing
+    # else that reaches vcl_synth (403 Forbidden, 400 invalid ban
+    # expression, ...) ever sets n-gone, so the header is only ever added
+    # to an actual purge response.
+    if (req.http.n-gone) {
+        set resp.http.X-Vinyl-Purged = req.http.n-gone;
+    }
 {{ if .Spec.VCL.Snippets.VCLSynth }}
     # --- custom vcl_synth snippet ---
     {{ .Spec.VCL.Snippets.VCLSynth }}

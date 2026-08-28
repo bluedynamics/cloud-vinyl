@@ -56,6 +56,15 @@ func okResult() BroadcastResult {
 	}
 }
 
+// okResultWithObjectsPurged is okResult() with a known ObjectsPurged count
+// on both the aggregate and the first pod's result.
+func okResultWithObjectsPurged(n int) BroadcastResult {
+	r := okResult()
+	r.ObjectsPurged = new(n)
+	r.Results[0].ObjectsPurged = new(n)
+	return r
+}
+
 // ---------- metrics ----------
 
 func TestHandlePurge_RecordsInvalidationMetrics(t *testing.T) {
@@ -75,6 +84,101 @@ func TestHandlePurge_RecordsInvalidationMetrics(t *testing.T) {
 		testutil.ToFloat64(m.BroadcastTotal.WithLabelValues("10.0.0.1:8080", "success"))+
 			testutil.ToFloat64(m.BroadcastTotal.WithLabelValues("10.0.0.2:8080", "success"))+
 			testutil.ToFloat64(m.BroadcastTotal.WithLabelValues("10.0.0.3:8080", "success")))
+}
+
+// TestHandlePurge_RecordsObjectsPurgedMetric drives a broadcast result with
+// a known ObjectsPurged aggregate through the real handler and confirms the
+// counter advances by exactly that amount (#103) — not by the pod count, not
+// by a fixed 1 per request.
+func TestHandlePurge_RecordsObjectsPurgedMetric(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := monitoring.NewMetrics(reg)
+	mb := &MockBroadcaster{Result: okResultWithObjectsPurged(7)}
+	srv := newTestServer(mb)
+	srv.SetMetrics(m)
+
+	req := httptest.NewRequest("PURGE", "/product/123", nil)
+	req.Host = "my-cache-invalidation.production"
+	srv.ServeHTTP(httptest.NewRecorder(), req)
+
+	assert.Equal(t, float64(7),
+		testutil.ToFloat64(m.ObjectsPurgedTotal.WithLabelValues("my-cache", "production", "purge")))
+
+	// A second purge that legitimately removes nothing (e.g. #92 sharding:
+	// the URL now lives on its owner pod, every other pod purges 0) must
+	// still advance the counter by a known 0 — i.e. leave it unchanged —
+	// not skip recording entirely, since 0 here is itself information.
+	mb.Result = okResultWithObjectsPurged(0)
+	req2 := httptest.NewRequest("PURGE", "/product/456", nil)
+	req2.Host = "my-cache-invalidation.production"
+	srv.ServeHTTP(httptest.NewRecorder(), req2)
+
+	assert.Equal(t, float64(7),
+		testutil.ToFloat64(m.ObjectsPurgedTotal.WithLabelValues("my-cache", "production", "purge")),
+		"a known-zero purge must add 0, leaving the counter unchanged")
+}
+
+// TestHandlePurge_UnknownObjectsPurged_MetricDoesNotAdvance is the negative
+// case: when the broadcaster could not determine a count at all (every pod's
+// header was missing/malformed), the counter must not move — incrementing
+// it by a fabricated 0 would be indistinguishable from a confirmed empty
+// purge and would mask the exact regression #103 exists to catch.
+func TestHandlePurge_UnknownObjectsPurged_MetricDoesNotAdvance(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := monitoring.NewMetrics(reg)
+	result := okResult() // ObjectsPurged left nil (unknown)
+	mb := &MockBroadcaster{Result: result}
+	srv := newTestServer(mb)
+	srv.SetMetrics(m)
+
+	req := httptest.NewRequest("PURGE", "/product/123", nil)
+	req.Host = "my-cache-invalidation.production"
+	srv.ServeHTTP(httptest.NewRecorder(), req)
+
+	assert.Equal(t, float64(0),
+		testutil.ToFloat64(m.ObjectsPurgedTotal.WithLabelValues("my-cache", "production", "purge")))
+}
+
+// TestHandlePurge_JSONBody_CarriesObjectsPurged confirms the aggregate
+// reaches the client in the JSON response body alongside "succeeded", using
+// json.Unmarshal into a generic map so a nil-vs-zero distinction (an
+// omitted key vs. an explicit 0) is actually observable — decoding into
+// BroadcastResult would silently coerce both an absent key and an explicit
+// null to the same Go nil.
+func TestHandlePurge_JSONBody_CarriesObjectsPurged(t *testing.T) {
+	mb := &MockBroadcaster{Result: okResultWithObjectsPurged(5)}
+	srv := newTestServer(mb)
+
+	req := httptest.NewRequest("PURGE", "/product/123", nil)
+	req.Host = "my-cache-invalidation.production"
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Contains(t, body, "objectsPurged")
+	assert.Equal(t, float64(5), body["objectsPurged"])
+	require.Contains(t, body, "succeeded")
+}
+
+// TestHandlePurge_JSONBody_OmitsObjectsPurgedWhenUnknown is the counterpart:
+// when the aggregate is unknown, the field must be absent from the JSON
+// body entirely, not present as `"objectsPurged":0` or `null`. That
+// omission is the machine-readable signal that distinguishes "confirmed
+// nothing removed" from "we don't know" (#103).
+func TestHandlePurge_JSONBody_OmitsObjectsPurgedWhenUnknown(t *testing.T) {
+	mb := &MockBroadcaster{Result: okResult()} // ObjectsPurged nil
+	srv := newTestServer(mb)
+
+	req := httptest.NewRequest("PURGE", "/product/123", nil)
+	req.Host = "my-cache-invalidation.production"
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.NotContains(t, body, "objectsPurged",
+		"an unknown aggregate must be omitted from the JSON body, not encoded as 0 or null")
 }
 
 // ---------- PURGE ----------
@@ -217,6 +321,31 @@ func TestHandleXkey(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&result))
 	assert.Equal(t, "ok", result.Status)
 	assert.Equal(t, "my-cache-invalidation.production", mb.LastReq.Host)
+}
+
+// TestHandleXkey_AggregatesObjectsPurgedAcrossKeys confirms the per-key
+// broadcast loop (one Broadcast call per xkey) sums ObjectsPurged across all
+// of them, the way it already sums Succeeded — a single key's count must
+// not overwrite or be lost when multiple keys are purged in one request.
+func TestHandleXkey_AggregatesObjectsPurgedAcrossKeys(t *testing.T) {
+	mb := &MockBroadcaster{Result: okResultWithObjectsPurged(3)}
+	srv := newTestServer(mb)
+
+	body := `{"keys":["article-123","category-news"]}`
+	req := httptest.NewRequest(http.MethodPost, "/purge/xkey", strings.NewReader(body))
+	req.Host = "my-cache-invalidation.production"
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var result BroadcastResult
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&result))
+	require.NotNil(t, result.ObjectsPurged)
+	// Each of the 2 keys' Broadcast call returns a result with one
+	// ObjectsPurged=3 pod (see okResultWithObjectsPurged), so 2 keys sum to 6.
+	assert.Equal(t, 6, *result.ObjectsPurged)
 }
 
 func TestHandleXkey_EmptyKeys(t *testing.T) {

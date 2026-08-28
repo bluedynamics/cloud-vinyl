@@ -18,6 +18,7 @@ all caches and therefore carry no labels.
 | `vinyl_invalidation_duration_seconds` | Histogram | — | Invalidation operation duration in seconds. |
 | `vinyl_broadcast_total` | Counter | `pod`, `result` | Broadcast requests to individual Varnish pods. `result` is `success` or `error`. |
 | `vinyl_partial_failure_total` | Counter | `cache`, `namespace` | Broadcasts where some but not all pods failed. |
+| `vinyl_objects_purged_total` | Counter | `cache`, `namespace`, `type` | Objects actually removed by invalidation requests, as reported by Varnish's `X-Vinyl-Purged` response header. Only advances on a *known* count — a broadcast where no pod reported a parseable count adds nothing, rather than adding a fabricated 0. `type` is `purge`, `ban`, or `xkey`. A healthy cluster issuing purges but never advancing this counter is the signal #103 exists to surface: 200 OK and zero removed are not the same thing, and zero is often legitimate (see below), but *never knowing* the count is not. |
 | `vinyl_vcl_versions_loaded` | Gauge | `cache`, `namespace` | Number of VCL versions currently loaded in Varnish (drift indicator). |
 
 ## Varnish cache metrics (exporter)

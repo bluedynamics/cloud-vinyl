@@ -43,6 +43,15 @@ func (s *Server) recordInvalidation(namespace, cacheName, typ string, start time
 	}
 	s.metrics.InvalidationTotal.WithLabelValues(cacheName, namespace, typ, outcome).Inc()
 	s.metrics.InvalidationDuration.Observe(time.Since(start).Seconds())
+	// Only add when known: res.ObjectsPurged is nil when no pod reported a
+	// parseable count, and a counter has no way to represent "unknown" —
+	// adding 0 in that case would look identical to a confirmed empty
+	// purge. Leaving the metric flat is exactly the signal #103 wants: a
+	// total that never advances while purges keep being issued is visible
+	// in a way "always zero because we never asked" was not.
+	if res.ObjectsPurged != nil {
+		s.metrics.ObjectsPurgedTotal.WithLabelValues(cacheName, namespace, typ).Add(float64(*res.ObjectsPurged))
+	}
 	for _, pr := range res.Results {
 		r := outcomeSuccess
 		if pr.Status < 200 || pr.Status >= 300 {
@@ -169,10 +178,11 @@ func (s *Server) handleXkey(w http.ResponseWriter, r *http.Request, namespace, c
 	total := len(pods) * len(body.Keys)
 	status := statusString(total, totalSucceeded)
 	result := BroadcastResult{
-		Status:    status,
-		Total:     total,
-		Succeeded: totalSucceeded,
-		Results:   allResults,
+		Status:        status,
+		Total:         total,
+		Succeeded:     totalSucceeded,
+		ObjectsPurged: aggregateObjectsPurged(allResults),
+		Results:       allResults,
 	}
 	s.recordInvalidation(namespace, cacheName, "xkey", start, result)
 	WriteResult(w, result)

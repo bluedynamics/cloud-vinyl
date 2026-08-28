@@ -26,6 +26,15 @@ type Metrics struct {
 	InvalidationDuration prometheus.Histogram
 	BroadcastTotal       *prometheus.CounterVec // labels: pod, result (success|error)
 	PartialFailureTotal  *prometheus.CounterVec // labels: cache, namespace
+	// ObjectsPurgedTotal is the cumulative count of objects Varnish actually
+	// removed, summed from the X-Vinyl-Purged header each pod's purge synth
+	// response carries (see internal/proxy/broadcast.go's aggregateObjectsPurged).
+	// Only advances on a known count — a broadcast where every pod's count is
+	// unknown adds nothing, rather than adding 0 and masking a broken
+	// signal. This is the graphable answer to #103: a purge that removes
+	// nothing is legitimate (see InvalidationTotal for pass/fail), but this
+	// total sitting at zero while purges are being issued is not.
+	ObjectsPurgedTotal *prometheus.CounterVec // labels: cache, namespace, type (purge|ban|xkey)
 
 	// Cache state.
 	// Note: hit-ratio and backend-health are NOT operator-side gauges — they come
@@ -80,6 +89,12 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		Help: "Total number of partial broadcast failures (some pods unreachable).",
 	}, []string{labelCache, labelNamespace})
 	reg.MustRegister(m.PartialFailureTotal)
+
+	m.ObjectsPurgedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "vinyl_objects_purged_total",
+		Help: "Total number of cache objects actually removed by invalidation requests, as reported by Varnish.",
+	}, []string{labelCache, labelNamespace, "type"})
+	reg.MustRegister(m.ObjectsPurgedTotal)
 
 	m.VCLVersionsLoaded = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "vinyl_vcl_versions_loaded",

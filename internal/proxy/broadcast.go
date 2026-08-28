@@ -7,9 +7,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
+
+// headerObjectsPurged is the response header vcl_synth sets to the object
+// count vmod_purge/vmod_xkey returned (see
+// internal/generator/templates/vcl_synth.vcl.tmpl). It carries the same
+// number the synth reason phrase does ("Purged N objects"), but as a
+// stable, machine-readable contract — parsing a status line is brittle (#103).
+const headerObjectsPurged = "X-Vinyl-Purged"
 
 // BroadcastRequest describes the request to fan out to all pods.
 type BroadcastRequest struct {
@@ -28,10 +36,18 @@ type BroadcastRequest struct {
 
 // BroadcastResult aggregates the outcomes from all pod calls.
 type BroadcastResult struct {
-	Status    string      `json:"status"` // "ok" | "partial" | "failed"
-	Total     int         `json:"total"`
-	Succeeded int         `json:"succeeded"`
-	Results   []PodResult `json:"results"`
+	Status    string `json:"status"` // "ok" | "partial" | "failed"
+	Total     int    `json:"total"`
+	Succeeded int    `json:"succeeded"`
+	// ObjectsPurged is the sum of every pod's known ObjectsPurged count.
+	// Nil means unknown: no pod in Results reported a parseable count — for
+	// example every pod predates X-Vinyl-Purged, or a regression stripped
+	// it. That must stay distinct from a known 0 (see PodResult.ObjectsPurged):
+	// a systemic "we stopped hearing the count" is the exact blindness #103
+	// exists to make visible, and collapsing it to 0 would hide it again
+	// behind #92's legitimate all-zero broadcasts.
+	ObjectsPurged *int        `json:"objectsPurged,omitempty"`
+	Results       []PodResult `json:"results"`
 }
 
 // PodResult holds the result of a single pod call.
@@ -39,6 +55,15 @@ type PodResult struct {
 	Pod    string `json:"pod"`
 	Status int    `json:"status,omitempty"`
 	Error  string `json:"error,omitempty"`
+	// ObjectsPurged is the count parsed from this pod's X-Vinyl-Purged
+	// response header. Nil means unknown — the header was absent, empty, or
+	// not a non-negative integer — never zero. A missing/malformed header
+	// must not fail the purge (see callPod); it just leaves this nil rather
+	// than fabricating a count. Zero is itself a legitimate, expected value
+	// here (post-#92, a correctly sharded broadcast purges 0 objects on
+	// every pod but the URL's owner), so it must remain distinguishable
+	// from "we don't know".
+	ObjectsPurged *int `json:"objectsPurged,omitempty"`
 }
 
 // Broadcaster sends a request to a set of pods in parallel and aggregates results.
@@ -83,11 +108,33 @@ func (b *HTTPBroadcaster) Broadcast(ctx context.Context, pods []string, req Broa
 
 	status := statusString(len(pods), succeeded)
 	return BroadcastResult{
-		Status:    status,
-		Total:     len(pods),
-		Succeeded: succeeded,
-		Results:   results,
+		Status:        status,
+		Total:         len(pods),
+		Succeeded:     succeeded,
+		ObjectsPurged: aggregateObjectsPurged(results),
+		Results:       results,
 	}
+}
+
+// aggregateObjectsPurged sums every result's known ObjectsPurged count.
+// It returns nil (unknown) only when no result carries a known count —
+// e.g. every pod's response was missing or had a malformed
+// X-Vinyl-Purged header. A mix of known and unknown pods still sums the
+// known ones: Total/Succeeded already show how many pods actually
+// answered, so a partial count is more informative than discarding it.
+func aggregateObjectsPurged(results []PodResult) *int {
+	sum := 0
+	known := false
+	for _, r := range results {
+		if r.ObjectsPurged != nil {
+			sum += *r.ObjectsPurged
+			known = true
+		}
+	}
+	if !known {
+		return nil
+	}
+	return &sum
 }
 
 func (b *HTTPBroadcaster) callPod(ctx context.Context, pod string, req BroadcastRequest) PodResult {
@@ -121,7 +168,29 @@ func (b *HTTPBroadcaster) callPod(ctx context.Context, pod string, req Broadcast
 	// Drain body to allow connection reuse.
 	io.Copy(io.Discard, resp.Body) //nolint:errcheck
 
-	return PodResult{Pod: pod, Status: resp.StatusCode}
+	return PodResult{
+		Pod:           pod,
+		Status:        resp.StatusCode,
+		ObjectsPurged: parseObjectsPurged(resp.Header),
+	}
+}
+
+// parseObjectsPurged reads and parses the X-Vinyl-Purged header. It returns
+// nil — unknown, never zero — when the header is absent or does not parse
+// as a non-negative integer. This is deliberately lenient: a purge that
+// otherwise succeeded (2xx status) must not be turned into a failure just
+// because the count couldn't be read, and a malformed value must never be
+// reported as the (very different) legitimate value 0.
+func parseObjectsPurged(h http.Header) *int {
+	v := h.Get(headerObjectsPurged)
+	if v == "" {
+		return nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return nil
+	}
+	return &n
 }
 
 // statusString maps (total, succeeded) to a result status string.
