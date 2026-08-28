@@ -21,6 +21,7 @@ func TestNewMetrics_AllFieldsNotNil(t *testing.T) {
 	assert.NotNil(t, m.BroadcastTotal)
 	assert.NotNil(t, m.PartialFailureTotal)
 	assert.NotNil(t, m.ObjectsPurgedTotal)
+	assert.NotNil(t, m.ObjectsPurgedUnknownTotal)
 	assert.NotNil(t, m.VCLVersionsLoaded)
 	assert.NotNil(t, m.ReconcileTotal)
 	assert.NotNil(t, m.ReconcileDuration)
@@ -107,6 +108,24 @@ func TestNewMetrics_Labels_ObjectsPurgedTotal(t *testing.T) {
 		names[mf.GetName()] = true
 	}
 	assert.True(t, names["vinyl_objects_purged_total"])
+}
+
+func TestNewMetrics_Labels_ObjectsPurgedUnknownTotal(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := monitoring.NewMetrics(reg)
+	// Should not panic with correct labels. purge/xkey only in practice
+	// (see internal/proxy/handler.go's objectsPurgedCapable) — the metric
+	// itself imposes no such restriction, it's just never given "ban".
+	m.ObjectsPurgedUnknownTotal.WithLabelValues("my-cache", "production", "purge").Inc()
+	m.ObjectsPurgedUnknownTotal.WithLabelValues("my-cache", "production", "xkey").Inc()
+
+	mfs, err := reg.Gather()
+	require.NoError(t, err)
+	names := map[string]bool{}
+	for _, mf := range mfs {
+		names[mf.GetName()] = true
+	}
+	assert.True(t, names["vinyl_objects_purged_unknown_total"])
 }
 
 func TestNewMetrics_IsolatedRegistry(t *testing.T) {

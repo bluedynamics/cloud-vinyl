@@ -56,12 +56,19 @@ func okResult() BroadcastResult {
 	}
 }
 
-// okResultWithObjectsPurged is okResult() with a known ObjectsPurged count
-// on both the aggregate and the first pod's result.
+// okResultWithObjectsPurged is okResult() with a known ObjectsPurged count:
+// the full count n on the first pod's result, an explicit known 0 (not
+// nil — post-#92 sharding, that's the expected non-owner outcome, not an
+// unknown one) on the other two, and the aggregate set to their sum. Every
+// pod is deliberately "known" here so this fixture never trips
+// ObjectsPurgedUnknownTotal — that counter has its own dedicated fixture
+// in TestHandlePurge_RecordsObjectsPurgedUnknownMetric.
 func okResultWithObjectsPurged(n int) BroadcastResult {
 	r := okResult()
 	r.ObjectsPurged = new(n)
 	r.Results[0].ObjectsPurged = new(n)
+	r.Results[1].ObjectsPurged = new(0)
+	r.Results[2].ObjectsPurged = new(0)
 	return r
 }
 
@@ -116,6 +123,71 @@ func TestHandlePurge_RecordsObjectsPurgedMetric(t *testing.T) {
 	assert.Equal(t, float64(7),
 		testutil.ToFloat64(m.ObjectsPurgedTotal.WithLabelValues("my-cache", "production", "purge")),
 		"a known-zero purge must add 0, leaving the counter unchanged")
+
+	// Every pod in both requests reported a count (7, then 0) — none of
+	// this should ever touch the separate "didn't say" counter.
+	assert.Equal(t, 0, testutil.CollectAndCount(m.ObjectsPurgedUnknownTotal),
+		"pods that reported a known count, even 0, must never advance ObjectsPurgedUnknownTotal")
+}
+
+// TestHandlePurge_RecordsObjectsPurgedUnknownMetric is the #101-shaped
+// regression the review flagged: a subset of pods answering 2xx without a
+// parseable count. aggregateObjectsPurged just sums what's known, so this
+// case only nudges ObjectsPurgedTotal's sum down a little — nothing about
+// that sum says "one of these three pods didn't tell us". This confirms
+// ObjectsPurgedUnknownTotal picks up exactly the affected pod: not the one
+// that reported a known count, not the one that failed outright (it never
+// got as far as "succeeded without a count" — BroadcastTotal's
+// result=error label already covers a hard failure).
+func TestHandlePurge_RecordsObjectsPurgedUnknownMetric(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := monitoring.NewMetrics(reg)
+	known := 3
+	result := BroadcastResult{
+		Status:    "partial",
+		Total:     3,
+		Succeeded: 2,
+		Results: []PodResult{
+			{Pod: "10.0.0.1:8080", Status: 200, ObjectsPurged: &known}, // known count
+			{Pod: "10.0.0.2:8080", Status: 200},                        // 2xx, no header: the regression shape
+			{Pod: "10.0.0.3:8080", Status: 500},                        // failed outright, not "unknown"
+		},
+	}
+	mb := &MockBroadcaster{Result: result}
+	srv := newTestServer(mb)
+	srv.SetMetrics(m)
+
+	req := httptest.NewRequest("PURGE", "/product/123", nil)
+	req.Host = "my-cache-invalidation.production"
+	srv.ServeHTTP(httptest.NewRecorder(), req)
+
+	assert.Equal(t, float64(1),
+		testutil.ToFloat64(m.ObjectsPurgedUnknownTotal.WithLabelValues("my-cache", "production", "purge")),
+		"exactly the one pod that answered 2xx with no parseable count should be tracked as unknown")
+}
+
+// TestHandleBAN_ExcludedFromObjectsPurgedUnknownMetric confirms BAN never
+// touches ObjectsPurgedUnknownTotal at all, even though every BAN
+// PodResult has a nil ObjectsPurged — the exact same shape a genuine
+// purge/xkey regression would produce. BAN goes through the agent's POST
+// /ban, a different service that never runs vcl_synth and never sets
+// X-Vinyl-Purged, by design rather than by regression (see
+// objectsPurgedCapable). Without that exclusion every ordinary BAN
+// response would permanently and misleadingly count as "unknown".
+func TestHandleBAN_ExcludedFromObjectsPurgedUnknownMetric(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := monitoring.NewMetrics(reg)
+	mb := &MockBroadcaster{Result: okResult()} // every pod: 2xx, ObjectsPurged nil
+	srv := newTestServer(mb)
+	srv.SetMetrics(m)
+
+	req := httptest.NewRequest("BAN", "/", nil)
+	req.Host = "my-cache-invalidation.production"
+	req.Header.Set("X-Ban-Expression", "obj.http.X-Url ~ ^/product/")
+	srv.ServeHTTP(httptest.NewRecorder(), req)
+
+	assert.Equal(t, 0, testutil.CollectAndCount(m.ObjectsPurgedUnknownTotal),
+		"BAN must never touch ObjectsPurgedUnknownTotal — it never carries X-Vinyl-Purged by design, not by regression")
 }
 
 // TestHandlePurge_UnknownObjectsPurged_MetricDoesNotAdvance is the negative
@@ -123,6 +195,19 @@ func TestHandlePurge_RecordsObjectsPurgedMetric(t *testing.T) {
 // header was missing/malformed), the counter must not move — incrementing
 // it by a fabricated 0 would be indistinguishable from a confirmed empty
 // purge and would mask the exact regression #103 exists to catch.
+//
+// This deliberately does NOT use testutil.ToFloat64(WithLabelValues(...)):
+// WithLabelValues lazily creates that label combination's child series at
+// value 0 the moment it's called, including when the test itself calls it
+// just to read the value. So "Add was never called" and "Add(0) was
+// called" both read back as 0 through that path — the assertion would stay
+// green even with recordInvalidation's nil-guard deleted and replaced with
+// an unconditional Add(float64(n)) (n's zero value for a nil *int, via a
+// deref that no longer guards against nil — see the code under test).
+// testutil.CollectAndCount instead counts only children that have actually
+// been touched by the code under test: an untouched label combination
+// contributes no series to Collect() at all, so 0 vs 1 here really does
+// distinguish "never called" from "called with 0".
 func TestHandlePurge_UnknownObjectsPurged_MetricDoesNotAdvance(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := monitoring.NewMetrics(reg)
@@ -135,8 +220,9 @@ func TestHandlePurge_UnknownObjectsPurged_MetricDoesNotAdvance(t *testing.T) {
 	req.Host = "my-cache-invalidation.production"
 	srv.ServeHTTP(httptest.NewRecorder(), req)
 
-	assert.Equal(t, float64(0),
-		testutil.ToFloat64(m.ObjectsPurgedTotal.WithLabelValues("my-cache", "production", "purge")))
+	assert.Equal(t, 0, testutil.CollectAndCount(m.ObjectsPurgedTotal),
+		"an unknown aggregate must never touch ObjectsPurgedTotal at all — not even with Add(0) — "+
+			"so no time series for any label combination should exist yet")
 }
 
 // TestHandlePurge_JSONBody_CarriesObjectsPurged confirms the aggregate
@@ -179,6 +265,29 @@ func TestHandlePurge_JSONBody_OmitsObjectsPurgedWhenUnknown(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.NotContains(t, body, "objectsPurged",
 		"an unknown aggregate must be omitted from the JSON body, not encoded as 0 or null")
+}
+
+// TestHandlePurge_JSONBody_RendersKnownZero is the positive counterpart to
+// TestHandlePurge_JSONBody_OmitsObjectsPurgedWhenUnknown: a genuine known
+// zero — "we asked and the answer was zero", not "we don't know" — must
+// render as an explicit 0 at the layer a client actually reads (the JSON
+// body), not merely behave correctly at the Go *int level. Decoding into a
+// generic map (rather than BroadcastResult) is what makes the key's
+// presence itself observable, the same way the omitted-case test does.
+func TestHandlePurge_JSONBody_RendersKnownZero(t *testing.T) {
+	mb := &MockBroadcaster{Result: okResultWithObjectsPurged(0)}
+	srv := newTestServer(mb)
+
+	req := httptest.NewRequest("PURGE", "/product/123", nil)
+	req.Host = "my-cache-invalidation.production"
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Contains(t, body, "objectsPurged",
+		"a known zero must still be present in the JSON body, not dropped the way the unknown case is")
+	assert.Equal(t, float64(0), body["objectsPurged"])
 }
 
 // ---------- PURGE ----------

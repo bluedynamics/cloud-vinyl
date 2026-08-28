@@ -32,6 +32,18 @@ type xkeyRequest struct {
 	Keys []string `json:"keys"`
 }
 
+// objectsPurgedCapable reports whether typ's pod responses can ever carry
+// X-Vinyl-Purged at all. "purge" and "xkey" both hit varnishd directly and
+// go through vcl_synth, which sets the header. "ban" is routed to the
+// agent's POST /ban (see handleBAN) — a different service on a different
+// port that never runs vcl_synth and never sets it, by design. Gating
+// ObjectsPurgedUnknownTotal on this keeps that counter a signal for "this
+// pod should have told us and didn't," rather than counting every ordinary
+// ban response as if something were broken.
+func objectsPurgedCapable(typ string) bool {
+	return typ == "purge" || typ == "xkey"
+}
+
 // recordInvalidation records invalidation + broadcast + partial-failure metrics.
 func (s *Server) recordInvalidation(namespace, cacheName, typ string, start time.Time, res BroadcastResult) {
 	if s.metrics == nil {
@@ -58,6 +70,19 @@ func (s *Server) recordInvalidation(namespace, cacheName, typ string, start time
 			r = outcomeError
 		}
 		s.metrics.BroadcastTotal.WithLabelValues(pr.Pod, r).Inc()
+		// A pod that answered 2xx but reported no parseable count is a
+		// different fact from one that reported a known 0 — the sum above
+		// cannot tell the two apart (it just adds a little less), so a
+		// regression that drops the header on a subset of pods (e.g. a
+		// partial VCL rollout, or the broadcast-path shape #101 was) would
+		// otherwise be invisible: the total still climbs, just slower.
+		// Track it on its own counter instead. Restricted to types that can
+		// ever carry X-Vinyl-Purged in the first place (see
+		// objectsPurgedCapable) so BAN — which never sets it, by design,
+		// not by regression — doesn't turn this into permanent noise.
+		if r == outcomeSuccess && pr.ObjectsPurged == nil && objectsPurgedCapable(typ) {
+			s.metrics.ObjectsPurgedUnknownTotal.WithLabelValues(cacheName, namespace, typ).Inc()
+		}
 	}
 	if res.Succeeded > 0 && res.Succeeded < res.Total {
 		s.metrics.PartialFailureTotal.WithLabelValues(cacheName, namespace).Inc()
