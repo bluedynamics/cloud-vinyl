@@ -77,33 +77,79 @@ gives two ways to observe the cache without ever inspecting a Kubernetes object:
   quietly repopulating the very cache it's trying to observe.
 
 `vinylprobe` also has a `-purge` mode (`probe.Purge`) that issues an HTTP
-`PURGE`, ready for the day invalidation is testable end-to-end (see below).
+`PURGE` and reports the operator's own count of objects removed (`objectsPurged`,
+#103) — `nil` (unknown) kept strictly distinct from a confirmed `0`, since a
+sharded broadcast purge legitimately removes 0 objects on every pod but the
+URL's owner. `-expect-purged N` asserts against that count directly; a missing
+count is always a failure, never silently read as `0`.
 
-### cache-per-pod: what it proves, and what it doesn't
+Every seed/check/purge call also accepts `-host`, overriding the HTTP `Host`
+header independent of the address `-url` dials. This exists because Varnish
+hashes `req.http.host` into the cache key (`vcl_hash.vcl.tmpl`): addressing a
+pod directly by its own StatefulSet DNS name — the only way to pin which pod
+handles a request — gives that pod a *different* Host, and therefore a
+different cache key, than the same path reached any other way. Seed three pods
+that way with no `-host` override and each pod caches a genuinely different
+object; a single broadcast `PURGE` can then match at most one of them. `-host`
+pins seeding, checking and purging to one shared value so "seeded directly" and
+"invalidated through the service" agree on the same key. See `fetch`'s doc
+comment in `internal/probe/cache.go` for the full reasoning, and
+`cache-and-invalidate`'s and `shard-routing`'s own descriptions for where it is
+used.
 
-The one chainsaw test in the suite that sends real HTTP traffic and checks what
-comes back is `cache-per-pod`. It seeds each of a three-pod cluster's pods
-directly, by its own StatefulSet DNS name, with its own token, then confirms
-each pod is still serving the object it was seeded with.
+### cache-and-invalidate and shard-routing: what they prove
 
-It proves caching works, per pod, over real HTTP. It does **not** prove that
-invalidation works, and deliberately doesn't try: purge is broken in every
-configuration currently reachable through the API —
+Two chainsaw tests send real HTTP traffic through the cache and check what
+comes back, then invalidate it and check again.
 
-- PURGE is rejected with 403 under `spec.cluster.enabled: true`: the internal
-  Varnish-to-Varnish hop that redirects an unshredded PURGE arrives at the
-  `vinyl_purge_allowed` ACL check carrying a Varnish pod's IP instead of the
-  operator's, and is rejected (#93).
-- Soft purge never revalidates: the generated `vcl_hit` delivers the stale
-  object for the whole grace window regardless of purge, so with the
-  hardcoded 24h grace a soft purge is a no-op for a full day (#94).
-- Hard purge cannot be requested at all: the defaulting webhook coerces
-  `spec.invalidation.purge.soft` back to `true` on every admission, because a
-  plain bool can't distinguish "unset" from "explicitly false" (#95).
+**`cache-and-invalidate`** (fast suite) runs without `spec.cluster.enabled`, so
+each of three pods caches independently. It seeds a distinct token into each
+pod directly (own StatefulSet DNS name, `-host` pinned to the invalidation
+service's DNS name so all three land on the same key — see above), confirms
+all three are cached, issues one `PURGE` through the invalidation service, and
+confirms all three are gone — asserting `-expect-purged 3` along the way. This
+test replaces `cache-per-pod`, which proved a weaker claim than its name
+suggested: seeded with no `-host` override, its three pods each cached a
+*different* key, so nothing there proved three pods holding the same object,
+or could have been purged with one request the way this test is.
 
-No honest end-to-end test of purge broadcasting exists yet, because there is
-nothing working to test. Once #93–#95 are fixed, that test belongs here,
-using the `-purge` mode already built into `vinylprobe`.
+**`shard-routing`** (full suite) runs with clustering and shard-by-URL
+enabled. It seeds one object through one entry pod, confirms every pod
+resolves the same URL to the same cached object (proving one owner, not three
+independent copies), purges once, and confirms the object is gone — asserting
+`-expect-purged 1`, not `3`: under sharding, only the owner pod ever held a
+copy. Checking "not cached" after the purge is done through exactly one entry
+pod, not all three: every entry funnels to the same single cache entry under
+clustering, so a second check would observe the first check's own
+cache-repopulating miss, not the purge's aftermath.
+
+Together these are the end-to-end proof for defects that were, in turn, fixed
+without any checked-in evidence:
+
+- PURGE rejected with 403 under `spec.cluster.enabled: true` (#93): the
+  internal Varnish-to-Varnish hop that redirects an unshredded PURGE reached
+  the `vinyl_purge_allowed` ACL check carrying a peer pod's IP instead of the
+  operator's real one, and was rejected. `shard-routing`'s successful purge
+  under clustering is the exercise this defect specifically broke.
+- Soft purge never revalidating (#94): the generated `vcl_hit` delivered the
+  stale object for the whole grace window regardless of purge. Both tests use
+  hard purge deliberately (see `fixtures/vinylcaches/no-cluster.yaml` and
+  `sharded.yaml`) — soft purge's grace/revalidate window is real, correct
+  product behaviour (an immediately-following request can legitimately still
+  see the pre-purge object for a short, unbounded window), but it is exactly
+  the kind of nondeterminism this suite exists not to reintroduce, so it is
+  deliberately not what these two assert against.
+- Hard purge unrequestable at all (#95): the defaulting webhook coerced
+  `spec.invalidation.purge.soft` back to `true` on every admission. Both
+  fixtures set an explicit `false`, and it is honored.
+- Shard-by-URL hashing nothing at request time (#92): before this fix,
+  "which pod, if any, holds this object" was not something a test could
+  assert. `shard-routing`'s `-expect-purged 1` is only meaningful because
+  routing is now deterministic.
+- Silent, unverifiable purge outcomes (#103): before the operator surfaced
+  `objectsPurged`, "did the purge actually remove anything" was not
+  observable at all from outside a debugger. Both tests assert the exact
+  count, not just a 200 status.
 
 ### Fast and full
 

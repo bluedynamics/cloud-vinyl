@@ -1,0 +1,64 @@
+# Cluster enabled, shard-by-URL, hard purge — for shard-routing, which proves
+# a URL lives on exactly one owner pod regardless of which pod a client
+# enters through, and that a single broadcast purge removes exactly one
+# object.
+#
+# Two settings deliberately diverge from standard.yaml (also cluster+shard),
+# both measured, not guessed, against a real cluster while building the
+# shard-routing test:
+#
+# - invalidation.purge.soft: false. standard.yaml uses soft purge, which
+#   (correctly, per #94) marks the object stale and keeps serving it from
+#   grace while revalidating in the background. That is real product
+#   behaviour, but it means a GET issued immediately after a soft purge can
+#   still legitimately return the pre-purge object for a short, unbounded
+#   window — measured directly: an immediate post-purge check failed here,
+#   and the identical check passed after a few seconds' wait. An E2E
+#   assertion that only sometimes holds, depending on how fast the runner
+#   is, is exactly the kind of flake this suite exists to not reintroduce
+#   (#63/#67/#72). Hard purge removes the object synchronously, so the
+#   assertion needs no poll-with-deadline and no sleep.
+#
+# - director.shard.warmup: 0. The webhook defaults this to 0.1 (see
+#   internal/webhook/vinylcache_defaulter.go), which per vmod_shard sends
+#   that fraction of requests to a second-choice "warm standby" backend even
+#   while the primary is healthy, on purpose, to keep it ready for failover.
+#   Correct in production; in a test that asserts "exactly one pod holds a
+#   copy" it is a standing ~10%-per-request chance of a second copy existing
+#   and of a pre-purge "assert cached" check landing on the wrong pod.
+#   Setting it to 0 (an explicit, non-nil override — see
+#   applyShardDefaults's nil check) makes routing depend only on the shard
+#   hash, which is what shard-routing is testing in the first place.
+apiVersion: vinyl.bluedynamics.eu/v1alpha1
+kind: VinylCache
+metadata:
+  name: my-cache
+spec:
+  replicas: 3
+  image: varnish:8.0.2
+  backends:
+    - name: echo
+      serviceRef:
+        name: echo-backend
+      port: 80
+      probe:
+        url: /
+        interval: 5s
+        timeout: 1s
+        threshold: 2
+        window: 5
+  director:
+    type: shard
+    shard:
+      warmup: 0
+      rampup: 30s
+      by: URL
+      healthy: CHOSEN
+  cluster:
+    enabled: true
+  invalidation:
+    purge:
+      enabled: true
+      soft: false
+  debounce:
+    duration: 2s

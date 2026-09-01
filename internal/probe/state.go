@@ -14,12 +14,18 @@ import (
 // It is single-request by design, same reasoning as Check: Detect needs two
 // requests to compare against each other, but Seed only needs to put one
 // object in cache.
-func Seed(ctx context.Context, c *http.Client, url string) (string, error) {
+//
+// host, when non-empty, overrides the HTTP Host header sent — see fetch's
+// doc comment for why this matters: the cache key includes Host, so seeding
+// several pods by their own distinct DNS names (to force which pod handles
+// each request) puts each object under a different key unless the caller
+// pins Host to one shared value across all of them.
+func Seed(ctx context.Context, c *http.Client, url, host string) (string, error) {
 	tok, err := token()
 	if err != nil {
 		return "", err
 	}
-	if _, err := fetch(ctx, c, url, tok); err != nil {
+	if _, err := fetch(ctx, c, url, tok, host); err != nil {
 		return "", fmt.Errorf("seeding: %w", err)
 	}
 	return tok, nil
@@ -52,12 +58,16 @@ func (s State) String() string {
 // to compare a fresh miss against a possible hit, but a second request here
 // would itself repopulate the cache, turning the measurement into a mutation
 // of the very state it is trying to observe.
-func Check(ctx context.Context, c *http.Client, url, seed string) (State, error) {
+//
+// host overrides the HTTP Host header sent, same as Seed's; pass the same
+// value used to seed the object being checked, or the cache key looked up
+// here will not be the one that was written.
+func Check(ctx context.Context, c *http.Client, url, seed, host string) (State, error) {
 	tok, err := token()
 	if err != nil {
 		return NotCached, err
 	}
-	body, err := fetch(ctx, c, url, tok)
+	body, err := fetch(ctx, c, url, tok, host)
 	if err != nil {
 		return NotCached, fmt.Errorf("check request: %w", err)
 	}
