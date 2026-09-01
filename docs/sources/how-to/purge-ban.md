@@ -23,13 +23,26 @@ curl -X PURGE http://cloud-vinyl.cloud-vinyl-system.svc:8090/path/to/resource
 Response:
 
 ```
-{"status":"ok","total":3,"succeeded":3,"results":[...]}
+{"status":"ok","total":3,"succeeded":3,"objectsPurged":1,"results":[...]}
 ```
 
 `status` is one of:
 - `ok` — all pods purged successfully.
 - `partial` — some pods failed (cache is partially stale).
 - `failed` — all pods failed.
+
+`succeeded` counts pods that *answered*, not objects that were *removed* —
+HTTP 200 from a pod means it ran the purge, not that anything was there to
+purge. `objectsPurged` is the actual count, summed from every pod's
+`X-Vinyl-Purged` response header (each pod's own count is on its entry in
+`results`). Once cluster sharding routes a URL to a single owner pod, a
+correct broadcast purge legitimately removes 0 objects on every other pod —
+that is expected, not a failure, and `status` stays `ok`.
+
+`objectsPurged` is **omitted** from the response — not `0` — when no pod
+reported a parseable count (e.g. an older `varnishd`, or every pod's request
+failed outright). Treat a missing field as "unknown", never as "confirmed
+zero"; the two mean very different things.
 
 ## BAN by expression
 

@@ -32,6 +32,18 @@ type xkeyRequest struct {
 	Keys []string `json:"keys"`
 }
 
+// objectsPurgedCapable reports whether typ's pod responses can ever carry
+// X-Vinyl-Purged at all. "purge" and "xkey" both hit varnishd directly and
+// go through vcl_synth, which sets the header. "ban" is routed to the
+// agent's POST /ban (see handleBAN) — a different service on a different
+// port that never runs vcl_synth and never sets it, by design. Gating
+// ObjectsPurgedUnknownTotal on this keeps that counter a signal for "this
+// pod should have told us and didn't," rather than counting every ordinary
+// ban response as if something were broken.
+func objectsPurgedCapable(typ string) bool {
+	return typ == "purge" || typ == "xkey"
+}
+
 // recordInvalidation records invalidation + broadcast + partial-failure metrics.
 func (s *Server) recordInvalidation(namespace, cacheName, typ string, start time.Time, res BroadcastResult) {
 	if s.metrics == nil {
@@ -43,12 +55,34 @@ func (s *Server) recordInvalidation(namespace, cacheName, typ string, start time
 	}
 	s.metrics.InvalidationTotal.WithLabelValues(cacheName, namespace, typ, outcome).Inc()
 	s.metrics.InvalidationDuration.Observe(time.Since(start).Seconds())
+	// Only add when known: res.ObjectsPurged is nil when no pod reported a
+	// parseable count, and a counter has no way to represent "unknown" —
+	// adding 0 in that case would look identical to a confirmed empty
+	// purge. Leaving the metric flat is exactly the signal #103 wants: a
+	// total that never advances while purges keep being issued is visible
+	// in a way "always zero because we never asked" was not.
+	if res.ObjectsPurged != nil {
+		s.metrics.ObjectsPurgedTotal.WithLabelValues(cacheName, namespace, typ).Add(float64(*res.ObjectsPurged))
+	}
 	for _, pr := range res.Results {
 		r := outcomeSuccess
 		if pr.Status < 200 || pr.Status >= 300 {
 			r = outcomeError
 		}
 		s.metrics.BroadcastTotal.WithLabelValues(pr.Pod, r).Inc()
+		// A pod that answered 2xx but reported no parseable count is a
+		// different fact from one that reported a known 0 — the sum above
+		// cannot tell the two apart (it just adds a little less), so a
+		// regression that drops the header on a subset of pods (e.g. a
+		// partial VCL rollout, or the broadcast-path shape #101 was) would
+		// otherwise be invisible: the total still climbs, just slower.
+		// Track it on its own counter instead. Restricted to types that can
+		// ever carry X-Vinyl-Purged in the first place (see
+		// objectsPurgedCapable) so BAN — which never sets it, by design,
+		// not by regression — doesn't turn this into permanent noise.
+		if r == outcomeSuccess && pr.ObjectsPurged == nil && objectsPurgedCapable(typ) {
+			s.metrics.ObjectsPurgedUnknownTotal.WithLabelValues(cacheName, namespace, typ).Inc()
+		}
 	}
 	if res.Succeeded > 0 && res.Succeeded < res.Total {
 		s.metrics.PartialFailureTotal.WithLabelValues(cacheName, namespace).Inc()
@@ -169,10 +203,11 @@ func (s *Server) handleXkey(w http.ResponseWriter, r *http.Request, namespace, c
 	total := len(pods) * len(body.Keys)
 	status := statusString(total, totalSucceeded)
 	result := BroadcastResult{
-		Status:    status,
-		Total:     total,
-		Succeeded: totalSucceeded,
-		Results:   allResults,
+		Status:        status,
+		Total:         total,
+		Succeeded:     totalSucceeded,
+		ObjectsPurged: aggregateObjectsPurged(allResults),
+		Results:       allResults,
 	}
 	s.recordInvalidation(namespace, cacheName, "xkey", start, result)
 	WriteResult(w, result)

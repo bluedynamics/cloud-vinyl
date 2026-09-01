@@ -221,6 +221,178 @@ func TestHTTPBroadcaster_EmptyHost_LeavesDefaultHost(t *testing.T) {
 	assert.NotEmpty(t, gotHost, "an empty BroadcastRequest.Host must not produce an empty Host header")
 }
 
+// ---------- objects-purged (#103) ----------
+//
+// vcl_synth copies the purge count onto an X-Vinyl-Purged response header
+// (see internal/generator/templates/vcl_synth.vcl.tmpl). These tests drive
+// a real httptest.Server that sets (or withholds) that header, so they
+// observe what callPod actually reads off the wire — a hand-built PodResult
+// would prove nothing about whether the header-parsing code path exists at
+// all, which is exactly the shape of gap that let #93/#94/#95/#101 hide.
+
+// purgeHandler returns a handler that answers 200 OK and, if header is
+// non-empty, sets X-Vinyl-Purged to it.
+func purgeHandler(header string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if header != "" {
+			w.Header().Set("X-Vinyl-Purged", header)
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func TestHTTPBroadcaster_ObjectsPurged_ParsesHeader(t *testing.T) {
+	s := httptest.NewServer(purgeHandler("3"))
+	defer s.Close()
+
+	b := NewHTTPBroadcaster(5 * time.Second)
+	pods := []string{podAddr(s.URL)}
+	req := BroadcastRequest{Method: "PURGE", Path: "/product/123"}
+
+	result := b.Broadcast(context.Background(), pods, req)
+
+	require.Len(t, result.Results, 1)
+	require.NotNil(t, result.Results[0].ObjectsPurged,
+		"a well-formed X-Vinyl-Purged header must parse to a known count")
+	assert.Equal(t, 3, *result.Results[0].ObjectsPurged)
+	require.NotNil(t, result.ObjectsPurged, "the aggregate must be known when every pod reported a count")
+	assert.Equal(t, 3, *result.ObjectsPurged)
+}
+
+func TestHTTPBroadcaster_ObjectsPurged_MissingHeader_IsUnknownNotZero(t *testing.T) {
+	// No X-Vinyl-Purged header at all — e.g. an older varnishd, or a
+	// regression that drops the header. This must surface as "unknown", not
+	// silently collapse to 0: 0 is a legitimate, common outcome (#92
+	// sharding means most pods legitimately purge nothing), so a missing
+	// header reported as 0 would be indistinguishable from a healthy purge —
+	// recreating the exact blindness #103 exists to remove.
+	s := httptest.NewServer(purgeHandler(""))
+	defer s.Close()
+
+	b := NewHTTPBroadcaster(5 * time.Second)
+	pods := []string{podAddr(s.URL)}
+	req := BroadcastRequest{Method: "PURGE", Path: "/product/123"}
+
+	result := b.Broadcast(context.Background(), pods, req)
+
+	require.Len(t, result.Results, 1)
+	assert.Nil(t, result.Results[0].ObjectsPurged,
+		"a missing header must leave ObjectsPurged nil (unknown), not 0")
+	assert.Nil(t, result.ObjectsPurged,
+		"the aggregate must be unknown, not 0, when the only pod's count is unknown")
+}
+
+func TestHTTPBroadcaster_ObjectsPurged_MalformedHeader_IsUnknown(t *testing.T) {
+	s := httptest.NewServer(purgeHandler("not-a-number"))
+	defer s.Close()
+
+	b := NewHTTPBroadcaster(5 * time.Second)
+	pods := []string{podAddr(s.URL)}
+	req := BroadcastRequest{Method: "PURGE", Path: "/product/123"}
+
+	result := b.Broadcast(context.Background(), pods, req)
+
+	require.Len(t, result.Results, 1)
+	assert.Nil(t, result.Results[0].ObjectsPurged,
+		"an unparseable header must not fail the purge or fabricate a count — it must leave ObjectsPurged nil")
+	assert.Equal(t, http.StatusOK, result.Results[0].Status,
+		"a malformed count header must not turn an otherwise-successful purge into a failure")
+}
+
+func TestHTTPBroadcaster_ObjectsPurged_NegativeHeader_IsUnknown(t *testing.T) {
+	// Varnish never returns a negative count; a negative value here can only
+	// mean something upstream is malformed. Treat it the same as unparseable
+	// rather than propagating a nonsensical count.
+	s := httptest.NewServer(purgeHandler("-1"))
+	defer s.Close()
+
+	b := NewHTTPBroadcaster(5 * time.Second)
+	pods := []string{podAddr(s.URL)}
+	req := BroadcastRequest{Method: "PURGE", Path: "/product/123"}
+
+	result := b.Broadcast(context.Background(), pods, req)
+
+	require.Len(t, result.Results, 1)
+	assert.Nil(t, result.Results[0].ObjectsPurged)
+}
+
+func TestHTTPBroadcaster_ObjectsPurged_AggregatesAcrossPods(t *testing.T) {
+	s1 := httptest.NewServer(purgeHandler("3"))
+	s2 := httptest.NewServer(purgeHandler("0"))
+	s3 := httptest.NewServer(purgeHandler("5"))
+	defer s1.Close()
+	defer s2.Close()
+	defer s3.Close()
+
+	b := NewHTTPBroadcaster(5 * time.Second)
+	pods := []string{podAddr(s1.URL), podAddr(s2.URL), podAddr(s3.URL)}
+	req := BroadcastRequest{Method: "PURGE", Path: "/product/123"}
+
+	result := b.Broadcast(context.Background(), pods, req)
+
+	require.NotNil(t, result.ObjectsPurged)
+	// #92: after sharding a URL lives on one owner pod, so most pods
+	// legitimately purge 0 — the aggregate must still be their sum (8), not
+	// treat any individual 0 as an error or as unknown.
+	assert.Equal(t, 8, *result.ObjectsPurged)
+}
+
+func TestHTTPBroadcaster_ObjectsPurged_AllZero_IsKnownZero_NotUnknown(t *testing.T) {
+	// Every pod explicitly reported 0 (a well-formed header, value "0") —
+	// this is the expected common case post-#92 and must read as a known
+	// zero, distinct from no pod reporting anything at all.
+	s1 := httptest.NewServer(purgeHandler("0"))
+	s2 := httptest.NewServer(purgeHandler("0"))
+	defer s1.Close()
+	defer s2.Close()
+
+	b := NewHTTPBroadcaster(5 * time.Second)
+	pods := []string{podAddr(s1.URL), podAddr(s2.URL)}
+	req := BroadcastRequest{Method: "PURGE", Path: "/product/123"}
+
+	result := b.Broadcast(context.Background(), pods, req)
+
+	require.NotNil(t, result.ObjectsPurged, "an explicit all-zero result is known, not unknown")
+	assert.Equal(t, 0, *result.ObjectsPurged)
+}
+
+func TestHTTPBroadcaster_ObjectsPurged_MixedKnownAndUnknown_SumsKnownOnes(t *testing.T) {
+	// One pod reports a count, the other doesn't (e.g. mixed varnishd
+	// versions during a rollout). The aggregate reflects what is known
+	// rather than collapsing the whole broadcast to "unknown" because of one
+	// pod — a partial signal is still more useful than none, and Total/
+	// Succeeded already track how many pods actually answered.
+	s1 := httptest.NewServer(purgeHandler("4"))
+	s2 := httptest.NewServer(purgeHandler(""))
+	defer s1.Close()
+	defer s2.Close()
+
+	b := NewHTTPBroadcaster(5 * time.Second)
+	pods := []string{podAddr(s1.URL), podAddr(s2.URL)}
+	req := BroadcastRequest{Method: "PURGE", Path: "/product/123"}
+
+	result := b.Broadcast(context.Background(), pods, req)
+
+	require.NotNil(t, result.ObjectsPurged)
+	assert.Equal(t, 4, *result.ObjectsPurged)
+}
+
+func TestHTTPBroadcaster_ObjectsPurged_PodError_IsUnknown(t *testing.T) {
+	// A pod that never answers (network error) obviously never delivers a
+	// header; confirm that failure path also leaves ObjectsPurged nil rather
+	// than panicking or defaulting to 0.
+	b := NewHTTPBroadcaster(50 * time.Millisecond)
+	pods := []string{"127.0.0.1:1"} // nothing listens here
+	req := BroadcastRequest{Method: "PURGE", Path: "/product/123"}
+
+	result := b.Broadcast(context.Background(), pods, req)
+
+	require.Len(t, result.Results, 1)
+	assert.NotEmpty(t, result.Results[0].Error)
+	assert.Nil(t, result.Results[0].ObjectsPurged)
+	assert.Nil(t, result.ObjectsPurged)
+}
+
 func TestStatusString(t *testing.T) {
 	tests := []struct {
 		total, succeeded int
