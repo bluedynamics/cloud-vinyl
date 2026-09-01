@@ -37,7 +37,7 @@ func TestSeedReturnsANonEmptyToken(t *testing.T) {
 	srv := echoingServer()
 	defer srv.Close()
 
-	tok, err := Seed(context.Background(), srv.Client(), srv.URL)
+	tok, err := Seed(context.Background(), srv.Client(), srv.URL, "")
 	if err != nil {
 		t.Fatalf("Seed returned error: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestSeedIssuesExactlyOneRequest(t *testing.T) {
 	srv, n := countingServer()
 	defer srv.Close()
 
-	if _, err := Seed(context.Background(), srv.Client(), srv.URL); err != nil {
+	if _, err := Seed(context.Background(), srv.Client(), srv.URL, ""); err != nil {
 		t.Fatalf("Seed returned error: %v", err)
 	}
 	if got := atomic.LoadInt32(n); got != 1 {
@@ -67,7 +67,7 @@ func TestSeedPropagatesTransportErrors(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	if _, err := Seed(ctx, srv.Client(), srv.URL); err == nil {
+	if _, err := Seed(ctx, srv.Client(), srv.URL, ""); err == nil {
 		t.Fatal("expected an error when the context expires, got nil")
 	}
 }
@@ -77,7 +77,7 @@ func TestCheckReportsCachedWhenBodyEchoesTheSeedToken(t *testing.T) {
 	srv := fixedTokenServer(seed)
 	defer srv.Close()
 
-	got, err := Check(context.Background(), srv.Client(), srv.URL, seed)
+	got, err := Check(context.Background(), srv.Client(), srv.URL, seed, "")
 	if err != nil {
 		t.Fatalf("Check returned error: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestCheckReportsNotCachedWhenBodyEchoesItsOwnToken(t *testing.T) {
 	// what a URL looks like once the seeded object is gone: the backend is
 	// hit fresh and the response carries this request's own token, not the
 	// seed's.
-	got, err := Check(context.Background(), srv.Client(), srv.URL, "some-other-seed-token")
+	got, err := Check(context.Background(), srv.Client(), srv.URL, "some-other-seed-token", "")
 	if err != nil {
 		t.Fatalf("Check returned error: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestCheckErrorsWhenBodyEchoesNeitherSeedNorOwnToken(t *testing.T) {
 	srv := fixedTokenServer("someone-elses-token")
 	defer srv.Close()
 
-	_, err := Check(context.Background(), srv.Client(), srv.URL, "the-seed-we-expected")
+	_, err := Check(context.Background(), srv.Client(), srv.URL, "the-seed-we-expected", "")
 	if err == nil {
 		t.Fatal("expected an error when the body echoes neither token, got nil")
 	}
@@ -120,7 +120,7 @@ func TestCheckIssuesExactlyOneRequest(t *testing.T) {
 	srv, n := countingServer()
 	defer srv.Close()
 
-	if _, err := Check(context.Background(), srv.Client(), srv.URL, "whatever"); err != nil {
+	if _, err := Check(context.Background(), srv.Client(), srv.URL, "whatever", ""); err != nil {
 		t.Fatalf("Check returned error: %v", err)
 	}
 	if got := atomic.LoadInt32(n); got != 1 {
@@ -137,8 +137,48 @@ func TestCheckPropagatesTransportErrors(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	if _, err := Check(ctx, srv.Client(), srv.URL, "whatever"); err == nil {
+	if _, err := Check(ctx, srv.Client(), srv.URL, "whatever", ""); err == nil {
 		t.Fatal("expected an error when the context expires, got nil")
+	}
+}
+
+// --- host override ---
+//
+// See fetch's doc comment in cache.go: Varnish hashes Host into the cache
+// key, so Seed and Check must be able to pin it independently of the
+// address -url dials, or several pods addressed by their own distinct
+// StatefulSet DNS names end up seeding distinct cache keys instead of a
+// shared one.
+
+func TestSeedSendsExplicitHostWhenGiven(t *testing.T) {
+	var gotHost string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		fmt.Fprintf(w, `{"headers":{"x-probe":%q}}`, r.Header.Get("X-Probe"))
+	}))
+	defer srv.Close()
+
+	if _, err := Seed(context.Background(), srv.Client(), srv.URL, "pinned-host.example"); err != nil {
+		t.Fatalf("Seed returned error: %v", err)
+	}
+	if gotHost != "pinned-host.example" {
+		t.Fatalf("got Host %q, want %q", gotHost, "pinned-host.example")
+	}
+}
+
+func TestCheckSendsExplicitHostWhenGiven(t *testing.T) {
+	var gotHost string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		fmt.Fprintf(w, `{"headers":{"x-probe":%q}}`, r.Header.Get("X-Probe"))
+	}))
+	defer srv.Close()
+
+	if _, err := Check(context.Background(), srv.Client(), srv.URL, "whatever", "pinned-host.example"); err != nil {
+		t.Fatalf("Check returned error: %v", err)
+	}
+	if gotHost != "pinned-host.example" {
+		t.Fatalf("got Host %q, want %q", gotHost, "pinned-host.example")
 	}
 }
 

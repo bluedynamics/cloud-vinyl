@@ -1,0 +1,179 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: shard-routing
+  labels:
+    suite: full
+spec:
+  description: |
+    Proves that clustering's shard-by-URL routing actually shards: a given
+    URL lives on exactly one owner pod, whichever pod a client enters
+    through, and one broadcast purge removes exactly one object — not
+    three independent copies the way cache-and-invalidate's unclustered
+    fixture does. Before #92 (shard-by-URL hashing nothing at request time
+    in vcl_recv), this claim could not have been asserted at all: routing
+    was not deterministic enough to say which pod, if any, would hold the
+    object.
+
+    Runs against fixtures/vinylcaches/sharded.yaml — cluster.enabled: true,
+    director.shard.by: URL — not standard.yaml, which is also
+    cluster+shard but was measured to make this test flaky twice over; see
+    that fixture's own header comment for both measurements (soft purge's
+    grace/revalidate window, and the default 10%-per-request warm-standby
+    routing). sharded.yaml turns both off (hard purge, warmup: 0) so the
+    assertions below are deterministic without a poll-with-deadline or a
+    sleep.
+
+    SUBTLETY (same trap as cache-and-invalidate, see that test's
+    description and fetch's doc comment in internal/probe/cache.go for the
+    general form): every seed and check below passes -host, pinned to the
+    invalidation service's DNS name (my-cache-invalidation.$NAMESPACE),
+    because Varnish hashes req.http.host into the cache key and a
+    broadcast PURGE carries whatever Host the client used to reach the
+    invalidation service.
+
+    SUBTLETY specific to this test: the after-purge check below runs
+    against exactly one entry pod, not all three the way
+    cache-and-invalidate's does. Under clustering every entry pod's GET for
+    this URL passes through to the *same* single owner — there is one
+    cache entry, not three — so a second check that happens to land on the
+    same URL after the first would not be observing the purge's aftermath
+    at all, it would be observing the *first check's own* cache-repopulating
+    miss (any GET that misses populates the cache as a side effect; that is
+    ordinary HTTP caching, not a probe bug). Checking three times in a row
+    against one shared entry was tried by hand while designing this test:
+    the second and third checks failed with "backend echoed neither the
+    seed token nor this request's token" — the token that either check
+    should have found was the *previous* check's own fresh token, not the
+    original seed. One check after the purge is not a narrower test than
+    three; against a single shared cache entry, three would not have
+    measured three different things.
+  timeouts:
+    assert: 180s
+    delete: 60s
+    exec: 60s
+  steps:
+    - name: deploy-backend
+      try:
+        - apply:
+            file: ../../fixtures/backends/echo-service.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-backend
+              status:
+                readyReplicas: 1
+
+    - name: create-sharded-cache
+      try:
+        - apply:
+            file: ../../fixtures/vinylcaches/sharded.yaml
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              status:
+                phase: Ready
+
+    - name: start-probe
+      try:
+        - apply:
+            file: ../../fixtures/probe/probe-pod.yaml
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: probe
+              status:
+                phase: Running
+
+    - name: seed-via-one-entry-pod
+      description: |
+        Seed a single object, entering through pod 0's own StatefulSet DNS
+        name. Under clustering pod 0 does not necessarily cache this
+        itself — its vcl_recv may set backend_hint to a peer and
+        return(pass) — so which pod ends up holding the object is exactly
+        what the next step checks, not assumed here. The token is written
+        to a file on the chainsaw host (keyed by $NAMESPACE): step outputs
+        are not visible to a later named step in this chainsaw version.
+      try:
+        - script:
+            content: |
+              set -eu
+              TOK=$(kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://my-cache-0.my-cache:8080/shard-routing/a" \
+                -host "my-cache-invalidation.$NAMESPACE" -seed)
+              echo "seeded via pod 0 with ${TOK}"
+              echo "${TOK}" > "/tmp/shard-routing-${NAMESPACE}-tok"
+
+    - name: cached-regardless-of-entry-pod
+      description: |
+        Before-picture, and the core claim of this test: entering through
+        any of the three pods for the same URL reaches the same cached
+        object — proving one owner pod, not three independent copies the
+        way cache-and-invalidate's unclustered fixture has. Safe to check
+        all three here (unlike the single check after the purge, see
+        SUBTLETY above): every one of these is a cache hit, and a hit
+        never mutates what is stored, so checking pod 0 does not disturb
+        what pod 1's or pod 2's check will see.
+      try:
+        - script:
+            content: |
+              set -eu
+              TOK=$(cat "/tmp/shard-routing-${NAMESPACE}-tok")
+              for i in 0 1 2; do
+                kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://my-cache-${i}.my-cache:8080/shard-routing/a" \
+                  -host "my-cache-invalidation.$NAMESPACE" \
+                  -check "${TOK}" -expect-state cached
+              done
+
+    - name: purge-through-invalidation-service
+      description: |
+        One PURGE, addressed to the invalidation service and broadcast to
+        all three pods. Only the owner pod actually holds a copy, so the
+        operator's own objectsPurged count (#103) is asserted at exactly
+        1 — not 3 the way cache-and-invalidate's independent-copies fixture
+        is, and not 0, which is what an unfixed #92 would have made this
+        assert (a broadcast purge that could never reliably find the
+        object at all).
+      try:
+        - script:
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://my-cache-invalidation.$NAMESPACE:8090/shard-routing/a" \
+                -purge -expect-purged 1
+
+    - name: not-cached-after-purge
+      description: |
+        After-picture, checked through a *different* entry pod than the
+        one used to seed (pod 1, not pod 0) — still proving the object is
+        gone regardless of entry point, without the self-contaminating
+        repeat checks described in SUBTLETY above.
+      try:
+        - script:
+            content: |
+              set -eu
+              TOK=$(cat "/tmp/shard-routing-${NAMESPACE}-tok")
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://my-cache-1.my-cache:8080/shard-routing/a" \
+                -host "my-cache-invalidation.$NAMESPACE" \
+                -check "${TOK}" -expect-state not-cached
+
+    - name: cleanup
+      try:
+        - delete:
+            file: ../../fixtures/probe/probe-pod.yaml
+        - delete:
+            file: ../../fixtures/vinylcaches/sharded.yaml
+        - delete:
+            file: ../../fixtures/backends/echo-service.yaml
+        - script:
+            content: |
+              rm -f "/tmp/shard-routing-${NAMESPACE}-tok"

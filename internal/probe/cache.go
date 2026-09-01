@@ -52,10 +52,10 @@ func Detect(ctx context.Context, c *http.Client, url string) (Outcome, error) {
 		return Miss, err
 	}
 
-	if _, err := fetch(ctx, c, url, first); err != nil {
+	if _, err := fetch(ctx, c, url, first, ""); err != nil {
 		return Miss, fmt.Errorf("first request: %w", err)
 	}
-	body, err := fetch(ctx, c, url, second)
+	body, err := fetch(ctx, c, url, second, "")
 	if err != nil {
 		return Miss, fmt.Errorf("second request: %w", err)
 	}
@@ -70,12 +70,29 @@ func Detect(ctx context.Context, c *http.Client, url string) (Outcome, error) {
 	}
 }
 
-func fetch(ctx context.Context, c *http.Client, url, tok string) (string, error) {
+// fetch issues a single GET to url carrying tok in probeHeader.
+//
+// host, when non-empty, overrides the HTTP Host header sent — independent
+// of the address url actually dials. This is not a hypothetical knob: Varnish
+// hashes req.http.host into the cache key (vcl_hash.vcl.tmpl), so a request
+// aimed at one pod's own StatefulSet DNS name (e.g. my-cache-0.my-cache, used
+// to force which pod handles it — see cache-and-invalidate's seed step) gets
+// a *different* Host, and therefore a different cache key, than the same
+// path reached through any other name. Three pods addressed that way each
+// cache their object under a different key, and no single request — a PURGE
+// least of all — can ever address more than one of them at once. See
+// e2e/tests/cache-and-invalidate/chainsaw-test.yaml for how this is used to
+// make seeding and purging agree on one key across pods without losing
+// per-pod addressing.
+func fetch(ctx context.Context, c *http.Client, url, tok, host string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set(probeHeader, tok)
+	if host != "" {
+		req.Host = host
+	}
 
 	resp, err := c.Do(req)
 	if err != nil {

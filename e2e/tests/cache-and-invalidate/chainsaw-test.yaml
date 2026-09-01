@@ -1,0 +1,218 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cache-and-invalidate
+  labels:
+    suite: fast
+spec:
+  description: |
+    Proves the product's central promise end to end over real HTTP traffic:
+    an object is cached on every pod, one PURGE through the invalidation
+    service clears it everywhere, and the operator's own count of objects
+    removed (#103) matches reality. Renamed from cache-per-pod, which this
+    supersedes rather than merely extends — see below for why it changes
+    shape rather than just gaining steps.
+
+    Runs against fixtures/vinylcaches/no-cluster.yaml, i.e. WITHOUT
+    spec.cluster.enabled: true, so each pod's own vcl_recv caches directly
+    rather than redirecting through the shard machinery, and each of the
+    three pods holds its own independent copy of the object. That
+    independence is what makes "one broadcast purge, three pods cleared" a
+    meaningful assertion rather than a foregone one.
+
+    SUBTLETY — every seed and check below passes -host, pinned to the
+    invalidation service's own DNS name
+    (my-cache-invalidation.$NAMESPACE), even though each request is dialed
+    directly at one pod's own StatefulSet DNS name
+    (my-cache-<i>.my-cache). Varnish hashes req.http.host into the cache
+    key (vcl_hash.vcl.tmpl), and a PURGE broadcast through the invalidation
+    service carries exactly one Host — whatever the client used to reach
+    that service. Measured directly while building this test: seeding each
+    pod through its own address with no -host override gives each pod a
+    *different* cache key (its own DNS name), and a single broadcast PURGE
+    can then match at most one of them — objectsPurged came back 0, and a
+    follow-up check found the object still cached everywhere. Pinning
+    -host to the same value the PURGE will use is what makes seeding
+    "directly" and invalidating "through the service" agree on one key. See
+    fetch's doc comment in internal/probe/cache.go for the general form of
+    this trap.
+
+    What cache-per-pod actually proved, and why this isn't just that test
+    plus a purge: cache-per-pod seeded each pod through its own DNS name
+    with *no* Host override, so — by the same hashing rule — its three
+    pods each cached a genuinely different key. "Each pod caches" was true,
+    but weaker than the name suggested: nothing there proved three pods
+    holding *the same* object, and a single purge could never have been
+    asserted against it the way it is here. Reaching the stronger, useful
+    claim (one URL, cached identically on every pod, cleared by one
+    broadcast) needed the pinned Host above, not just an added purge step —
+    that's why this test replaces cache-per-pod instead of extending it.
+
+    The three defects that once made purge unusable in every reachable
+    configuration are exercised here, not just described:
+
+    - PURGE returning 403 under clustering (#93, fixed): not exercised by
+      this test specifically (clustering is off here; see shard-routing),
+      but relevant to why purge is safe to broadcast at all.
+
+    - Hard purge being unrequestable (#95, fixed): spec.invalidation.purge.soft
+      is a *bool, defaulted at the CRD level, and this fixture sets it to
+      an explicit false. The purge below only completes synchronously
+      because that explicit false is honored.
+
+    - Soft purge never revalidating (#94, fixed): not exercised here by
+      design — hard purge is what makes the immediate not-cached
+      assertions below deterministic, with no poll-with-deadline or sleep
+      needed. See shard-routing and fixtures/vinylcaches/sharded.yaml for
+      where soft purge's grace/revalidate window was measured and why it
+      would make this same assertion flaky.
+
+    NOT COVERED. Clustered purge broadcasting (shard-routing covers the
+    routing half of that, with a single owner pod rather than three
+    independent copies). Soft purge's grace-window behavior end to end —
+    only that it exists and was measured by hand while designing this
+    fixture (see above), not that it is asserted anywhere in CI. BAN and
+    xkey invalidation, clustered or not. Partial-failure broadcast results
+    (BroadcastResult.Status == "partial"): every pod here is healthy and
+    reachable, so 207 responses are never exercised.
+  timeouts:
+    assert: 180s
+    delete: 60s
+    exec: 60s
+  steps:
+    - name: deploy-backend
+      try:
+        - apply:
+            file: ../../fixtures/backends/echo-service.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-backend
+              status:
+                readyReplicas: 1
+
+    - name: create-cache
+      try:
+        - apply:
+            file: ../../fixtures/vinylcaches/no-cluster.yaml
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              status:
+                phase: Ready
+
+    - name: start-probe
+      try:
+        - apply:
+            file: ../../fixtures/probe/probe-pod.yaml
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: probe
+              status:
+                phase: Running
+
+    - name: seed-each-pod-directly
+      description: |
+        Seed a distinct token into each of the three pods' own caches,
+        addressed by its own stable StatefulSet DNS name but with Host
+        pinned to the invalidation service's DNS name (see SUBTLETY
+        above), and remember the token each pod was seeded with. Tokens
+        are written to files on the chainsaw host (keyed by $NAMESPACE)
+        rather than passed as chainsaw step outputs: outputs created
+        inside one named step are not visible to a later named step in
+        this chainsaw version, only within the same step.
+
+        Seeding is per-pod, not once through the traffic Service, because a
+        single seed only reaches whichever one of the three replicas the
+        traffic Service's ordinary load balancing happens to pick — there
+        is no clustering here to route it to all three (see sharded.yaml
+        for the fixture where clustering does the opposite: routes every
+        entry to one single owner, not three).
+      try:
+        - script:
+            content: |
+              set -eu
+              for i in 0 1 2; do
+                TOK=$(kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://my-cache-${i}.my-cache:8080/cache-and-invalidate/a" \
+                  -host "my-cache-invalidation.$NAMESPACE" -seed)
+                echo "pod ${i} seeded with ${TOK}"
+                echo "${TOK}" > "/tmp/cache-and-invalidate-${NAMESPACE}-tok${i}"
+              done
+
+    - name: cached-on-each-pod
+      description: |
+        Before-picture: confirm each pod is still serving the exact object
+        it was seeded with. Without this, "not cached after the purge"
+        below would prove nothing — an object that was never confirmed
+        present cannot be confirmed removed.
+      try:
+        - script:
+            content: |
+              set -eu
+              for i in 0 1 2; do
+                TOK=$(cat "/tmp/cache-and-invalidate-${NAMESPACE}-tok${i}")
+                kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://my-cache-${i}.my-cache:8080/cache-and-invalidate/a" \
+                  -host "my-cache-invalidation.$NAMESPACE" \
+                  -check "${TOK}" -expect-state cached
+              done
+
+    - name: purge-through-invalidation-service
+      description: |
+        The after-picture's cause: one PURGE, addressed to the invalidation
+        service (not to any one pod), broadcast to all three. Because every
+        pod cached the same key (see SUBTLETY above), the operator's own
+        objectsPurged count — surfaced through the proxy by #103 — is
+        asserted directly against reality rather than merely printed: 3
+        pods, 3 independent copies, 3 objects removed by 1 request.
+      try:
+        - script:
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://my-cache-invalidation.$NAMESPACE:8090/cache-and-invalidate/a" \
+                -purge -expect-purged 3
+
+    - name: not-cached-on-each-pod
+      description: |
+        After-picture: the same three pods that were confirmed cached
+        above now serve a fresh response, not the seeded one. Safe to
+        check independently on all three (unlike shard-routing's single
+        post-purge check): these are three separate pods with three
+        separate local caches, so one check's cache-repopulating miss
+        cannot contaminate another pod's result the way it would if all
+        three funneled through one shared, sharded cache entry.
+      try:
+        - script:
+            content: |
+              set -eu
+              for i in 0 1 2; do
+                TOK=$(cat "/tmp/cache-and-invalidate-${NAMESPACE}-tok${i}")
+                kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://my-cache-${i}.my-cache:8080/cache-and-invalidate/a" \
+                  -host "my-cache-invalidation.$NAMESPACE" \
+                  -check "${TOK}" -expect-state not-cached
+              done
+
+    - name: cleanup
+      try:
+        - delete:
+            file: ../../fixtures/probe/probe-pod.yaml
+        - delete:
+            file: ../../fixtures/vinylcaches/no-cluster.yaml
+        - delete:
+            file: ../../fixtures/backends/echo-service.yaml
+        - script:
+            content: |
+              rm -f "/tmp/cache-and-invalidate-${NAMESPACE}-tok0" \
+                    "/tmp/cache-and-invalidate-${NAMESPACE}-tok1" \
+                    "/tmp/cache-and-invalidate-${NAMESPACE}-tok2"

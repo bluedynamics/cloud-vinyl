@@ -3,21 +3,23 @@
 # With clustering on, every pod's vcl_recv redirects unshredded requests
 # (GET and PURGE alike) through an internal Varnish-to-Varnish hop before
 # any of its own caching or ACL logic runs, so a client addressing a pod
-# directly does not straightforwardly observe that pod's own cache — see
-# the open issue on shard-by-HASH hashing nothing in vcl_recv. With
-# clustering off, that redirect is not generated at all, so a request to a
-# pod's own StatefulSet DNS name is served (and cached) by that pod
-# directly. Used by cache-per-pod to test real per-pod caching without the
-# shard machinery in the way.
+# directly does not observe that pod's own cache — see
+# fixtures/vinylcaches/sharded.yaml, where that hop is exactly the point.
+# With clustering off, that redirect is not generated at all, so a request
+# to a pod's own StatefulSet DNS name is served (and cached) by that pod
+# directly. Used by cache-and-invalidate to test real per-pod caching, and
+# real per-pod invalidation, without the shard machinery in the way — three
+# independent copies, not one shared owner.
 #
-# invalidation.purge.soft: false is set explicitly, not because this
-# fixture currently exercises purge (it doesn't — see cache-per-pod's
-# description for why), but so it's ready for a future invalidation test.
-# As of #95, the defaulting webhook no longer touches Soft (it's a *bool
-# defaulted at the CRD level), and as of #94 soft/hard now render genuinely
-# different VCL via vmod_purge, so this explicit false is honored: this
-# VinylCache actually runs with hard purge. That is still unverified by any
-# test in this suite — nothing here sends a PURGE.
+# invalidation.purge.soft: false is set explicitly. As of #95, the
+# defaulting webhook no longer touches Soft (it's a *bool defaulted at the
+# CRD level), and as of #94 soft/hard now render genuinely different VCL via
+# vmod_purge, so this explicit false is honored: this VinylCache actually
+# runs with hard purge, which cache-and-invalidate depends on for its
+# not-cached assertions to be immediate and deterministic — soft purge's
+# grace/revalidate window would make the same assertion true only after an
+# unbounded delay (see sharded.yaml's header comment for where that was
+# measured).
 apiVersion: vinyl.bluedynamics.eu/v1alpha1
 kind: VinylCache
 metadata:
