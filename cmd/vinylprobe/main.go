@@ -151,32 +151,63 @@ func main() {
 	}
 }
 
-// runPurge issues -purge and, if -expect-purged was given, asserts the
-// reported count. n is nil when the response carried no parseable
-// objectsPurged count — distinct from a known 0 (#103) — so it is rendered
-// as "unknown", never silently as "0", and treated as an unconditional
-// assertion failure rather than a coerced zero.
+// purgeVerdict is the fully-decided outcome of a -purge call: whether it
+// passes, what to print, and what process exit code that implies. Pulling
+// this out of runPurge as a pure function — no HTTP, no os.Exit — is what
+// lets the pass/fail decision be unit tested directly, rather than resting
+// on a full chainsaw run against a cluster to notice a regression.
+type purgeVerdict struct {
+	// exitCode is 0 (pass, matches main's implicit success exit) or 1
+	// (FAIL, matches runCheck/runDetect's assertion-failure convention).
+	exitCode int
+	message  string
+}
+
+// decidePurge is the exact decision #103 exists to make possible: n is nil
+// when the response carried no parseable objectsPurged count — distinct
+// from a known 0 — and that must never satisfy -expect-purged, no matter
+// what count was asked for, including 0 itself. Collapsing "unknown" into a
+// match here would silently undo the distinction the last three PRs went to
+// trouble to preserve on the wire.
+func decidePurge(n *int, f probeFlags) purgeVerdict {
+	got := "unknown"
+	if n != nil {
+		got = fmt.Sprintf("%d", *n)
+	}
+	okMsg := fmt.Sprintf("OK: purged %s (objectsPurged=%s)", f.url, got)
+
+	if !f.expectPurgedSet {
+		return purgeVerdict{exitCode: 0, message: okMsg}
+	}
+	if n == nil {
+		return purgeVerdict{
+			exitCode: 1,
+			message:  fmt.Sprintf("FAIL: %s purge did not report an objects-purged count, want %d", f.url, f.expectPurged),
+		}
+	}
+	if *n != f.expectPurged {
+		return purgeVerdict{
+			exitCode: 1,
+			message:  fmt.Sprintf("FAIL: %s purged %d objects, want %d", f.url, *n, f.expectPurged),
+		}
+	}
+	return purgeVerdict{exitCode: 0, message: okMsg}
+}
+
+// runPurge issues -purge and applies decidePurge's verdict. Only the HTTP
+// call and the process exit live here; the decision itself is in
+// decidePurge so it can be tested without either.
 func runPurge(ctx context.Context, client *http.Client, f probeFlags) {
 	n, err := probe.Purge(ctx, client, f.url, f.host)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
 	}
-	got := "unknown"
-	if n != nil {
-		got = fmt.Sprintf("%d", *n)
+	v := decidePurge(n, f)
+	fmt.Println(v.message)
+	if v.exitCode != 0 {
+		os.Exit(v.exitCode)
 	}
-	if f.expectPurgedSet {
-		if n == nil {
-			fmt.Printf("FAIL: %s purge did not report an objects-purged count, want %d\n", f.url, f.expectPurged)
-			os.Exit(1)
-		}
-		if *n != f.expectPurged {
-			fmt.Printf("FAIL: %s purged %d objects, want %d\n", f.url, *n, f.expectPurged)
-			os.Exit(1)
-		}
-	}
-	fmt.Printf("OK: purged %s (objectsPurged=%s)\n", f.url, got)
 }
 
 func runSeed(ctx context.Context, client *http.Client, f probeFlags) {
