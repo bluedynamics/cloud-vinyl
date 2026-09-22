@@ -47,8 +47,12 @@ const (
 	// varnishSecretPath is where the -S shared secret is mounted. It is passed
 	// to varnishd as an argument and to the agent via VARNISH_SECRET_FILE.
 	varnishSecretPath = "/etc/varnish/secret" //nolint:gosec // Mount path, not a credential
-	// volumeVarnishWorkdir is the emptyDir backing /var/lib/varnish.
+	// volumeVarnishWorkdir is the emptyDir backing varnishWorkdirMountPath.
 	volumeVarnishWorkdir = "varnish-workdir"
+	// varnishWorkdirMountPath is where the varnish-workdir volume is mounted:
+	// on the varnish container itself (read-write, for the VSM/VSL) and on
+	// the exporter and tracer sidecars (read-only).
+	varnishWorkdirMountPath = "/var/lib/varnish"
 )
 
 const (
@@ -56,6 +60,13 @@ const (
 	exporterPort = int32(9131)
 	// defaultExporterImage is the default varnish exporter sidecar image.
 	defaultExporterImage = "ghcr.io/bluedynamics/varnish-exporter:1.6.1"
+)
+
+const (
+	// tracerMetricsPort is the tracer sidecar's Prometheus /metrics port.
+	tracerMetricsPort = int32(9464)
+	// defaultTracerImage is used when TRACER_IMAGE is unset (Helm sets it).
+	defaultTracerImage = "ghcr.io/bluedynamics/cloud-vinyl-tracer:latest"
 )
 
 const (
@@ -137,7 +148,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 				},
 				{
 					Name:      volumeVarnishWorkdir,
-					MountPath: "/var/lib/varnish",
+					MountPath: varnishWorkdirMountPath,
 				},
 				{
 					Name:      "varnish-tmp",
@@ -283,6 +294,9 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 		if exp := vc.Spec.Monitoring.Exporter; exp != nil && exp.Enabled {
 			containers = append(containers, buildExporterContainer(exp))
 		}
+		if vc.Spec.Tracing.Enabled {
+			containers = append(containers, buildTracerContainer(vc))
+		}
 
 		uid := int64(65532)
 		grace := int64(varnishTerminationGracePeriodSeconds)
@@ -349,7 +363,7 @@ func buildExporterContainer(exp *v1alpha1.ExporterSpec) corev1.Container {
 			{Name: "exporter", ContainerPort: port, Protocol: corev1.ProtocolTCP},
 		},
 		VolumeMounts: []corev1.VolumeMount{
-			{Name: volumeVarnishWorkdir, MountPath: "/var/lib/varnish", ReadOnly: true},
+			{Name: volumeVarnishWorkdir, MountPath: varnishWorkdirMountPath, ReadOnly: true},
 		},
 		SecurityContext: &corev1.SecurityContext{
 			RunAsNonRoot:             new(true),
@@ -357,6 +371,47 @@ func buildExporterContainer(exp *v1alpha1.ExporterSpec) corev1.Container {
 			AllowPrivilegeEscalation: new(false),
 		},
 		Resources: exp.Resources,
+	}
+}
+
+// buildTracerContainer returns the vinyl-tracer sidecar. It shares the
+// varnish-workdir volume read-only to read the VSL, and exports OTLP spans
+// to the endpoint from spec.tracing.
+func buildTracerContainer(vc *v1alpha1.VinylCache) corev1.Container {
+	tr := vc.Spec.Tracing
+	image := os.Getenv("TRACER_IMAGE")
+	if image == "" {
+		image = defaultTracerImage
+	}
+	protocol := tr.OTLP.Protocol
+	if protocol == "" {
+		protocol = "grpc"
+	}
+	service := tr.ServiceName
+	if service == "" {
+		service = vc.Name
+	}
+	return corev1.Container{
+		Name:  "vinyl-tracer",
+		Image: image,
+		Env: []corev1.EnvVar{
+			{Name: "OTLP_ENDPOINT", Value: tr.OTLP.Endpoint},
+			{Name: "OTLP_PROTOCOL", Value: protocol},
+			{Name: "OTLP_INSECURE", Value: strconv.FormatBool(tr.OTLP.Insecure)},
+			{Name: "TRACER_SERVICE_NAME", Value: service},
+		},
+		Ports: []corev1.ContainerPort{
+			{Name: "tracer-metrics", ContainerPort: tracerMetricsPort, Protocol: corev1.ProtocolTCP},
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: volumeVarnishWorkdir, MountPath: varnishWorkdirMountPath, ReadOnly: true},
+		},
+		SecurityContext: &corev1.SecurityContext{
+			RunAsNonRoot:             new(true),
+			ReadOnlyRootFilesystem:   new(true),
+			AllowPrivilegeEscalation: new(false),
+		},
+		Resources: tr.Resources,
 	}
 }
 
