@@ -391,7 +391,8 @@ func decideSpans(spans []probe.SpanSummary, name string, attrs map[string]string
 		}
 		ok := true
 		for k, want := range attrs {
-			if s.Attrs[k] != want {
+			v, present := s.Attrs[k]
+			if !present || v != want {
 				ok = false
 				break
 			}

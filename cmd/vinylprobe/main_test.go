@@ -161,6 +161,38 @@ func TestDecideSpans_MultipleAttrsAllMustMatch(t *testing.T) {
 	}
 }
 
+// TestDecideSpans_MissingAttrDoesNotMatchEmptyWant is the regression test for
+// the bug where `s.Attrs[k] != want` reads a missing key as Go's map
+// zero-value "", so `-attr key=` (an empty want) silently matched spans that
+// never carried the key at all. decideSpans's own doc comment says a missing
+// attribute must compare unequal to any wanted value, including "" — this
+// pins that down for the empty-string case specifically.
+func TestDecideSpans_MissingAttrDoesNotMatchEmptyWant(t *testing.T) {
+	spans := []probe.SpanSummary{
+		{Name: "varnish request", Attrs: map[string]string{}},
+	}
+	v := decideSpans(spans, "varnish request", map[string]string{"varnish.route": ""}, 1)
+	if v.satisfied {
+		t.Fatal("a span missing the key must not match an empty want")
+	}
+	if v.matched != 0 {
+		t.Fatalf("matched = %d, want 0", v.matched)
+	}
+}
+
+// TestDecideSpans_PresentEmptyAttrMatchesEmptyWant is the flip side: a span
+// that genuinely carries the key with value "" must still match `-attr key=`
+// — the fix must not overcorrect into rejecting present-but-empty values.
+func TestDecideSpans_PresentEmptyAttrMatchesEmptyWant(t *testing.T) {
+	spans := []probe.SpanSummary{
+		{Name: "varnish request", Attrs: map[string]string{"varnish.route": ""}},
+	}
+	v := decideSpans(spans, "varnish request", map[string]string{"varnish.route": ""}, 1)
+	if !v.satisfied {
+		t.Fatalf("want satisfied, got %+v", v)
+	}
+}
+
 // validate() tests for the two new modes: -otlp-sink and -assert-spans are
 // disjoint from -url/-purge/-seed/-check, and from each other.
 
