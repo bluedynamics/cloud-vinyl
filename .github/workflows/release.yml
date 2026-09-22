@@ -34,6 +34,16 @@ jobs:
             image: ghcr.io/bluedynamics/cloud-vinyl-agent
             platform: linux/arm64
             runner: ubuntu-24.04-arm
+          - dockerfile: Dockerfile.tracer
+            image: ghcr.io/bluedynamics/cloud-vinyl-tracer
+            platform: linux/amd64
+            runner: ubuntu-latest
+            build-args: VARNISH_IMAGE=varnish:8.0.2
+          - dockerfile: Dockerfile.tracer
+            image: ghcr.io/bluedynamics/cloud-vinyl-tracer
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            build-args: VARNISH_IMAGE=varnish:8.0.2
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
@@ -64,6 +74,7 @@ jobs:
           push: true
           provenance: false
           tags: ${{ matrix.image }}:${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.platform_tag }}
+          build-args: ${{ matrix.build-args }}
 
   docker-manifest:
     needs: docker-build
@@ -72,6 +83,7 @@ jobs:
         include:
           - image: ghcr.io/bluedynamics/cloud-vinyl-operator
           - image: ghcr.io/bluedynamics/cloud-vinyl-agent
+          - image: ghcr.io/bluedynamics/cloud-vinyl-tracer
     runs-on: ubuntu-latest
     steps:
       - name: Log in to GHCR
