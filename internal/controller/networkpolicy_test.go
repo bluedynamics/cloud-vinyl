@@ -94,6 +94,72 @@ func TestReconcileExporterNetworkPolicy_RemovedWhenToggledOff(t *testing.T) {
 	assert.True(t, apierrors.IsNotFound(err), "stale exporter NetworkPolicy must be removed when disabled")
 }
 
+// --- tracer policy: metrics reachability (mirrors the exporter policy) ---
+
+func tracerVC(enabled bool) *v1alpha1.VinylCache {
+	return &v1alpha1.VinylCache{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
+		Spec: v1alpha1.VinylCacheSpec{
+			Tracing: v1alpha1.TracingSpec{Enabled: enabled},
+		},
+	}
+}
+
+func getTracerNetpol(t *testing.T, r *VinylCacheReconciler, vc *v1alpha1.VinylCache) (*networkingv1.NetworkPolicy, error) {
+	t.Helper()
+	np := &networkingv1.NetworkPolicy{}
+	err := r.Get(context.Background(), types.NamespacedName{Name: vc.Name + "-tracer", Namespace: vc.Namespace}, np)
+	return np, err
+}
+
+func TestReconcileTracerNetworkPolicy_OpensPortWhenEnabled(t *testing.T) {
+	sch := newScheme(t)
+	vc := tracerVC(true)
+	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).Build()
+	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
+
+	require.NoError(t, r.reconcileTracerNetworkPolicy(context.Background(), vc))
+
+	np, err := getTracerNetpol(t, r, vc)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"app": "my-cache"}, np.Spec.PodSelector.MatchLabels)
+	require.Len(t, np.Spec.Ingress, 1)
+	// Empty From => allow from all sources (Prometheus in any namespace).
+	assert.Empty(t, np.Spec.Ingress[0].From)
+	require.Len(t, np.Spec.Ingress[0].Ports, 1)
+	assert.Equal(t, int(tracerMetricsPort), np.Spec.Ingress[0].Ports[0].Port.IntValue())
+}
+
+func TestReconcileTracerNetworkPolicy_AbsentWhenDisabled(t *testing.T) {
+	sch := newScheme(t)
+	vc := tracerVC(false)
+	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).Build()
+	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
+
+	require.NoError(t, r.reconcileTracerNetworkPolicy(context.Background(), vc))
+
+	_, err := getTracerNetpol(t, r, vc)
+	assert.True(t, apierrors.IsNotFound(err), "no tracer NetworkPolicy when tracing is disabled")
+}
+
+func TestReconcileTracerNetworkPolicy_RemovedWhenToggledOff(t *testing.T) {
+	sch := newScheme(t)
+	vc := tracerVC(true)
+	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).Build()
+	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
+
+	require.NoError(t, r.reconcileTracerNetworkPolicy(context.Background(), vc))
+	_, err := getTracerNetpol(t, r, vc)
+	require.NoError(t, err)
+
+	// Toggle tracing off and reconcile again.
+	vc.Spec.Tracing.Enabled = false
+	require.NoError(t, r.reconcileTracerNetworkPolicy(context.Background(), vc))
+
+	_, err = getTracerNetpol(t, r, vc)
+	assert.True(t, apierrors.IsNotFound(err), "stale tracer NetworkPolicy must be removed when disabled")
+}
+
 // --- agent / invalidation policies: operator reachability (issue #58) ---
 
 func getNetpol(t *testing.T, r *VinylCacheReconciler, vc *v1alpha1.VinylCache, suffix string) *networkingv1.NetworkPolicy {
