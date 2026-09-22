@@ -14,6 +14,11 @@ image:
     # Defaults to Chart appVersion when empty.
     tag: ""
     pullPolicy: IfNotPresent
+  tracer:
+    repository: ghcr.io/bluedynamics/cloud-vinyl-tracer
+    # Defaults to Chart appVersion when empty.
+    tag: ""
+    pullPolicy: IfNotPresent
 
 imagePullSecrets: []
 nameOverride: ""

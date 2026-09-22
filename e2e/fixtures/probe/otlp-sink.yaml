@@ -1,0 +1,27 @@
+# In-memory OTLP/http-protobuf sink: vinylprobe itself, run in -otlp-sink
+# mode instead of its normal probing modes. Serves POST /v1/traces (what the
+# vinyl-tracer sidecar exports to) and GET /spans (what -assert-spans polls).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: otlp-sink
+  labels:
+    app: otlp-sink
+spec:
+  restartPolicy: Never
+  containers:
+    - name: sink
+      image: cloud-vinyl-probe:dev
+      imagePullPolicy: Never
+      args: ["-otlp-sink", ":4318"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otlp-sink
+spec:
+  selector:
+    app: otlp-sink
+  ports:
+    - port: 4318
+      targetPort: 4318

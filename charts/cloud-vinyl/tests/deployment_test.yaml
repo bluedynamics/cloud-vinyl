@@ -95,3 +95,14 @@ tests:
             name: webhook-certs
             mountPath: /tmp/k8s-webhook-server/serving-certs
             readOnly: true
+
+  - it: sets TRACER_IMAGE from image.tracer values
+    set:
+      image.tracer.repository: example.org/tracer
+      image.tracer.tag: 1.2.3
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TRACER_IMAGE
+            value: "example.org/tracer:1.2.3"

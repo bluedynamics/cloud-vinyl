@@ -40,6 +40,8 @@ spec:
                   fieldPath: status.podIP
             - name: AGENT_IMAGE
               value: "{{ .Values.image.agent.repository }}:{{ .Values.image.agent.tag | default .Chart.AppVersion }}"
+            - name: TRACER_IMAGE
+              value: "{{ .Values.image.tracer.repository }}:{{ .Values.image.tracer.tag | default .Chart.AppVersion }}"
           ports:
             - name: metrics
               containerPort: 8080

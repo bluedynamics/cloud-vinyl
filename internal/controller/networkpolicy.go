@@ -46,6 +46,9 @@ func (r *VinylCacheReconciler) reconcileNetworkPolicies(ctx context.Context, vc 
 	if err := r.reconcileExporterNetworkPolicy(ctx, vc); err != nil {
 		return err
 	}
+	if err := r.reconcileTracerNetworkPolicy(ctx, vc); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -277,6 +280,62 @@ func (r *VinylCacheReconciler) reconcileExporterNetworkPolicy(ctx context.Contex
 	})
 	if err != nil {
 		return fmt.Errorf("reconciling exporter NetworkPolicy: %w", err)
+	}
+	return nil
+}
+
+// reconcileTracerNetworkPolicy allows ingress to the vinyl-tracer sidecar's
+// metrics port so Prometheus can scrape it. The operator cannot know which
+// namespace Prometheus runs in, and the exposed data is read-only,
+// low-sensitivity tracer metrics, so ingress is allowed from all sources —
+// consistent with the always-open Varnish HTTP port. The policy exists only
+// while the tracer sidecar is enabled; when disabled, a stale policy is
+// removed.
+func (r *VinylCacheReconciler) reconcileTracerNetworkPolicy(ctx context.Context, vc *v1alpha1.VinylCache) error {
+	np := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      vc.Name + "-tracer",
+			Namespace: vc.Namespace,
+		},
+	}
+
+	if !vc.Spec.Tracing.Enabled {
+		// Tracing disabled: remove a previously created policy if present.
+		if err := r.Delete(ctx, np); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting tracer NetworkPolicy: %w", err)
+		}
+		return nil
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, np, func() error {
+		if err := ctrl.SetControllerReference(vc, np, r.Scheme); err != nil {
+			return err
+		}
+
+		np.Labels = map[string]string{labelVinylCacheName: vc.Name}
+
+		tracerPortVal := intstr.FromInt32(tracerMetricsPort)
+		proto := corev1.ProtocolTCP
+
+		np.Spec = networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{
+				MatchLabels: map[string]string{labelApp: vc.Name},
+			},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{
+					// Empty From = allow from all sources, so Prometheus can scrape
+					// regardless of its namespace. Tracer metrics are read-only.
+					Ports: []networkingv1.NetworkPolicyPort{
+						{Port: &tracerPortVal, Protocol: &proto},
+					},
+				},
+			},
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("reconciling tracer NetworkPolicy: %w", err)
 	}
 	return nil
 }

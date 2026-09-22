@@ -1,0 +1,27 @@
+# Same shape as minimal.yaml, with tracing enabled against the otlp-sink
+# fixture (e2e/fixtures/probe/otlp-sink.yaml). Service names resolve inside
+# the test namespace, so the endpoint needs no namespace templating.
+apiVersion: vinyl.bluedynamics.eu/v1alpha1
+kind: VinylCache
+metadata:
+  name: traced-cache
+spec:
+  replicas: 1
+  image: varnish:8.0.2
+  backends:
+    - name: echo
+      serviceRef:
+        name: echo-backend
+      port: 80
+      probe:
+        url: /
+        interval: 5s
+        timeout: 1s
+        threshold: 2
+        window: 5
+  tracing:
+    enabled: true
+    otlp:
+      endpoint: otlp-sink:4318
+      protocol: http/protobuf
+      insecure: true

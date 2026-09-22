@@ -103,6 +103,7 @@ docs-live: ## Live-reload Sphinx documentation (requires sphinx-autobuild).
 build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager ./cmd/operator
 	go build -o bin/agent ./cmd/agent
+	go build -o bin/tracer ./cmd/tracer
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
@@ -125,6 +126,12 @@ docker-build-operator: ## Build the operator docker image.
 .PHONY: docker-build-agent
 docker-build-agent: ## Build the agent docker image.
 	$(CONTAINER_TOOL) build -t $(AGENT_IMG) -f Dockerfile.agent .
+
+TRACER_IMG ?= ghcr.io/bluedynamics/cloud-vinyl-tracer:latest
+
+.PHONY: docker-build-tracer
+docker-build-tracer: ## Build the tracer docker image (VARNISH_IMAGE pins the varnishlog source).
+	$(CONTAINER_TOOL) build -t $(TRACER_IMG) -f Dockerfile.tracer .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.

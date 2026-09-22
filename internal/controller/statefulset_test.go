@@ -103,6 +103,62 @@ func TestReconcileStatefulSet_NoExporterByDefault(t *testing.T) {
 	}
 }
 
+func tracingVC(name string) *v1alpha1.VinylCache {
+	vc := exporterBaseVC()
+	vc.Name = name
+	vc.Spec.Tracing = v1alpha1.TracingSpec{
+		Enabled: true,
+		OTLP: v1alpha1.OTLPSpec{
+			Endpoint: "collector.monitoring.svc:4317",
+			Insecure: true,
+		},
+	}
+	return vc
+}
+
+func TestReconcileStatefulSet_TracerSidecarWhenEnabled(t *testing.T) {
+	ss := getStatefulSet(t, tracingVC("traced"))
+	var tracer *corev1.Container
+	for i := range ss.Spec.Template.Spec.Containers {
+		if ss.Spec.Template.Spec.Containers[i].Name == "vinyl-tracer" {
+			tracer = &ss.Spec.Template.Spec.Containers[i]
+		}
+	}
+	require.NotNil(t, tracer, "vinyl-tracer container missing")
+
+	env := map[string]string{}
+	for _, e := range tracer.Env {
+		env[e.Name] = e.Value
+	}
+	assert.Equal(t, "collector.monitoring.svc:4317", env["OTLP_ENDPOINT"])
+	assert.Equal(t, "grpc", env["OTLP_PROTOCOL"], "protocol defaults to grpc")
+	assert.Equal(t, "true", env["OTLP_INSECURE"])
+	assert.Equal(t, "traced", env["TRACER_SERVICE_NAME"], "serviceName defaults to CR name")
+
+	require.Len(t, tracer.VolumeMounts, 1)
+	assert.Equal(t, "/var/lib/varnish", tracer.VolumeMounts[0].MountPath)
+	assert.True(t, tracer.VolumeMounts[0].ReadOnly)
+}
+
+func TestReconcileStatefulSet_NoTracerByDefault(t *testing.T) {
+	ss := getStatefulSet(t, exporterBaseVC())
+	for _, c := range ss.Spec.Template.Spec.Containers {
+		assert.NotEqual(t, "vinyl-tracer", c.Name)
+	}
+}
+
+func TestReconcileStatefulSet_TracerImageFromEnv(t *testing.T) {
+	t.Setenv("TRACER_IMAGE", "example.org/tracer:test")
+	ss := getStatefulSet(t, tracingVC("traced-img"))
+	for _, c := range ss.Spec.Template.Spec.Containers {
+		if c.Name == "vinyl-tracer" {
+			assert.Equal(t, "example.org/tracer:test", c.Image)
+			return
+		}
+	}
+	t.Fatal("vinyl-tracer container missing")
+}
+
 func TestReconcileStatefulSet_UserVolumesAndMountsAppended(t *testing.T) {
 	sch := newScheme(t)
 	quantity := resource.MustParse("100Mi")

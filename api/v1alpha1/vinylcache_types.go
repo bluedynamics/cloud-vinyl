@@ -114,6 +114,11 @@ type VinylCacheSpec struct {
 	// +optional
 	Monitoring MonitoringSpec `json:"monitoring,omitempty"`
 
+	// tracing configures the vinyl-tracer sidecar that exports OpenTelemetry
+	// trace spans built from the Varnish Shared memory Log.
+	// +optional
+	Tracing TracingSpec `json:"tracing,omitempty"`
+
 	// resources sets CPU and memory requests/limits for the Varnish container.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
@@ -580,6 +585,43 @@ type MonitoringSpec struct {
 	// native varnish_* metrics (cache hit/miss, backend health) from varnishstat.
 	// +optional
 	Exporter *ExporterSpec `json:"exporter,omitempty"`
+}
+
+// TracingSpec configures OpenTelemetry trace export for the Varnish cluster.
+type TracingSpec struct {
+	// enabled activates the vinyl-tracer sidecar.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// otlp configures the OTLP trace exporter. endpoint is required when
+	// tracing is enabled.
+	// +optional
+	OTLP OTLPSpec `json:"otlp,omitempty"`
+
+	// serviceName is the OTel service.name resource attribute.
+	// Defaults to the VinylCache name.
+	// +optional
+	ServiceName string `json:"serviceName,omitempty"`
+
+	// resources are the tracer container's resource requirements.
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+// OTLPSpec is the OTLP exporter configuration.
+type OTLPSpec struct {
+	// endpoint is the collector's host:port (no scheme).
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// protocol selects the OTLP transport. Defaults to grpc.
+	// +kubebuilder:validation:Enum=grpc;http/protobuf
+	// +optional
+	Protocol string `json:"protocol,omitempty"`
+
+	// insecure disables TLS for the OTLP connection.
+	// +optional
+	Insecure bool `json:"insecure,omitempty"`
 }
 
 // ExporterSpec configures the varnish metrics exporter sidecar.

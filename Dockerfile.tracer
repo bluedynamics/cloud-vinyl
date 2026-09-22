@@ -1,0 +1,37 @@
+# vinyl-tracer: reads the VSL via a varnishlog copied from the SAME varnish
+# image the cache runs (the VSL shm layout is not a stable ABI), and exports
+# OTLP spans. Keep VARNISH_IMAGE in sync with the cache image.
+#
+# Published as ghcr.io/bluedynamics/cloud-vinyl-tracer:<version>.
+
+ARG VARNISH_IMAGE=varnish:8.0.2
+
+FROM golang:1.26 AS build
+WORKDIR /workspace
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o tracer ./cmd/tracer
+
+# Source of a matching varnishlog + its runtime libraries. The guard RUN
+# lives here (a COPY'd-from stage) so BuildKit cannot prune it. varnish 6.0
+# ships libvarnishapi.so.1 and is unsupported; see #91.
+FROM ${VARNISH_IMAGE} AS varnish
+RUN test -e /usr/lib/libvarnishapi.so.3 || { \
+        echo "ERROR: VARNISH_IMAGE ships no libvarnishapi.so.3, found:" >&2; \
+        ls -1 /usr/lib/libvarnishapi.so.* >&2; \
+        exit 1; }
+
+# Must match the Debian release of VARNISH_IMAGE (varnish:8.0.2 = Debian 13)
+# so varnishlog finds a compatible glibc.
+FROM gcr.io/distroless/base-debian13:nonroot
+LABEL org.opencontainers.image.title="vinyl-tracer" \
+      org.opencontainers.image.source="https://github.com/bluedynamics/cloud-vinyl" \
+      org.opencontainers.image.licenses="Apache-2.0"
+COPY --from=varnish /usr/bin/varnishlog /usr/bin/varnishlog
+COPY --from=varnish /usr/lib/libvarnishapi.so.3* /usr/lib/
+COPY --from=varnish /lib/*-linux-gnu/libpcre2-8.so.0 /usr/lib/libpcre2-8.so.0
+COPY --from=build /workspace/tracer /tracer
+USER 65532:65532
+EXPOSE 9464
+ENTRYPOINT ["/tracer"]
