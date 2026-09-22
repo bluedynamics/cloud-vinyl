@@ -558,6 +558,34 @@ func TestValidate_StoragePath_UnderReservedMount_Rejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "storage")
 }
 
+// --- tracing validation ---
+
+func TestValidateVinylCache_TracingRequiresEndpoint(t *testing.T) {
+	vc := minimalValidVC()
+	vc.Spec.Tracing = vinylv1alpha1.TracingSpec{Enabled: true}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tracing.otlp.endpoint is required")
+}
+
+func TestValidateVinylCache_TracingEndpointMustBeHostPort(t *testing.T) {
+	vc := minimalValidVC()
+	vc.Spec.Tracing = vinylv1alpha1.TracingSpec{
+		Enabled: true,
+		OTLP:    vinylv1alpha1.OTLPSpec{Endpoint: "no-port-here"},
+	}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tracing.otlp.endpoint")
+}
+
+func TestValidateVinylCache_TracingDisabledSkipsChecks(t *testing.T) {
+	vc := minimalValidVC()
+	vc.Spec.Tracing = vinylv1alpha1.TracingSpec{} // disabled, empty
+	_, err := webhook.ValidateVinylCache(vc)
+	assert.NoError(t, err)
+}
+
 func TestValidate_StoragePath_UnderUserMount_Accepted(t *testing.T) {
 	vc := validBaseVinylCache()
 	vc.Spec.Pod.Volumes = []corev1.Volume{{

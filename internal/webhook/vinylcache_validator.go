@@ -120,6 +120,7 @@ func pathConflictsWithReserved(p string) bool {
 //   - storage type blocklist
 //   - backend name VCL identifier conformance
 //   - allowedSources CIDR syntax for purge, BAN, and xkey invalidation
+//   - tracing.otlp.endpoint required and host:port formatted when tracing is enabled
 func ValidateVinylCache(vc *vinylv1alpha1.VinylCache) (admission.Warnings, error) {
 	var errs []string
 
@@ -211,6 +212,17 @@ func ValidateVinylCache(vc *vinylv1alpha1.VinylCache) (admission.Warnings, error
 			errs = append(errs, fmt.Sprintf(
 				"spec.storage[%q].path %q is reserved by the operator; mount your own volume and place the cache file there",
 				s.Name, s.Path))
+		}
+	}
+
+	// Validate tracing: an enabled tracer without a collector endpoint (or
+	// with a malformed one) would crash-loop the sidecar.
+	if vc.Spec.Tracing.Enabled {
+		ep := vc.Spec.Tracing.OTLP.Endpoint
+		if ep == "" {
+			errs = append(errs, "tracing.otlp.endpoint is required when tracing is enabled")
+		} else if _, _, err := net.SplitHostPort(ep); err != nil {
+			errs = append(errs, fmt.Sprintf("tracing.otlp.endpoint %q must be host:port: %v", ep, err))
 		}
 	}
 
