@@ -103,6 +103,7 @@ docs-live: ## Live-reload Sphinx documentation (requires sphinx-autobuild).
 build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager ./cmd/operator
 	go build -o bin/agent ./cmd/agent
+	go build -o bin/tracer ./cmd/tracer
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
