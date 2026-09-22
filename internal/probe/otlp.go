@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"sync"
 
 	"google.golang.org/protobuf/proto"
 
 	collpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
 // SpanSummary is the JSON shape GET /spans returns: enough of a received
@@ -67,10 +69,7 @@ func (s *OTLPSink) receive(w http.ResponseWriter, r *http.Request) {
 			for _, sp := range ss.GetSpans() {
 				attrs := map[string]string{}
 				for _, kv := range sp.GetAttributes() {
-					attrs[kv.GetKey()] = kv.GetValue().GetStringValue()
-					if attrs[kv.GetKey()] == "" {
-						attrs[kv.GetKey()] = kv.GetValue().String()
-					}
+					attrs[kv.GetKey()] = formatAnyValue(kv.GetValue())
 				}
 				s.spans = append(s.spans, SpanSummary{
 					Name:     sp.GetName(),
@@ -86,6 +85,32 @@ func (s *OTLPSink) receive(w http.ResponseWriter, r *http.Request) {
 		s.spans = s.spans[over:]
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// formatAnyValue renders an OTLP attribute value as the string an
+// -assert-spans -attr key=value comparison can match against. A string
+// value is returned as-is, even when empty — GetStringValue's own zero
+// value cannot be used as an "absent" sentinel, since "" is itself a
+// legitimate attribute value. Int/bool/double get their natural decimal
+// text (strconv), not prototext ("int_value:200", "bool_value:true"): the
+// tracer's own exporter emits exactly these types (attribute.Int(...),
+// attribute.Bool(...)), so falling back to .String() here would make every
+// -attr on a non-string attribute silently never match. array/kvlist/bytes
+// values have no natural scalar text, so .String() (prototext) remains the
+// last-resort fallback for those.
+func formatAnyValue(v *commonpb.AnyValue) string {
+	switch x := v.GetValue().(type) {
+	case *commonpb.AnyValue_StringValue:
+		return x.StringValue
+	case *commonpb.AnyValue_BoolValue:
+		return strconv.FormatBool(x.BoolValue)
+	case *commonpb.AnyValue_IntValue:
+		return strconv.FormatInt(x.IntValue, 10)
+	case *commonpb.AnyValue_DoubleValue:
+		return strconv.FormatFloat(x.DoubleValue, 'g', -1, 64)
+	default:
+		return v.String()
+	}
 }
 
 func (s *OTLPSink) list(w http.ResponseWriter, _ *http.Request) {
