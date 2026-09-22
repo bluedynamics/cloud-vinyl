@@ -75,12 +75,17 @@ spec:
         operator creates as "<name>-traffic" (reconcileTrafficService in
         internal/controller/service.go); the bare traced-cache Service is
         headless, for StatefulSet pod-to-pod DNS, not client traffic.
+        ONE -expect hit call: Detect (internal/probe/cache.go) itself issues
+        the two requests — first a cold-cache miss, then a hit served from
+        cache — and "hit" is its verdict that caching works. A separate
+        "-expect miss" first call would be wrong: on a caching URL Detect
+        correctly answers "hit" (that mistake failed this test's first CI
+        run). The single call produces exactly the miss + fetch + hit spans
+        the next step asserts.
       try:
         - script:
             content: |
               set -eu
-              kubectl exec -n $NAMESPACE probe -- \
-                /vinylprobe -url "http://traced-cache-traffic:8080/traced/a" -expect miss
               kubectl exec -n $NAMESPACE probe -- \
                 /vinylprobe -url "http://traced-cache-traffic:8080/traced/a" -expect hit
 
