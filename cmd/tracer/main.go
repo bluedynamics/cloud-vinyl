@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -48,7 +49,14 @@ func main() {
 		os.Exit(1)
 	}
 	batcher := export.NewBatcher(exp, service, 2048)
-	go batcher.Run(ctx)
+	var wg sync.WaitGroup
+	wg.Go(func() { batcher.Run(ctx) })
+	// Joined below, after s.run(ctx) returns, so the SIGTERM drain/flush in
+	// Run's ctx.Done() branch is guaranteed to finish before the process
+	// exits (see internal/tracer/export.TestBatcher_ExportsEnqueuedSpans for
+	// the drain-on-cancel coverage; a duplicate of that assertion at the
+	// main-package level would test the same behavior twice for no benefit).
+	defer wg.Wait()
 
 	// 2. Metrics endpoint.
 	go func() {
