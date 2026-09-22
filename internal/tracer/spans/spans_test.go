@@ -99,6 +99,71 @@ func TestParseTraceparent_UnsampledMeansNoSpans(t *testing.T) {
 	assert.Nil(t, Build(txs[0], &seqIDs{}))
 }
 
+// mintedTraceparent extracts the VCL-minted BereqHeader traceparent of the
+// first BeReq child, parsed with the same production parser.
+func mintedTraceparent(t *testing.T, tx *vsl.Tx) (trace.TraceID, trace.SpanID) {
+	t.Helper()
+	for _, child := range tx.Children {
+		if child.Type != "BeReq" {
+			continue
+		}
+		raw, ok := child.Header("BereqHeader", "traceparent")
+		require.True(t, ok, "fixture must carry a minted BereqHeader traceparent")
+		tid, sid, _, valid := parseTraceparent(raw)
+		require.True(t, valid, "minted traceparent must be W3C-valid: %q", raw)
+		return tid, sid
+	}
+	t.Fatal("fixture has no BeReq child")
+	return trace.TraceID{}, trace.SpanID{}
+}
+
+func TestBuild_AdoptsVCLMintedFetchSpanID(t *testing.T) {
+	txs := fixtureTxs(t, "rewrite_miss.txt")
+	require.NotEmpty(t, txs)
+	wantTID, wantSID := mintedTraceparent(t, txs[0])
+
+	got := Build(txs[0], &seqIDs{})
+	require.Len(t, got, 2)
+	req, fetch := got[0], got[1]
+
+	assert.Equal(t, "4bf92f3577b34da6a3ce929d0e0e4736", req.TraceID.String(),
+		"client trace id inherited")
+	assert.Equal(t, wantTID, fetch.TraceID, "VCL preserved the trace id")
+	assert.Equal(t, wantSID, fetch.SpanID,
+		"fetch span must carry the VCL-minted id the backend parented to")
+	assert.Equal(t, req.SpanID, fetch.ParentID)
+	assert.NotEqual(t, "00f067aa0ba902b7", fetch.SpanID.String(),
+		"minted id must differ from the client's span id")
+}
+
+func TestBuild_SelfRootAdoptsVCLMintedTraceID(t *testing.T) {
+	txs := fixtureTxs(t, "rewrite_selfroot.txt")
+	require.NotEmpty(t, txs)
+	wantTID, wantSID := mintedTraceparent(t, txs[0])
+
+	got := Build(txs[0], &seqIDs{})
+	require.Len(t, got, 2)
+	req, fetch := got[0], got[1]
+
+	assert.Equal(t, wantTID, req.TraceID,
+		"with no client traceparent the request span must join the VCL-minted trace, or the backend's spans land in a different trace")
+	assert.Equal(t, trace.SpanID{}, req.ParentID, "still a root span")
+	assert.Equal(t, wantSID, fetch.SpanID)
+}
+
+func TestBuild_UnrewrittenBereqHeaderIsNotAdopted(t *testing.T) {
+	txs := fixtureTxs(t, "miss_then_hit.txt")
+	got := Build(txs[0], &seqIDs{})
+	require.Len(t, got, 2)
+	req, fetch := got[0], got[1]
+	// P1 fixture: bereq forwarded the client's traceparent untouched, so
+	// its span id equals the request's ParentID. Adopting it would give
+	// the fetch span the ingress's own id.
+	assert.NotEqual(t, req.ParentID, fetch.SpanID,
+		"an unrewritten forwarded span id must not be adopted")
+	assert.Equal(t, req.SpanID, fetch.ParentID)
+}
+
 func attrString(t *testing.T, attrs []attribute.KeyValue, key string) string {
 	t.Helper()
 	for _, a := range attrs {
