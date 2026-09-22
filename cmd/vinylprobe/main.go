@@ -38,16 +38,20 @@ const (
 		"internal/probe/cache.go."
 	otlpSinkHelp = "listen address for an in-memory OTLP/http-protobuf trace sink " +
 		"(serves POST /v1/traces, GET /spans, GET /healthz; runs until killed). " +
-		"Mutually exclusive with -url, -purge, -seed, -check, and -assert-spans."
+		"Mutually exclusive with -url, -purge, -seed, -check, -body-capture, and -assert-spans."
 	assertSpansHelp = "poll -sink's /spans until a span matching -span-name (and every -attr) " +
 		"appears -min-count times, or -within elapses. " +
-		"Mutually exclusive with -url, -purge, -seed, -check, and -otlp-sink."
+		"Mutually exclusive with -url, -purge, -seed, -check, -body-capture, and -otlp-sink."
 	sinkHelp     = "base URL of the OTLP sink to poll (requires -assert-spans)"
 	spanNameHelp = "exact span name a matching span must carry (requires -assert-spans)"
 	attrHelp     = "key=value attribute a matching span must carry; " +
 		"may be repeated to require several attributes (only with -assert-spans)"
-	minCountHelp = "minimum number of matching spans required to satisfy -assert-spans"
-	withinHelp   = "deadline for -assert-spans to keep polling -sink before failing"
+	minCountHelp    = "minimum number of matching spans required to satisfy -assert-spans"
+	withinHelp      = "deadline for -assert-spans to keep polling -sink before failing"
+	bodyCaptureHelp = "regex with one capture group applied to the -url response body; " +
+		"prints the first group (exit 0), FAIL exit 1 on no match"
+	traceIDHelp = "assert-spans: only count spans with this exact hex trace id"
+	spanIDHelp  = "assert-spans: only count spans with this exact hex span id"
 )
 
 // probeFlags holds every flag plus which ones were explicitly passed
@@ -72,6 +76,11 @@ type probeFlags struct {
 	minCount    int
 	attrs       map[string]string
 	within      time.Duration
+	traceID     string
+	spanID      string
+
+	// bodyCapture is a -url-family mode: see bodyCaptureHelp.
+	bodyCapture string
 
 	expectSet       bool
 	expectStateSet  bool
@@ -95,6 +104,9 @@ func parseFlags() probeFlags {
 	spanName := flag.String("span-name", "", spanNameHelp)
 	minCount := flag.Int("min-count", 1, minCountHelp)
 	within := flag.Duration("within", 60*time.Second, withinHelp)
+	traceID := flag.String("trace-id", "", traceIDHelp)
+	spanID := flag.String("span-id", "", spanIDHelp)
+	bodyCapture := flag.String("body-capture", "", bodyCaptureHelp)
 	var attrPairs []string
 	flag.Func("attr", attrHelp, func(s string) error {
 		if !strings.Contains(s, "=") {
@@ -129,6 +141,9 @@ func parseFlags() probeFlags {
 		minCount:     *minCount,
 		attrs:        attrs,
 		within:       *within,
+		traceID:      *traceID,
+		spanID:       *spanID,
+		bodyCapture:  *bodyCapture,
 	}
 	flag.Visit(func(fl *flag.Flag) {
 		switch fl.Name {
@@ -154,14 +169,16 @@ func (f probeFlags) validateSpanModes() (handled bool, err error) {
 	switch {
 	case f.otlpSink != "" && f.assertSpans:
 		return true, errors.New("-otlp-sink and -assert-spans are mutually exclusive")
-	case f.otlpSink != "" && (f.url != "" || f.purge || f.seed || f.check != ""):
-		return true, errors.New("-otlp-sink is mutually exclusive with -url, -purge, -seed, and -check")
-	case f.assertSpans && (f.url != "" || f.purge || f.seed || f.check != ""):
-		return true, errors.New("-assert-spans is mutually exclusive with -url, -purge, -seed, and -check")
+	case f.otlpSink != "" && (f.url != "" || f.purge || f.seed || f.check != "" || f.bodyCapture != ""):
+		return true, errors.New("-otlp-sink is mutually exclusive with -url, -purge, -seed, -check, and -body-capture")
+	case f.assertSpans && (f.url != "" || f.purge || f.seed || f.check != "" || f.bodyCapture != ""):
+		return true, errors.New("-assert-spans is mutually exclusive with -url, -purge, -seed, -check, and -body-capture")
 	case f.assertSpans && f.sink == "":
 		return true, errors.New("-assert-spans requires -sink")
 	case f.assertSpans && f.spanName == "":
 		return true, errors.New("-assert-spans requires -span-name")
+	case (f.traceID != "" || f.spanID != "") && !f.assertSpans:
+		return true, errors.New("-trace-id/-span-id require -assert-spans")
 	case f.assertSpans, f.otlpSink != "":
 		return true, nil
 	default:
@@ -181,18 +198,18 @@ func (f probeFlags) validate() error {
 		return errors.New("-url is required")
 	}
 
-	// -purge, -seed and -check are three different, mutually exclusive modes;
-	// anything left over falls through to the original Detect (-expect
-	// hit|miss) mode.
+	// -purge, -seed, -check and -body-capture are four different, mutually
+	// exclusive modes; anything left over falls through to the original
+	// Detect (-expect hit|miss) mode.
 	modes := 0
-	for _, on := range []bool{f.purge, f.seed, f.check != ""} {
+	for _, on := range []bool{f.purge, f.seed, f.check != "", f.bodyCapture != ""} {
 		if on {
 			modes++
 		}
 	}
 	switch {
 	case modes > 1:
-		return errors.New("-purge, -seed and -check are mutually exclusive")
+		return errors.New("-purge, -seed, -check and -body-capture are mutually exclusive")
 	case (f.purge || f.seed) && f.expectSet:
 		return errors.New("-expect has no effect with -purge or -seed; do not pass it")
 	case f.check != "" && f.expectSet:
@@ -203,8 +220,8 @@ func (f probeFlags) validate() error {
 		return errors.New("-expect-purged only applies to -purge")
 	case f.expectPurgedSet && f.expectPurged < 0:
 		return errors.New("-expect-purged must not be negative")
-	case f.host != "" && !f.purge && !f.seed && f.check == "":
-		return errors.New("-host only applies to -purge, -seed, or -check")
+	case f.host != "" && !f.purge && !f.seed && f.check == "" && f.bodyCapture == "":
+		return errors.New("-host only applies to -purge, -seed, -check, or -body-capture")
 	}
 	return nil
 }
@@ -245,6 +262,8 @@ func main() {
 		runSeed(ctx, client, f)
 	case f.check != "":
 		runCheck(ctx, client, f)
+	case f.bodyCapture != "":
+		runBodyCapture(ctx, client, f)
 	default:
 		runDetect(ctx, client, f)
 	}
@@ -347,6 +366,24 @@ func runCheck(ctx context.Context, client *http.Client, f probeFlags) {
 	fmt.Printf("OK: %s is %s\n", f.url, got)
 }
 
+// runBodyCapture GETs -url once and prints the first capture group of
+// -body-capture's regex match against the response body, the same bare-value
+// stdout contract -seed uses for its token.
+func runBodyCapture(ctx context.Context, client *http.Client, f probeFlags) {
+	got, matched, err := probe.BodyCapture(ctx, client, f.url, f.host, f.bodyCapture)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
+	}
+	if !matched {
+		fmt.Printf("FAIL: %s body did not match %q\n", f.url, f.bodyCapture)
+		os.Exit(1)
+	}
+	// Bare capture on stdout: chainsaw script steps shell-capture it, the
+	// same contract as -seed's token.
+	fmt.Println(got)
+}
+
 func runDetect(ctx context.Context, client *http.Client, f probeFlags) {
 	var want probe.Outcome
 	switch f.expect {
@@ -381,12 +418,22 @@ type spanVerdict struct {
 
 // decideSpans is pure so the pass/fail rule is unit-testable, the same
 // decidePurge pattern used for -purge: a span counts when its name matches
-// name and every entry in attrs equals the span's own attribute of that key
-// (a missing attribute compares unequal to any wanted value, including "").
-func decideSpans(spans []probe.SpanSummary, name string, attrs map[string]string, minCount int) spanVerdict {
+// name, its TraceID/SpanID match traceID/spanID (when those filters are
+// non-empty), and every entry in attrs equals the span's own attribute of
+// that key (a missing attribute compares unequal to any wanted value,
+// including "").
+func decideSpans(
+	spans []probe.SpanSummary, name string, attrs map[string]string, traceID, spanID string, minCount int,
+) spanVerdict {
 	matched := 0
 	for _, s := range spans {
 		if s.Name != name {
+			continue
+		}
+		if traceID != "" && s.TraceID != traceID {
+			continue
+		}
+		if spanID != "" && s.SpanID != spanID {
 			continue
 		}
 		ok := true
@@ -428,10 +475,12 @@ func runOTLPSink(f probeFlags) {
 func runAssertSpans(ctx context.Context, f probeFlags) {
 	deadline := time.Now().Add(f.within)
 	var last spanVerdict
+	var lastErr error
 	for time.Now().Before(deadline) {
 		spans, err := fetchSpans(ctx, f.sink)
+		lastErr = err
 		if err == nil {
-			last = decideSpans(spans, f.spanName, f.attrs, f.minCount)
+			last = decideSpans(spans, f.spanName, f.attrs, f.traceID, f.spanID, f.minCount)
 			if last.satisfied {
 				fmt.Printf("OK: %d span(s) named %q matched\n", last.matched, f.spanName)
 				os.Exit(0)
@@ -439,8 +488,12 @@ func runAssertSpans(ctx context.Context, f probeFlags) {
 		}
 		time.Sleep(2 * time.Second)
 	}
-	fmt.Printf("FAIL: only %d span(s) named %q matched within %s\n",
+	msg := fmt.Sprintf("FAIL: only %d span(s) named %q matched within %s",
 		last.matched, f.spanName, f.within)
+	if lastErr != nil {
+		msg += fmt.Sprintf("; last sink error: %v", lastErr)
+	}
+	fmt.Println(msg)
 	os.Exit(1)
 }
 

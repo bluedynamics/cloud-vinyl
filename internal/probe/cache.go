@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
@@ -68,6 +69,35 @@ func Detect(ctx context.Context, c *http.Client, url string) (Outcome, error) {
 	default:
 		return Miss, fmt.Errorf("backend did not echo the %s header; cannot tell hit from miss", probeHeader)
 	}
+}
+
+// BodyCapture GETs url once and applies pattern (which must contain at
+// least one capture group) to the response body, returning the first
+// group of the first match. It exists for E2E assertions against backends
+// that reflect request state into their response body (the echo server's
+// lowercased-header JSON), e.g. reading back a VCL-minted traceparent.
+// matched=false with a nil error means the body simply didn't match.
+func BodyCapture(ctx context.Context, c *http.Client, url, host, pattern string) (string, bool, error) {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return "", false, fmt.Errorf("compiling -body-capture pattern: %w", err)
+	}
+	if re.NumSubexp() < 1 {
+		return "", false, fmt.Errorf("-body-capture pattern %q has no capture group", pattern)
+	}
+	tok, err := token()
+	if err != nil {
+		return "", false, err
+	}
+	body, err := fetch(ctx, c, url, tok, host)
+	if err != nil {
+		return "", false, err
+	}
+	m := re.FindStringSubmatch(body)
+	if m == nil {
+		return "", false, nil
+	}
+	return m[1], true, nil
 }
 
 // fetch issues a single GET to url carrying tok in probeHeader.
