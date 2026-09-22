@@ -1,0 +1,130 @@
+*   << Request  >> 2         
+-   Begin          req 1 rxreq
+-   Timestamp      Start: 1790075671.538792 0.000000 0.000000
+-   Timestamp      Req: 1790075671.538792 0.000000 0.000000
+-   VCL_use        boot
+-   ReqStart       10.200.5.4 45414 http
+-   ReqMethod      GET
+-   ReqURL         /miss-hit
+-   ReqProtocol    HTTP/1.1
+-   ReqHeader      Accept-Encoding: identity
+-   ReqHeader      Host: vsl-varnish
+-   ReqHeader      User-Agent: Python-urllib/3.12
+-   ReqHeader      Traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+-   ReqHeader      Connection: close
+-   ReqHeader      X-Forwarded-For: 10.200.5.4
+-   ReqHeader      Via: 1.1 e6fa9ef170f9 (Varnish/8.0)
+-   VCL_call       RECV
+-   VCL_return     hash
+-   ReqUnset       Accept-Encoding: identity
+-   VCL_call       HASH
+-   VCL_return     lookup
+-   VCL_call       MISS
+-   VCL_return     fetch
+-   Link           bereq 3 fetch
+-   Timestamp      Fetch: 1790075671.540664 0.001871 0.001871
+-   RespProtocol   HTTP/1.0
+-   RespStatus     404
+-   RespReason     File not found
+-   RespHeader     Server: SimpleHTTP/0.6 Python/3.12.14
+-   RespHeader     Date: Tue, 22 Sep 2026 11:14:31 GMT
+-   RespHeader     Content-Type: text/html;charset=utf-8
+-   RespHeader     Content-Length: 335
+-   RespProtocol   HTTP/1.1
+-   RespHeader     X-Varnish: 2
+-   RespHeader     Age: 0
+-   RespHeader     Via: 1.1 e6fa9ef170f9 (Varnish/8.0)
+-   VCL_call       DELIVER
+-   VCL_return     deliver
+-   Timestamp      Process: 1790075671.540681 0.001888 0.000017
+-   Filters        
+-   RespHeader     Connection: close
+-   Timestamp      Resp: 1790075671.540739 0.001946 0.000057
+-   ReqAcct        193 0 193 245 335 580
+-   End            
+**  << BeReq    >> 3         
+--  Begin          bereq 2 fetch
+--  VCL_use        boot
+--  Timestamp      Start: 1790075671.538929 0.000000 0.000000
+--  BereqMethod    GET
+--  BereqURL       /miss-hit
+--  BereqProtocol  HTTP/1.1
+--  BereqHeader    Host: vsl-varnish
+--  BereqHeader    User-Agent: Python-urllib/3.12
+--  BereqHeader    Traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+--  BereqHeader    X-Forwarded-For: 10.200.5.4
+--  BereqHeader    Via: 1.1 e6fa9ef170f9 (Varnish/8.0)
+--  BereqHeader    Accept-Encoding: gzip
+--  BereqHeader    X-Varnish: 3
+--  VCL_call       BACKEND_FETCH
+--  VCL_return     fetch
+--  Timestamp      Fetch: 1790075671.538953 0.000023 0.000023
+--  Timestamp      Connected: 1790075671.539123 0.000194 0.000170
+--  BackendOpen    30 default 10.200.5.2 8000 10.200.5.3 53218 connect
+--  Timestamp      Bereq: 1790075671.539192 0.000262 0.000068
+--  BerespProtocol HTTP/1.0
+--  BerespStatus   404
+--  BerespReason   File not found
+--  BerespHeader   Server: SimpleHTTP/0.6 Python/3.12.14
+--  BerespHeader   Date: Tue, 22 Sep 2026 11:14:31 GMT
+--  BerespHeader   Connection: close
+--  BerespHeader   Content-Type: text/html;charset=utf-8
+--  BerespHeader   Content-Length: 335
+--  Timestamp      Beresp: 1790075671.540567 0.001638 0.001375
+--  TTL            RFC 120 10 0 1790075672 1790075672 1790075671 0 0 cacheable
+--  VCL_call       BACKEND_RESPONSE
+--  VCL_return     deliver
+--  Timestamp      Process: 1790075671.540609 0.001679 0.000041
+--  Filters        
+--  Storage        malloc s0
+--  Fetch_Body     3 length stream
+--  BackendClose   30 default close RESP_CLOSE
+--  Timestamp      BerespBody: 1790075671.540711 0.001781 0.000101
+--  Length         335
+--  BereqAcct      250 0 250 186 335 521
+--  End            
+
+*   << Request  >> 32770     
+-   Begin          req 32769 rxreq
+-   Timestamp      Start: 1790075672.271016 0.000000 0.000000
+-   Timestamp      Req: 1790075672.271016 0.000000 0.000000
+-   VCL_use        boot
+-   ReqStart       10.200.5.4 45428 http
+-   ReqMethod      GET
+-   ReqURL         /miss-hit
+-   ReqProtocol    HTTP/1.1
+-   ReqHeader      Accept-Encoding: identity
+-   ReqHeader      Host: vsl-varnish
+-   ReqHeader      User-Agent: Python-urllib/3.12
+-   ReqHeader      Traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+-   ReqHeader      Connection: close
+-   ReqHeader      X-Forwarded-For: 10.200.5.4
+-   ReqHeader      Via: 1.1 e6fa9ef170f9 (Varnish/8.0)
+-   VCL_call       RECV
+-   VCL_return     hash
+-   ReqUnset       Accept-Encoding: identity
+-   VCL_call       HASH
+-   VCL_return     lookup
+-   Hit            3 119.269552 10.000000 0.000000
+-   VCL_call       HIT
+-   VCL_return     deliver
+-   RespProtocol   HTTP/1.0
+-   RespStatus     404
+-   RespReason     File not found
+-   RespHeader     Server: SimpleHTTP/0.6 Python/3.12.14
+-   RespHeader     Date: Tue, 22 Sep 2026 11:14:31 GMT
+-   RespHeader     Content-Type: text/html;charset=utf-8
+-   RespHeader     Content-Length: 335
+-   RespProtocol   HTTP/1.1
+-   RespHeader     X-Varnish: 32770 3
+-   RespHeader     Age: 0
+-   RespHeader     Via: 1.1 e6fa9ef170f9 (Varnish/8.0)
+-   VCL_call       DELIVER
+-   VCL_return     deliver
+-   Timestamp      Process: 1790075672.271118 0.000101 0.000101
+-   Filters        
+-   RespHeader     Connection: close
+-   Timestamp      Resp: 1790075672.271216 0.000200 0.000098
+-   ReqAcct        193 0 193 251 335 586
+-   End            
+
