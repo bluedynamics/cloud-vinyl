@@ -6,11 +6,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/bluedynamics/cloud-vinyl/internal/probe"
@@ -34,6 +36,18 @@ const (
 		"which pod handles a request) gives each pod a different Host, and so a different " +
 		"cache key, unless -host pins them to one shared value. See fetch's doc comment in " +
 		"internal/probe/cache.go."
+	otlpSinkHelp = "listen address for an in-memory OTLP/http-protobuf trace sink " +
+		"(serves POST /v1/traces, GET /spans, GET /healthz; runs until killed). " +
+		"Mutually exclusive with -url, -purge, -seed, -check, and -assert-spans."
+	assertSpansHelp = "poll -sink's /spans until a span matching -span-name (and every -attr) " +
+		"appears -min-count times, or -within elapses. " +
+		"Mutually exclusive with -url, -purge, -seed, -check, and -otlp-sink."
+	sinkHelp     = "base URL of the OTLP sink to poll (requires -assert-spans)"
+	spanNameHelp = "exact span name a matching span must carry (requires -assert-spans)"
+	attrHelp     = "key=value attribute a matching span must carry; " +
+		"may be repeated to require several attributes (only with -assert-spans)"
+	minCountHelp = "minimum number of matching spans required to satisfy -assert-spans"
+	withinHelp   = "deadline for -assert-spans to keep polling -sink before failing"
 )
 
 // probeFlags holds every flag plus which ones were explicitly passed
@@ -50,6 +64,15 @@ type probeFlags struct {
 	expectPurged int
 	host         string
 
+	// otlp-sink and assert-spans mode flags (see otlpSinkHelp/assertSpansHelp).
+	otlpSink    string
+	assertSpans bool
+	sink        string
+	spanName    string
+	minCount    int
+	attrs       map[string]string
+	within      time.Duration
+
 	expectSet       bool
 	expectStateSet  bool
 	expectPurgedSet bool
@@ -65,7 +88,29 @@ func parseFlags() probeFlags {
 	seed := flag.Bool("seed", false, seedHelp)
 	expectPurged := flag.Int("expect-purged", 0, expectPurgedHelp)
 	host := flag.String("host", "", hostHelp)
+
+	otlpSink := flag.String("otlp-sink", "", otlpSinkHelp)
+	assertSpans := flag.Bool("assert-spans", false, assertSpansHelp)
+	sink := flag.String("sink", "", sinkHelp)
+	spanName := flag.String("span-name", "", spanNameHelp)
+	minCount := flag.Int("min-count", 1, minCountHelp)
+	within := flag.Duration("within", 60*time.Second, withinHelp)
+	var attrPairs []string
+	flag.Func("attr", attrHelp, func(s string) error {
+		if !strings.Contains(s, "=") {
+			return fmt.Errorf("-attr %q: want key=value", s)
+		}
+		attrPairs = append(attrPairs, s)
+		return nil
+	})
+
 	flag.Parse()
+
+	attrs := map[string]string{}
+	for _, p := range attrPairs {
+		k, v, _ := strings.Cut(p, "=")
+		attrs[k] = v
+	}
 
 	f := probeFlags{
 		url:          *url,
@@ -77,6 +122,13 @@ func parseFlags() probeFlags {
 		seed:         *seed,
 		expectPurged: *expectPurged,
 		host:         *host,
+		otlpSink:     *otlpSink,
+		assertSpans:  *assertSpans,
+		sink:         *sink,
+		spanName:     *spanName,
+		minCount:     *minCount,
+		attrs:        attrs,
+		within:       *within,
 	}
 	flag.Visit(func(fl *flag.Flag) {
 		switch fl.Name {
@@ -91,10 +143,40 @@ func parseFlags() probeFlags {
 	return f
 }
 
+// validateSpanModes checks the -otlp-sink/-assert-spans flag combinations.
+// They are two more modes, disjoint from the -url-based family validate
+// checks below: neither takes -url. handled is true once one of the two was
+// selected, whether or not the combination turned out valid (err carries
+// that); handled is false to tell validate to fall through to its own
+// -url-based checks unchanged. Split out from validate solely to keep that
+// function's cyclomatic complexity under the repo's gocyclo limit.
+func (f probeFlags) validateSpanModes() (handled bool, err error) {
+	switch {
+	case f.otlpSink != "" && f.assertSpans:
+		return true, errors.New("-otlp-sink and -assert-spans are mutually exclusive")
+	case f.otlpSink != "" && (f.url != "" || f.purge || f.seed || f.check != ""):
+		return true, errors.New("-otlp-sink is mutually exclusive with -url, -purge, -seed, and -check")
+	case f.assertSpans && (f.url != "" || f.purge || f.seed || f.check != ""):
+		return true, errors.New("-assert-spans is mutually exclusive with -url, -purge, -seed, and -check")
+	case f.assertSpans && f.sink == "":
+		return true, errors.New("-assert-spans requires -sink")
+	case f.assertSpans && f.spanName == "":
+		return true, errors.New("-assert-spans requires -span-name")
+	case f.assertSpans, f.otlpSink != "":
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
 // validate checks flag combinations that flag.Parse cannot express itself:
 // mutually exclusive modes, and options that only make sense with one
 // particular mode. It changes nothing; main exits on a non-nil result.
 func (f probeFlags) validate() error {
+	if handled, err := f.validateSpanModes(); handled {
+		return err
+	}
+
 	if f.url == "" {
 		return errors.New("-url is required")
 	}
@@ -132,6 +214,23 @@ func main() {
 	if err := f.validate(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(2)
+	}
+
+	// -otlp-sink and -assert-spans do not observe -timeout the way the
+	// -url-based modes do: the sink runs until killed, and -assert-spans
+	// has its own -within deadline. Building a context.WithTimeout(f.timeout)
+	// unconditionally here would cut an -assert-spans poll short at the
+	// default 30s timeout regardless of -within, so it is deferred to those
+	// two dispatch branches instead of shared across all modes.
+	switch {
+	case f.otlpSink != "":
+		runOTLPSink(f)
+		return
+	case f.assertSpans:
+		ctx, cancel := context.WithTimeout(context.Background(), f.within)
+		defer cancel()
+		runAssertSpans(ctx, f)
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), f.timeout)
@@ -270,4 +369,98 @@ func runDetect(ctx context.Context, client *http.Client, f probeFlags) {
 		os.Exit(1)
 	}
 	fmt.Printf("OK: %s is a %s\n", f.url, got)
+}
+
+// spanVerdict is decideSpans's fully-decided outcome: whether -assert-spans
+// is satisfied, and how many spans matched (reported either way, so a
+// timeout message can say how far short of -min-count it got).
+type spanVerdict struct {
+	satisfied bool
+	matched   int
+}
+
+// decideSpans is pure so the pass/fail rule is unit-testable, the same
+// decidePurge pattern used for -purge: a span counts when its name matches
+// name and every entry in attrs equals the span's own attribute of that key
+// (a missing attribute compares unequal to any wanted value, including "").
+func decideSpans(spans []probe.SpanSummary, name string, attrs map[string]string, minCount int) spanVerdict {
+	matched := 0
+	for _, s := range spans {
+		if s.Name != name {
+			continue
+		}
+		ok := true
+		for k, want := range attrs {
+			if s.Attrs[k] != want {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			matched++
+		}
+	}
+	return spanVerdict{satisfied: matched >= minCount, matched: matched}
+}
+
+// runOTLPSink serves the in-memory OTLP sink until the process is killed or
+// the listener fails. It deliberately ignores -timeout: the sink is meant to
+// run for the lifetime of an E2E test, not one probe invocation's deadline.
+func runOTLPSink(f probeFlags) {
+	sink := probe.NewOTLPSink(4096)
+	srv := &http.Server{
+		Addr:              f.otlpSink,
+		Handler:           sink.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	fmt.Printf("OK: otlp sink listening on %s\n", f.otlpSink)
+	if err := srv.ListenAndServe(); err != nil {
+		fmt.Fprintf(os.Stderr, "sink: %v\n", err)
+		os.Exit(2)
+	}
+}
+
+// runAssertSpans polls -sink every 2s until decideSpans reports satisfied or
+// -within elapses (ctx carries that same -within deadline for the individual
+// HTTP requests fetchSpans makes; see main's dispatch for why -assert-spans
+// does not share the -url-based modes' -timeout-scoped context).
+func runAssertSpans(ctx context.Context, f probeFlags) {
+	deadline := time.Now().Add(f.within)
+	var last spanVerdict
+	for time.Now().Before(deadline) {
+		spans, err := fetchSpans(ctx, f.sink)
+		if err == nil {
+			last = decideSpans(spans, f.spanName, f.attrs, f.minCount)
+			if last.satisfied {
+				fmt.Printf("OK: %d span(s) named %q matched\n", last.matched, f.spanName)
+				os.Exit(0)
+			}
+		}
+		time.Sleep(2 * time.Second)
+	}
+	fmt.Printf("FAIL: only %d span(s) named %q matched within %s\n",
+		last.matched, f.spanName, f.within)
+	os.Exit(1)
+}
+
+// fetchSpans fetches and decodes sink's GET /spans response.
+func fetchSpans(ctx context.Context, sink string) ([]probe.SpanSummary, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sink+"/spans", nil)
+	if err != nil {
+		return nil, fmt.Errorf("building spans request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetching spans: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetching spans from %s: unexpected status %d", sink, resp.StatusCode)
+	}
+	var spans []probe.SpanSummary
+	if err := json.NewDecoder(resp.Body).Decode(&spans); err != nil {
+		return nil, fmt.Errorf("decoding spans from %s: %w", sink, err)
+	}
+	return spans, nil
 }
