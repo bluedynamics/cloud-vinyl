@@ -14,6 +14,9 @@ import xkey;
 {{- if .HasESI }}
 import esi;
 {{- end }}
+{{- if .HasTracing }}
+import uuid;
+{{- end }}
 {{ if .Spec.VCL.Snippets.Header }}
 # --- custom header snippet ---
 {{ .Spec.VCL.Snippets.Header }}
