@@ -3,6 +3,7 @@ set -euo pipefail
 
 OPERATOR_IMAGE="${OPERATOR_IMAGE:-ghcr.io/bluedynamics/cloud-vinyl-operator:dev}"
 AGENT_IMAGE="${AGENT_IMAGE:-ghcr.io/bluedynamics/cloud-vinyl-agent:dev}"
+TRACER_IMAGE="${TRACER_IMAGE:-ghcr.io/bluedynamics/cloud-vinyl-tracer:dev}"
 NAMESPACE="${OPERATOR_NAMESPACE:-cloud-vinyl-system}"
 
 # Deliberately NOT labeled with vinyl.bluedynamics.eu/operator-namespace=true:
@@ -10,7 +11,7 @@ NAMESPACE="${OPERATOR_NAMESPACE:-cloud-vinyl-system}"
 # authorizes itself in the agent NetworkPolicy by its own pod IP (issue #58).
 kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
 
-echo "Installing cloud-vinyl operator (image: ${OPERATOR_IMAGE}, agent: ${AGENT_IMAGE})..."
+echo "Installing cloud-vinyl operator (image: ${OPERATOR_IMAGE}, agent: ${AGENT_IMAGE}, tracer: ${TRACER_IMAGE})..."
 helm upgrade --install cloud-vinyl ./charts/cloud-vinyl \
   --namespace "${NAMESPACE}" \
   --create-namespace \
@@ -18,6 +19,8 @@ helm upgrade --install cloud-vinyl ./charts/cloud-vinyl \
   --set "image.operator.tag=${OPERATOR_IMAGE##*:}" \
   --set image.agent.repository="${AGENT_IMAGE%:*}" \
   --set "image.agent.tag=${AGENT_IMAGE##*:}" \
+  --set image.tracer.repository="${TRACER_IMAGE%:*}" \
+  --set "image.tracer.tag=${TRACER_IMAGE##*:}" \
   --set webhook.certManager.enabled=true \
   --set leaderElection.enabled=true \
   --wait \

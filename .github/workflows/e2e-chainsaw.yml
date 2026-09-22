@@ -116,6 +116,14 @@ jobs:
           kind load docker-image cloud-vinyl-probe:dev \
             --name cloud-vinyl-e2e
 
+      - name: Build tracer image
+        run: |
+          docker build -f Dockerfile.tracer \
+            --build-arg VARNISH_IMAGE=varnish:8.0.2 \
+            -t ghcr.io/bluedynamics/cloud-vinyl-tracer:dev .
+          kind load docker-image ghcr.io/bluedynamics/cloud-vinyl-tracer:dev \
+            --name cloud-vinyl-e2e
+
       - uses: azure/setup-helm@v5
 
       - name: Install cert-manager
@@ -125,6 +133,7 @@ jobs:
         env:
           OPERATOR_IMAGE: ghcr.io/bluedynamics/cloud-vinyl-operator:dev
           AGENT_IMAGE: ghcr.io/bluedynamics/cloud-vinyl-agent:dev
+          TRACER_IMAGE: ghcr.io/bluedynamics/cloud-vinyl-tracer:dev
         run: bash e2e/setup/install-operator.sh
 
       # Downloads the prebuilt release binary. `go install` compiled chainsaw from

@@ -1,0 +1,120 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: tracing
+  labels:
+    suite: fast
+spec:
+  description: |
+    Proves the vinyl-tracer sidecar exports OTLP spans for real traffic:
+    a miss produces a "varnish request" span (varnish.handling=miss) and a
+    "varnish fetch" child; a repeat request produces a hit span. The sink is
+    vinylprobe in -otlp-sink mode; assertions poll it via -assert-spans, so
+    no sleeps are needed.
+    SUBTLETY: spans arrive batched (~3s flush), hence the generous -within
+    values below.
+    NOT COVERED (later plans): trace-context rewrite toward the backend
+    (P2), coalescing/grace/ESI truth (P3).
+  timeouts:
+    assert: 180s
+    delete: 60s
+    exec: 120s
+  steps:
+    - name: deploy-backend
+      try:
+        - apply:
+            file: ../../fixtures/backends/echo-service.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-backend
+              status:
+                readyReplicas: 1
+
+    - name: start-sink-and-probe
+      try:
+        - apply:
+            file: ../../fixtures/probe/otlp-sink.yaml
+        - apply:
+            file: ../../fixtures/probe/probe-pod.yaml
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: otlp-sink
+              status:
+                phase: Running
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: probe
+              status:
+                phase: Running
+
+    - name: create-cache
+      try:
+        - apply:
+            file: ../../fixtures/vinylcaches/tracing.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: traced-cache
+              status:
+                readyReplicas: 1
+
+    - name: traffic-miss-then-hit
+      description: |
+        Addressed at traced-cache-traffic, the client-ingress Service the
+        operator creates as "<name>-traffic" (reconcileTrafficService in
+        internal/controller/service.go); the bare traced-cache Service is
+        headless, for StatefulSet pod-to-pod DNS, not client traffic.
+      try:
+        - script:
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://traced-cache-traffic:8080/traced/a" -expect miss
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://traced-cache-traffic:8080/traced/a" -expect hit
+
+    - name: assert-spans
+      description: |
+        Three sequential -assert-spans polls, each with its own -within
+        deadline (90s, 30s, 90s = 210s worst case), so the script step's own
+        timeout is raised well above the spec-level exec default to give the
+        slowest of the three room to actually reach its deadline rather than
+        being cut off by the step budget first.
+      try:
+        - script:
+            timeout: 240s
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
+                  -span-name "varnish request" -attr varnish.handling=miss \
+                  -min-count 1 -within 90s
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
+                  -span-name "varnish fetch" -min-count 1 -within 30s
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
+                  -span-name "varnish request" -attr varnish.handling=hit \
+                  -min-count 1 -within 90s
+
+    - name: cleanup
+      try:
+        - delete:
+            file: ../../fixtures/probe/probe-pod.yaml
+        - delete:
+            file: ../../fixtures/probe/otlp-sink.yaml
+        - delete:
+            file: ../../fixtures/vinylcaches/tracing.yaml
+        - delete:
+            file: ../../fixtures/backends/echo-service.yaml
