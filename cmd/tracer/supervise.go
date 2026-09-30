@@ -37,10 +37,13 @@ var (
 	})
 	hitsParked = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "vinyl_tracer_hits_parked_total",
-		Help: "Hit records spans.Linker withheld (parked) because their fetch vxid " +
-			"had not yet resolved — the waiter-first half of the known VSL " +
-			"group-ordering race. Most go on to resolve a Build call or two later; " +
-			"see vinyl_tracer_link_cache_misses_total for the ones that never do.",
+		Help: "Hit records spans.Linker withheld (parked) because they proved " +
+			"themselves genuine coalescing waiters (their own Waitinglist record) " +
+			"whose fetch vxid had not yet resolved — the waiter-first half of the " +
+			"known VSL group-ordering race. An ordinary warm hit (no Waitinglist " +
+			"record) is never parked and does not count here. Most parked hits go " +
+			"on to resolve a Build call or two later; see " +
+			"vinyl_tracer_link_cache_misses_total for the ones that never do.",
 	})
 )
 

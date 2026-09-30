@@ -168,9 +168,14 @@ spec:
 
         WHAT THE LINKER NOW DOES ABOUT IT: internal/tracer/spans/linker.go's
         Linker resolves BOTH orderings to varnish.coalesced=true, not only
-        initiator-first. When a request's own Hit vxid does not (yet)
-        resolve against the fetch-identity cache, the Linker PARKS the
-        built span set — withholds it, keyed by that vxid — in a small
+        initiator-first — but only for a hit PROVEN to be a genuine
+        coalescing waiter by its own "Timestamp Waitinglist:" record
+        (NOTES.md's coalesce.txt section); an ordinary warm hit (object's
+        origin fetch long gone, no Waitinglist record) still degrades
+        immediately, exactly as before, since it could never resolve no
+        matter how long it waited. When a genuine waiter's own Hit vxid does
+        not (yet) resolve against the fetch-identity cache, the Linker PARKS
+        the built span set — withholds it, keyed by that vxid — in a small
         bounded lot (capped by count and by a short per-entry age limit)
         instead of degrading it on the spot. A later Build call that
         records the matching fetch identity (the initiator's own group,
@@ -189,8 +194,8 @@ spec:
         which deliberately omitted a pending-hits buffer because no
         fixture at the time proved the waiter-first ordering actually
         occurred; the CI-observed 0/3 failure and its local reproduction
-        (scratchpad/coalesce-investigation.md, PR #111) is exactly that
-        proof, gathered against the real Linker and a live varnishd.
+        (PR #111) is exactly that proof, gathered against the real Linker
+        and a live varnishd.
 
         WHY THE RETRY STAYS (belt-and-braces, not the primary fix anymore):
         the Linker's own resolution is no longer the dominant source of
@@ -200,7 +205,7 @@ spec:
         set that happens to age out before its resolving Build call runs,
         under scheduling contention heavier than the lot's age limit was
         sized for (CI's shared runners see more of this than an idle local
-        rig; see coalesce-investigation.md's "Why 0/3 in CI" section), or
+        rig, running many other chainsaw namespaces concurrently), or
         ordinary OTLP batch-export/flush latency racing this step's own
         -within poll window. A fresh concurrent pair against a cold URL,
         retried up to 3 rounds, absorbs whatever of that remains without

@@ -49,13 +49,28 @@ func main() {
 		os.Exit(1)
 	}
 	batcher := export.NewBatcher(exp, service, 2048)
+	// The batcher runs on its OWN cancellation, deliberately NOT the signal
+	// ctx. ctx.Done() fires for s.run and the batcher at the very same
+	// instant a SIGTERM arrives; Run's ctx.Done() branch drains whatever is
+	// in the channel AT THAT INSTANT and returns within microseconds — long
+	// before s.run(ctx) finishes tearing down the varnishlog subprocess and
+	// before the post-shutdown linker.Flush() loop below has enqueued the
+	// parking lot's contents. Sharing ctx would mean every tail handle()
+	// Enqueue call still in flight during that teardown, and every span
+	// Flush releases, lands in a channel nobody is reading anymore:
+	// Enqueue still succeeds (there is room in the buffer), so
+	// droppedTotal would not even fire — spans lost doubly silently.
+	// batcherCtx is cancelled explicitly, below, only once both s.run(ctx)
+	// and the Flush-enqueue loop have returned — see
+	// TestShutdown_PostSupervisorSpansStillExport for the regression this
+	// fixes (the previous shared-ctx wiring fails that test).
+	batcherCtx, stopBatcher := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
-	wg.Go(func() { batcher.Run(ctx) })
-	// Joined below, after s.run(ctx) returns, so the SIGTERM drain/flush in
-	// Run's ctx.Done() branch is guaranteed to finish before the process
-	// exits (see internal/tracer/export.TestBatcher_ExportsEnqueuedSpans for
-	// the drain-on-cancel coverage; a duplicate of that assertion at the
-	// main-package level would test the same behavior twice for no benefit).
+	wg.Go(func() { batcher.Run(batcherCtx) })
+	// Joined after stopBatcher() below, so Run's drain-on-cancel branch only
+	// runs once nothing more will ever be enqueued (see
+	// internal/tracer/export.TestBatcher_ExportsEnqueuedSpans for the
+	// drain-on-cancel behavior itself).
 	defer wg.Wait()
 
 	// 2. Metrics endpoint.
@@ -111,9 +126,12 @@ func main() {
 	// SIGTERM). Any span sets still in the Linker's parking lot (P3's
 	// bounded wait for a waiter-first hit's initiator fetch, see
 	// spans.Linker.Flush's doc) would otherwise never be resolved or
-	// exported — flush them, degraded, before the deferred wg.Wait() lets
-	// the batcher's own ctx.Done() drain run and the process exit.
+	// exported — flush them, degraded.
 	for _, sp := range linker.Flush() {
 		batcher.Enqueue(sp)
 	}
+	// Only now is it safe to let the batcher drain and return: everything
+	// this process will ever enqueue has been enqueued. The deferred
+	// wg.Wait() above blocks until Run's own drain-on-cancel finishes.
+	stopBatcher()
 }

@@ -222,16 +222,16 @@ func TestLinker_ParkOverflowReleasesOldestDegraded(t *testing.T) {
 	misses := 0
 	l.OnCacheMiss = func() { misses++ }
 
-	out1, _ := l.Build(syntheticHitTx(101, 901)) // parks (1/2)
+	out1, _ := l.Build(syntheticHitTx(101, 901, true)) // genuine waiter: parks (1/2)
 	assert.Empty(t, out1)
-	out2, _ := l.Build(syntheticHitTx(102, 902)) // parks (2/2, at capacity)
+	out2, _ := l.Build(syntheticHitTx(102, 902, true)) // genuine waiter: parks (2/2, at capacity)
 	assert.Empty(t, out2)
 	assert.Equal(t, 0, misses, "parking alone must not count as a miss")
 
 	// A third unresolved hit overflows capacity 2: the OLDEST parked set
 	// (vxid 901's group, parked first) must be released degraded, and the
 	// new arrival (vxid 903's group) parked in its place, not emitted.
-	out3, _ := l.Build(syntheticHitTx(103, 903))
+	out3, _ := l.Build(syntheticHitTx(103, 903, true))
 	reqs := spansNamed(out3, "varnish request")
 	require.Len(t, reqs, 1, "only the evicted oldest set is released; the new arrival is parked")
 	assert.Equal(t, uint64(101), reqs[0].vxid, "the oldest parked set must be evicted first")
@@ -266,17 +266,49 @@ func TestLinker_FlushReleasesAllParkedDegraded(t *testing.T) {
 // into one "varnish request" span carrying a Hit record naming hitVxid —
 // just enough shape (Start + Resp timestamps) for BuildWithOutcome to
 // succeed, same minimal-construction style as
-// TestLinker_RestartMissNotCountedWhenGroupUnusable.
-func syntheticHitTx(vxid, hitVxid uint64) *vsl.Tx {
-	return &vsl.Tx{
-		Type: txTypeRequest,
-		VXID: vxid,
-		Records: []vsl.Record{
-			{Tag: "Timestamp", Payload: "Start: 1000.000000 0.000000 0.000000"},
-			{Tag: "Timestamp", Payload: "Resp: 1000.100000 0.100000 0.100000"},
-			{Tag: "Hit", Payload: fmt.Sprintf("%d 1.000000 10.000000 0.000000", hitVxid)},
-		},
+// TestLinker_RestartMissNotCountedWhenGroupUnusable. When waiting is true, a
+// "Timestamp Waitinglist:" record is added too (same record shape as
+// coalesce.txt's real waiter), the one thing resolveHit actually gates
+// parking on — without it, an unresolvable hit degrades immediately
+// instead of parking (the warm-hit case).
+func syntheticHitTx(vxid, hitVxid uint64, waiting bool) *vsl.Tx {
+	records := []vsl.Record{
+		{Tag: "Timestamp", Payload: "Start: 1000.000000 0.000000 0.000000"},
+		{Tag: "Timestamp", Payload: "Resp: 1000.100000 0.100000 0.100000"},
+		{Tag: "Hit", Payload: fmt.Sprintf("%d 1.000000 10.000000 0.000000", hitVxid)},
 	}
+	if waiting {
+		records = append(records, vsl.Record{Tag: "Timestamp", Payload: "Waitinglist: 1000.050000 0.050000 0.050000"})
+	}
+	return &vsl.Tx{Type: txTypeRequest, VXID: vxid, Records: records}
+}
+
+// TestLinker_WarmHitWithoutWaitinglistDegradesImmediately: a Hit whose own
+// origin fetch vxid does not resolve (evicted past the fetches cache's TTL,
+// or simply never seen by this process) but which carries no "Timestamp
+// Waitinglist:" record is NOT a coalescing race casualty — it is an
+// ordinary warm cache hit. Every Hit names its object's origin fetch vxid
+// regardless of how long ago that fetch happened, so a warm hit looks
+// IDENTICAL to a waiter-first hit at the vxid-lookup level; only
+// Waitinglist distinguishes "genuinely blocked on an in-flight fetch" from
+// "will never resolve no matter how long it waits." Parking the latter
+// would delay the dominant traffic class (most cache hits are warm, not
+// coalescing waiters) by up to ageLimit for no possible benefit, and would
+// pollute both hits_parked and link-cache-misses with non-race traffic — it
+// must degrade immediately, exactly as before the parking lot existed.
+func TestLinker_WarmHitWithoutWaitinglistDegradesImmediately(t *testing.T) {
+	l := NewLinker(1024, time.Minute, &seqIDs{})
+	misses, parked := 0, 0
+	l.OnCacheMiss = func() { misses++ }
+	l.OnHitParked = func() { parked++ }
+
+	got, _ := l.Build(syntheticHitTx(201, 999, false)) // no Waitinglist; vxid 999 was never cached
+	require.Len(t, got, 1, "a warm hit must be emitted on its own Build call, never parked")
+	assert.True(t, attrHas(got[0].Attrs, "varnish.coalesced_unlinked"))
+	assert.False(t, attrHas(got[0].Attrs, "varnish.coalesced"))
+	assert.Empty(t, got[0].Links, "nothing to link to")
+	assert.Equal(t, 1, misses, "a warm hit still counts as a link-cache miss, same as before parking existed")
+	assert.Equal(t, 0, parked, "a warm hit is degraded immediately, never counted as parked")
 }
 
 // TestLinker_RestartContinuationParentsUnderOriginalAndSharesTraceID proves

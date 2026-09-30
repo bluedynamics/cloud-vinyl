@@ -104,20 +104,28 @@ type restartInfo struct {
 
 // parkedSet holds one top-level Request group's already-built span set that
 // Build withheld from its own caller because its "Hit <vxid> ..." record did
-// not resolve against the fetch-identity cache at that instant.
+// not resolve against the fetch-identity cache at that instant AND the
+// request proved itself a genuine coalescing waiter (its own "Timestamp
+// Waitinglist:" record — see resolveHit's doc for why that gate matters; an
+// ordinary warm hit with no such record degrades immediately instead,
+// without ever being parked).
 //
 // Why parking exists: varnishlog -g request emits a coalescing initiator's
 // group (carrying the fetch) and the waiter's group (carrying the Hit) in
 // completion order, which is a genuine ~50/50 race (see
 // coalesce-investigation.md) — NOT ordered by which one started first. At
-// the moment the waiter's own Build call runs, an unresolved Hit vxid is
-// indistinguishable between "genuinely unresolvable" (the fetch identity
-// was never recorded, or aged out of the fetches cache) and "the other half
-// of that race: the initiator's own Build call, which is what records the
-// fetch identity this vxid needs, simply has not happened yet." Parking
-// gives the latter case a bounded window (the Linker's ageLimit) to resolve
-// before conceding permanent degradation, instead of degrading immediately
-// and irreversibly on the very call that lost the race.
+// the moment the waiter's own Build call runs, its Hit's vxid simply has not
+// been recorded yet: the initiator's own Build call, which is what records
+// the fetch identity this vxid needs, has not happened. Parking gives that
+// case a bounded window (the Linker's ageLimit) to resolve before conceding
+// permanent degradation, instead of degrading immediately and irreversibly
+// on the very call that lost the race. The ageLimit window itself is not a
+// perfect guarantee against a cross-process vxid collision (see Build's
+// step-1 doc): it only bounds how LONG that residual risk window stays
+// open, on the reasoning that a varnishd restart landing within the same
+// single-digit seconds as an in-flight coalescing race, reusing the exact
+// same small vxid, is an accepted, vanishingly unlikely edge case, not one
+// this design eliminates outright.
 type parkedSet struct {
 	vxid      uint64
 	spans     []Span
@@ -262,18 +270,28 @@ func NewLinker(capacity int, ttl time.Duration, ids IDSource) *Linker {
 //     (varnish.link="origin-fetch"), plus varnish.coalesced=true when the
 //     hit's own Start precedes the cached fetch's End (the request
 //     overlapped the still-in-flight fetch) — same as before. An
-//     unresolvable vxid no longer degrades immediately: the whole group is
-//     PARKED (withheld from this Build call's return, keyed by the
-//     unresolved vxid, stamped with this call's now) for step 5 of a later
-//     Build call to resolve, and OnHitParked fires. A parking-lot overflow
-//     (already at maxParked) releases the single oldest parked set degraded
-//     — today's varnish.coalesced_unlinked + OnCacheMiss — before parking
-//     the new arrival, so the lot never grows unbounded and nothing is
-//     dropped silently.
+//     unresolvable vxid degrades immediately (varnish.coalesced_unlinked +
+//     OnCacheMiss, exactly as before the parking lot existed) UNLESS tx
+//     carries its own "Timestamp Waitinglist:" record — proof it genuinely
+//     blocked on an in-flight fetch, not an ordinary warm hit whose origin
+//     fetch is simply long gone and can never resolve (see resolveHit's doc
+//     for why this gate matters). Only then is the whole group PARKED
+//     (withheld from this Build call's return, keyed by the unresolved
+//     vxid, stamped with this call's now) for step 5 of a later Build call
+//     to resolve, and OnHitParked fires. A parking-lot overflow (already at
+//     maxParked) releases the single oldest parked set degraded before
+//     parking the new arrival, so the lot never grows unbounded and nothing
+//     is dropped silently.
 //
 // Flush releases every still-parked set degraded; callers that stop pumping
 // Build (shutdown) must call it so a parked set never seen again is still
 // exported rather than lost.
+//
+// The returned Outcome describes ONLY this call's own tx/built — it says
+// nothing about any released-parked or age-released spans riding along in
+// the same []Span (steps 1 and 5 above); a caller that wants to attribute
+// those must do so from their own varnish.coalesced/coalesced_unlinked
+// attrs, not from this return's Outcome.
 func (l *Linker) Build(tx *vsl.Tx) ([]Span, Outcome) {
 	now := l.nowFunc()
 
@@ -383,9 +401,27 @@ func (l *Linker) recordRestartLinks(tx *vsl.Tx, top Span, now time.Time) {
 // resolveHit resolves tx's own "Hit <vxid> ..." record, if any, against the
 // fetch-identity cache. When it resolves, built's top request span (index 0)
 // is linked in place exactly as before and resolveHit reports parked=false.
-// When it does not (yet) resolve, the whole group is parked instead (see
-// park) and resolveHit reports parked=true, so Build withholds built from
-// its own return; overflow carries any OLDER parked set a capacity eviction
+//
+// When it does not (yet) resolve, only a GENUINE coalescing waiter is worth
+// parking: one proven to have actually blocked on the still-in-flight fetch
+// by its own "Timestamp Waitinglist:" record (NOTES.md's coalesce.txt
+// section; coalesce-investigation.md's local reproduction confirms this 10/10
+// against a real Linker and a live varnishd). Every Hit names its object's
+// ORIGIN fetch vxid regardless of how long ago that fetch happened — an
+// ordinary WARM hit (the object's origin fetch is long gone: evicted from
+// the fetches cache past its own TTL, or simply predates this process) is
+// indistinguishable from a waiter-first hit by vxid lookup alone, but it can
+// NEVER resolve no matter how long it waits. Warm hits are also the
+// dominant traffic class under real load (most cache hits are warm, not
+// coalescing waiters): parking them on the vxid-miss test alone, as an
+// earlier version of this method did, would delay that whole class by up to
+// ageLimit (or indefinitely while idle, since age-out only runs inside
+// Build) and would flood both the parked-hit and link-cache-miss counters
+// with traffic that was never part of the ordering race those counters
+// document. A warm hit therefore degrades immediately, exactly as it did
+// before the parking lot existed; only a Waitinglist-carrying hit is parked
+// (park, reporting parked=true, so Build withholds built from its own
+// return); overflow carries any OLDER parked set a capacity eviction
 // released degraded while making room, which Build must still return rather
 // than drop.
 func (l *Linker) resolveHit(tx *vsl.Tx, built []Span, now time.Time) (overflow []Span, parked bool) {
@@ -402,11 +438,16 @@ func (l *Linker) resolveHit(tx *vsl.Tx, built []Span, now time.Time) (overflow [
 		return nil, false
 	}
 	fetch, ok := l.fetches.get(vxid, now)
-	if !ok {
-		return l.park(vxid, built, now), true
+	if ok {
+		linkHit(&built[0], fetch)
+		return nil, false
 	}
-	linkHit(&built[0], fetch)
-	return nil, false
+	if _, isWaiter := tx.Timestamp("Waitinglist"); !isWaiter {
+		degrade(&built[0])
+		l.miss()
+		return nil, false
+	}
+	return l.park(vxid, built, now), true
 }
 
 // linkHit attaches a Link to fetch on req, plus the coalesced flag when
@@ -422,6 +463,15 @@ func linkHit(req *Span, fetch fetchInfo) {
 	if req.Start.Before(fetch.end) {
 		req.Attrs = append(req.Attrs, attribute.Bool("varnish.coalesced", true))
 	}
+}
+
+// degrade flags req as an unresolved hit: varnish.coalesced_unlinked=true.
+// Shared by resolveHit's immediate-degrade path (a warm hit, or any hit
+// whose vxid never resolves and never even attempted parking) and
+// degradeRelease's parked-release path (age-out, overflow eviction, Flush)
+// — "degraded" means the same thing regardless of how a hit got there.
+func degrade(req *Span) {
+	req.Attrs = append(req.Attrs, attribute.Bool("varnish.coalesced_unlinked", true))
 }
 
 // park withholds built (a just-built top-level Request group whose own Hit
@@ -488,7 +538,7 @@ func (l *Linker) resolveParked(now time.Time) []Span {
 // Flush, the three ways a parked set can be released WITHOUT ever
 // resolving.
 func (l *Linker) degradeRelease(p *parkedSet) []Span {
-	p.spans[0].Attrs = append(p.spans[0].Attrs, attribute.Bool("varnish.coalesced_unlinked", true))
+	degrade(&p.spans[0])
 	l.miss()
 	return p.spans
 }
