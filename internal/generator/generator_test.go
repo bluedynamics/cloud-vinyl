@@ -1357,3 +1357,69 @@ func TestGenerate_VCLSynth_HeaderGatedOnNGone(t *testing.T) {
 			"non-purge synth responses (403 Forbidden, 400 invalid ban "+
 			"expression, ...) never carry a stray X-Vinyl-Purged header")
 }
+
+func TestGenerate_TracingDisabled_NoTracingVCL(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(makeMinimalInput())
+	require.NoError(t, err)
+	assert.NotContains(t, r.VCL, "import uuid")
+	assert.NotContains(t, r.VCL, "traceparent")
+}
+
+func TestGenerate_TracingEnabled_ImportsUUID(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Tracing = vinylv1alpha1.TracingSpec{Enabled: true}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "import uuid;",
+		"tracing must import the uuid vmod for span-id minting")
+}
+
+func TestGenerate_TracingEnabled_RecvValidatesTraceparent(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Tracing = vinylv1alpha1.TracingSpec{Enabled: true}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL,
+		`req.http.traceparent !~ "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$"`)
+	assert.Contains(t, r.VCL, "unset req.http.traceparent")
+	assert.Contains(t, r.VCL, `req.http.traceparent ~ "^ff-"`,
+		"version ff is forbidden by W3C trace-context and rejected by "+
+			"parseTraceparent; the VCL gate must unset it too, or a minted "+
+			"bereq id under version ff reaches the backend disconnected from "+
+			"the tracer's adopted trace")
+	// The validation must run before cluster routing: relayed requests
+	// return(pass) inside the routing block and would skip anything later.
+	validation := strings.Index(r.VCL, "unset req.http.traceparent")
+	purge := strings.Index(r.VCL, "PURGE")
+	require.Greater(t, purge, 0)
+	assert.Less(t, validation, purge,
+		"traceparent validation must precede the PURGE/routing blocks in vcl_recv")
+}
+
+func TestGenerate_TracingEnabled_BackendFetchMintsSpanID(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Tracing = vinylv1alpha1.TracingSpec{Enabled: true}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "set bereq.http.traceparent")
+	assert.Contains(t, r.VCL, "uuid.uuid_v4()")
+	assert.Contains(t, r.VCL, "std.tolower")
+}
+
+func TestGenerate_TracingWithUserSnippets_BothPresent(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Tracing = vinylv1alpha1.TracingSpec{Enabled: true}
+	input.Spec.VCL.Snippets.VCLRecv = "# user recv snippet"
+	input.Spec.VCL.Snippets.VCLBackendFetch = "# user backend_fetch snippet"
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "# user recv snippet")
+	assert.Contains(t, r.VCL, "# user backend_fetch snippet")
+	assert.Contains(t, r.VCL, "set bereq.http.traceparent",
+		"operator tracing block must not displace user snippets")
+}

@@ -64,6 +64,9 @@ type TemplateData struct {
 	HasBAN           bool
 	HasProxyProtocol bool
 	HasFullOverride  bool
+	// HasTracing gates the tracing VCL: uuid import, traceparent
+	// validation in vcl_recv, span-id minting in vcl_backend_fetch.
+	HasTracing       bool
 	VCLName          string         // sanitized name for vcl declaration
 	BackendGroups    []BackendGroup // Replaces flat BackendDefs: grouped per spec.backends[i] for directors.
 	PeerDefs         []BackendDef
@@ -224,6 +227,8 @@ func buildTemplateData(input Input) TemplateData {
 	// ESI: check VarnishParams for explicit feature flag.
 	_, hasESI := input.Spec.VarnishParams["feature +esi"]
 	data.HasESI = hasESI
+
+	data.HasTracing = input.Spec.Tracing.Enabled
 
 	data.UseShardDirector = input.Spec.Director.Type == "shard" || input.Spec.Director.Type == ""
 

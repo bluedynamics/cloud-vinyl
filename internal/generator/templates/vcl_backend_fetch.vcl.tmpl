@@ -1,9 +1,26 @@
-
 sub vcl_backend_fetch {
 {{ if .Spec.VCL.Snippets.VCLBackendFetch }}
     # --- custom vcl_backend_fetch snippet ---
     {{ .Spec.VCL.Snippets.VCLBackendFetch }}
     # --- end custom vcl_backend_fetch snippet ---
 {{ end }}
+{{- if .HasTracing }}
+    # Tracing: the span id minted here becomes the "varnish fetch" span's
+    # id — the tracer adopts it from the VSL BereqHeader record — so the
+    # backend's own spans parent under the fetch span. Runs for bgfetch
+    # too (each backend fetch gets its own id). std.tolower guards against
+    # a vmod uuid implementation emitting uppercase hex (W3C: lowercase).
+    if (bereq.http.traceparent) {
+        set bereq.http.traceparent = regsub(bereq.http.traceparent,
+            "^([0-9a-f]{2}-[0-9a-f]{32}-)[0-9a-f]{16}(-[0-9a-f]{2})$",
+            "\1" + std.tolower(regsub(uuid.uuid_v4(),
+                "^(........)-(....)-(....).*$", "\1\2\3")) + "\2");
+    } else {
+        set bereq.http.traceparent = "00-" +
+            std.tolower(regsuball(uuid.uuid_v4(), "-", "")) + "-" +
+            std.tolower(regsub(uuid.uuid_v4(),
+                "^(........)-(....)-(....).*$", "\1\2\3")) + "-01";
+    }
+{{- end }}
     return(fetch);
 }

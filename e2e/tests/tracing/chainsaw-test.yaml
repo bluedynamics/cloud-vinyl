@@ -13,8 +13,7 @@ spec:
     no sleeps are needed.
     SUBTLETY: spans arrive batched (~3s flush), hence the generous -within
     values below.
-    NOT COVERED (later plans): trace-context rewrite toward the backend
-    (P2), coalescing/grace/ESI truth (P3).
+    NOT COVERED (later plans): coalescing/grace/ESI truth (P3).
   timeouts:
     assert: 180s
     delete: 60s
@@ -82,12 +81,41 @@ spec:
         correctly answers "hit" (that mistake failed this test's first CI
         run). The single call produces exactly the miss + fetch + hit spans
         the next step asserts.
+        RETRIED ON TRANSPORT ERROR ONLY: on this test's first P2 CI run the
+        call failed with "connect: connection refused" (vinylprobe exit 2)
+        a few seconds after the StatefulSet's readyReplicas assert above
+        had already gone green — a readiness flap right at startup, not a
+        caching bug; the parallel untraced copy of this test passed a
+        minute later. vinylprobe's exit codes separate transport failure
+        (2) from a wrong verdict (1) exactly so a caller can retry the
+        former without masking the latter: the loop below retries only on
+        exit 2 and lets exit 0 or exit 1 through on the first attempt, so a
+        real assertion failure still fails fast instead of being retried
+        into a false pass. The `sleep 5` here is not an assertion poll —
+        vinylprobe still owns every assertion in this suite — it is a
+        bounded backoff (at most 5 sleeps) between transport-error retries,
+        which is what makes it acceptable under this file's HTTP-client
+        boundary rule (see hack/check-e2e-boundary.sh): chainsaw still
+        drives no HTTP itself here, only kubectl exec plus sleep between
+        vinylprobe invocations. Worst case adds ~30s (5 sleeps of 5s
+        plus fast connection-refused failures and kubectl exec overhead);
+        this step carries no timeout override, so it uses the spec-level
+        `exec: 120s` default, which covers that with wide margin.
       try:
         - script:
             content: |
               set -eu
-              kubectl exec -n $NAMESPACE probe -- \
-                /vinylprobe -url "http://traced-cache-traffic:8080/traced/a" -expect hit
+              rc=2
+              for i in 1 2 3 4 5 6; do
+                set +e
+                kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://traced-cache-traffic:8080/traced/a" -expect hit
+                rc=$?
+                set -e
+                if [ "$rc" -ne 2 ]; then break; fi
+                sleep 5
+              done
+              exit "$rc"
 
     - name: assert-spans
       description: |
@@ -112,6 +140,42 @@ spec:
                 /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
                   -span-name "varnish request" -attr varnish.handling=hit \
                   -min-count 1 -within 90s
+
+    - name: rewrite-proof
+      description: |
+        P2: the VCL snippet mints the fetch span id onto bereq's
+        traceparent, and the echo backend reflects request headers into
+        its JSON body (lowercased names), so the minted value is readable
+        from the response of the very fetch it labeled. The sink must then
+        hold a "varnish fetch" span with exactly that trace and span id —
+        the backend's parent IS the fetch span. A fresh path guarantees
+        the reflecting response comes from a cold-cache fetch, and sending
+        no client traceparent also proves self-root trace adoption: the
+        "varnish request" span must be in the SAME trace the VCL minted.
+        Worst case is 120s: the -body-capture call's default -timeout (30s)
+        plus the two -assert-spans polls' -within budgets (60s, 30s); the
+        script timeout below is raised to 180s to leave 60s of margin for
+        the three kubectl exec spawns' own overhead, the same reasoning
+        the assert-spans step above documents for its own budget.
+      try:
+        - script:
+            timeout: 180s
+            content: |
+              set -eu
+              TP=$(kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://traced-cache-traffic:8080/traced/rewrite" \
+                  -body-capture '"traceparent":"([0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2})"')
+              echo "backend saw traceparent ${TP}"
+              TID=$(echo "${TP}" | cut -d- -f2)
+              SID=$(echo "${TP}" | cut -d- -f3)
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
+                  -span-name "varnish fetch" -trace-id "${TID}" -span-id "${SID}" \
+                  -min-count 1 -within 60s
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
+                  -span-name "varnish request" -trace-id "${TID}" \
+                  -min-count 1 -within 30s
 
     - name: cleanup
       try:

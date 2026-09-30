@@ -111,7 +111,7 @@ func TestDecideSpans_SatisfiedPasses(t *testing.T) {
 		{Name: "varnish request", Attrs: map[string]string{"varnish.handling": "hit"}},
 		{Name: "varnish request", Attrs: map[string]string{"varnish.handling": "miss"}},
 	}
-	v := decideSpans(spans, "varnish request", map[string]string{"varnish.handling": "hit"}, 1)
+	v := decideSpans(spans, "varnish request", map[string]string{"varnish.handling": "hit"}, "", "", 1)
 	if !v.satisfied {
 		t.Fatalf("want satisfied, got %+v", v)
 	}
@@ -119,7 +119,7 @@ func TestDecideSpans_SatisfiedPasses(t *testing.T) {
 
 func TestDecideSpans_CountShortfallNotSatisfied(t *testing.T) {
 	spans := []probe.SpanSummary{{Name: "varnish request", Attrs: map[string]string{}}}
-	v := decideSpans(spans, "varnish request", nil, 2)
+	v := decideSpans(spans, "varnish request", nil, "", "", 2)
 	if v.satisfied {
 		t.Fatal("one span must not satisfy min-count 2")
 	}
@@ -129,7 +129,7 @@ func TestDecideSpans_AttrMismatchNotCounted(t *testing.T) {
 	spans := []probe.SpanSummary{
 		{Name: "varnish request", Attrs: map[string]string{"varnish.handling": "miss"}},
 	}
-	v := decideSpans(spans, "varnish request", map[string]string{"varnish.handling": "hit"}, 1)
+	v := decideSpans(spans, "varnish request", map[string]string{"varnish.handling": "hit"}, "", "", 1)
 	if v.satisfied {
 		t.Fatal("attr mismatch must not count")
 	}
@@ -137,7 +137,7 @@ func TestDecideSpans_AttrMismatchNotCounted(t *testing.T) {
 
 func TestDecideSpans_NameMismatchNotCounted(t *testing.T) {
 	spans := []probe.SpanSummary{{Name: "other span", Attrs: map[string]string{}}}
-	v := decideSpans(spans, "varnish request", nil, 1)
+	v := decideSpans(spans, "varnish request", nil, "", "", 1)
 	if v.satisfied {
 		t.Fatal("a span with a different name must not count")
 	}
@@ -152,7 +152,7 @@ func TestDecideSpans_MultipleAttrsAllMustMatch(t *testing.T) {
 		{Name: "varnish request", Attrs: map[string]string{"varnish.handling": "hit", "http.status_code": "500"}},
 	}
 	v := decideSpans(spans, "varnish request",
-		map[string]string{"varnish.handling": "hit", "http.status_code": "200"}, 1)
+		map[string]string{"varnish.handling": "hit", "http.status_code": "200"}, "", "", 1)
 	if !v.satisfied {
 		t.Fatalf("want satisfied, got %+v", v)
 	}
@@ -171,7 +171,7 @@ func TestDecideSpans_MissingAttrDoesNotMatchEmptyWant(t *testing.T) {
 	spans := []probe.SpanSummary{
 		{Name: "varnish request", Attrs: map[string]string{}},
 	}
-	v := decideSpans(spans, "varnish request", map[string]string{"varnish.route": ""}, 1)
+	v := decideSpans(spans, "varnish request", map[string]string{"varnish.route": ""}, "", "", 1)
 	if v.satisfied {
 		t.Fatal("a span missing the key must not match an empty want")
 	}
@@ -187,9 +187,35 @@ func TestDecideSpans_PresentEmptyAttrMatchesEmptyWant(t *testing.T) {
 	spans := []probe.SpanSummary{
 		{Name: "varnish request", Attrs: map[string]string{"varnish.route": ""}},
 	}
-	v := decideSpans(spans, "varnish request", map[string]string{"varnish.route": ""}, 1)
+	v := decideSpans(spans, "varnish request", map[string]string{"varnish.route": ""}, "", "", 1)
 	if !v.satisfied {
 		t.Fatalf("want satisfied, got %+v", v)
+	}
+}
+
+// decideSpans -trace-id/-span-id filters: additional equality checks
+// against SpanSummary.TraceID/SpanID, independent of the name/attrs match.
+
+func TestDecideSpans_TraceIDFilter(t *testing.T) {
+	spans := []probe.SpanSummary{
+		{Name: "varnish fetch", TraceID: "aa11", SpanID: "bb22", Attrs: map[string]string{}},
+		{Name: "varnish fetch", TraceID: "cc33", SpanID: "dd44", Attrs: map[string]string{}},
+	}
+	v := decideSpans(spans, "varnish fetch", nil, "aa11", "", 1)
+	if !v.satisfied || v.matched != 1 {
+		t.Fatalf("trace-id filter: want 1 match, got %+v", v)
+	}
+}
+
+func TestDecideSpans_SpanIDFilter(t *testing.T) {
+	spans := []probe.SpanSummary{
+		{Name: "varnish fetch", TraceID: "aa11", SpanID: "bb22", Attrs: map[string]string{}},
+	}
+	if v := decideSpans(spans, "varnish fetch", nil, "", "zz99", 1); v.satisfied {
+		t.Fatal("span-id mismatch must not satisfy")
+	}
+	if v := decideSpans(spans, "varnish fetch", nil, "aa11", "bb22", 1); !v.satisfied {
+		t.Fatal("both filters matching must satisfy")
 	}
 }
 

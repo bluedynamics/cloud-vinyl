@@ -1,7 +1,10 @@
 // Package spans turns parsed VSL transaction groups into OTel-shaped spans
-// with explicit ids and real VSL timestamps. P1 scope: request + fetch spans,
-// parenting from the incoming traceparent (the backend stays a sibling until
-// the P2 VCL rewrite lands).
+// with explicit ids and real VSL timestamps: request + fetch spans, parented
+// from the incoming traceparent. When the VCL snippet has minted a fetch
+// span id onto bereq's traceparent (P2), that id is adopted so the backend
+// parents its own spans onto the fetch span rather than landing as a
+// sibling; without it (a P1-only deployment), the fetch span still mints
+// its own id.
 package spans
 
 import (
@@ -96,8 +99,43 @@ func Build(tx *vsl.Tx, ids IDSource) []Span {
 			traceID, parentID = tid, sid
 		}
 	}
+	// P2: the VCL snippet mints the fetch span id onto bereq's traceparent
+	// (and the whole trace id when the client sent none). Adopt those ids
+	// so the backend's spans, parented on the minted value, land in the
+	// same trace under the fetch span. A BereqHeader whose span id merely
+	// equals the incoming parent id is an unrewritten P1-style forward —
+	// not a minted id — and is ignored. With multiple direct BeReq children
+	// under a self-root, the first valid child's trace id wins below
+	// (mintedTraceID is only ever set once); later children's backends
+	// would then land in orphaned traces of their own. Practically
+	// unreachable today (one BeReq per top-level Request); P3 revisits
+	// this once retry/ESI fixtures can produce it.
+	mintedSpanIDs := make(map[*vsl.Tx]trace.SpanID)
+	var mintedTraceID trace.TraceID
+	for _, child := range tx.Children {
+		if child.Type != "BeReq" {
+			continue
+		}
+		raw, ok := child.Header("BereqHeader", "traceparent")
+		if !ok {
+			continue
+		}
+		tid, sid, _, valid := parseTraceparent(raw)
+		if !valid || sid == parentID {
+			continue
+		}
+		mintedSpanIDs[child] = sid
+		if !mintedTraceID.IsValid() {
+			mintedTraceID = tid
+		}
+	}
+
 	if !traceID.IsValid() {
-		traceID = ids.TraceID() // self-rooted: Varnish is the edge
+		if mintedTraceID.IsValid() {
+			traceID = mintedTraceID // join the VCL-minted trace
+		} else {
+			traceID = ids.TraceID() // self-rooted: Varnish is the edge
+		}
 	}
 
 	req := Span{
@@ -124,9 +162,13 @@ func Build(tx *vsl.Tx, ids IDSource) []Span {
 		if !okF || !okE {
 			continue
 		}
+		spanID, minted := mintedSpanIDs[child]
+		if !minted {
+			spanID = ids.SpanID()
+		}
 		out = append(out, Span{
 			TraceID:  traceID,
-			SpanID:   ids.SpanID(),
+			SpanID:   spanID,
 			ParentID: req.SpanID,
 			Name:     "varnish fetch",
 			Kind:     trace.SpanKindClient,

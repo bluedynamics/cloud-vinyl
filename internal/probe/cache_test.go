@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // cachingServer answers every request with the first X-Probe value it ever saw,
@@ -104,4 +107,56 @@ func TestDetectRespectsContextCancellation(t *testing.T) {
 	if _, err := Detect(ctx, srv.Client(), srv.URL); err == nil {
 		t.Fatal("expected an error when the context expires, got nil")
 	}
+}
+
+// roundTripperWithHeader injects a fixed header into every request before
+// delegating, standing in for a real client's transport-level header (e.g.
+// one that would carry a VCL-minted traceparent) without needing one.
+type roundTripperWithHeader struct {
+	base     http.RoundTripper
+	key, val string
+}
+
+func (rt roundTripperWithHeader) RoundTrip(r *http.Request) (*http.Response, error) {
+	r.Header.Set(rt.key, rt.val)
+	base := rt.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(r)
+}
+
+func TestBodyCapture_ExtractsGroupFromEchoedBody(t *testing.T) {
+	// The handler reflects a request header into a JSON body the way the
+	// real echo backend does (lowercased names, documented in the E2E
+	// design spec as `"x-probe":"<value>"`).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"headers":{"traceparent":%q}}`, r.Header.Get("traceparent"))
+	}))
+	defer srv.Close()
+
+	c := &http.Client{Transport: roundTripperWithHeader{
+		key: "traceparent", val: "00-abc-def-01"}}
+	got, matched, err := BodyCapture(context.Background(), c, srv.URL, "",
+		`"traceparent":"(00-[0-9a-f-]+-01)"`)
+	require.NoError(t, err)
+	require.True(t, matched)
+	assert.Equal(t, "00-abc-def-01", got)
+}
+
+func TestBodyCapture_NoMatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"headers":{}}`)
+	}))
+	defer srv.Close()
+	_, matched, err := BodyCapture(context.Background(), srv.Client(), srv.URL, "",
+		`"traceparent":"(00-[0-9a-f-]+)"`)
+	require.NoError(t, err)
+	assert.False(t, matched)
+}
+
+func TestBodyCapture_RegexNeedsCaptureGroup(t *testing.T) {
+	_, _, err := BodyCapture(context.Background(), http.DefaultClient,
+		"http://unused.invalid", "", `no-group-here`)
+	require.Error(t, err)
 }

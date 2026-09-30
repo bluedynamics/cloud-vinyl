@@ -148,16 +148,23 @@ func (t *Tx) Timestamp(label string) (time.Time, bool) {
 }
 
 // Header returns the value of "<tag> <name>: <value>", name compared
-// case-insensitively (HTTP header names are).
+// case-insensitively (HTTP header names are). VCL can unset and re-add a
+// header (logged as a "*Unset" record followed by a new one with the same
+// name), so the last match wins: it reflects the header's final state, not
+// its original one. *Unset records themselves are not processed — a header
+// that ends unset (no later "set" record) still returns its last set value,
+// so callers relying on this for "what the backend saw" are safe only while
+// their own parser is stricter than the VCL gate that would have unset it.
 func (t *Tx) Header(tag, name string) (string, bool) {
+	value, found := "", false
 	for _, r := range t.Records {
 		if r.Tag != tag {
 			continue
 		}
 		k, v, ok := strings.Cut(r.Payload, ":")
 		if ok && strings.EqualFold(strings.TrimSpace(k), name) {
-			return strings.TrimSpace(v), true
+			value, found = strings.TrimSpace(v), true
 		}
 	}
-	return "", false
+	return value, found
 }

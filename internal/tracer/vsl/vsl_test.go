@@ -88,6 +88,46 @@ func TestParser_HeaderLookupCaseInsensitive(t *testing.T) {
 	assert.Equal(t, "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", v)
 }
 
+// TestHeader_LastMatchWinsOnRewrittenHeader proves Header's unset/re-add
+// contract directly against the real fixture, not just indirectly through
+// the spans package. rewrite_miss.txt's BeReq child genuinely carries three
+// records for this header: the client's forwarded "Traceparent" (span id
+// 00f067aa0ba902b7), a "BereqUnset" for it, and the VCL-minted lowercase
+// "traceparent" re-add. If Header ever regresses to first-match, this test
+// (not just spans_test.go's adoption tests) goes red.
+func TestHeader_LastMatchWinsOnRewrittenHeader(t *testing.T) {
+	txs := parseAll(t, "rewrite_miss.txt")
+	require.NotEmpty(t, txs)
+	require.NotEmpty(t, txs[0].Children, "fixture must nest a BeReq")
+	bereq := txs[0].Children[0]
+	require.Equal(t, "BeReq", bereq.Type)
+
+	v, ok := bereq.Header("BereqHeader", "traceparent")
+	require.True(t, ok)
+	assert.Regexp(t, `^00-4bf92f3577b34da6a3ce929d0e0e4736-[0-9a-f]{16}-01$`, v,
+		"still W3C-shaped, same trace id as the forwarded header")
+	assert.False(t, strings.HasSuffix(v, "-00f067aa0ba902b7-01"),
+		"must not be the forwarded (pre-rewrite) value's span id")
+
+	// Corroboration: prove the multi-record situation is real in the
+	// fixture, and that last-match actually discriminated between two
+	// distinct records rather than there being only one candidate.
+	var sawForwarded, sawReturned bool
+	for _, r := range bereq.Records {
+		if r.Tag != "BereqHeader" {
+			continue
+		}
+		if strings.Contains(r.Payload, "00f067aa0ba902b7") {
+			sawForwarded = true
+		}
+		if strings.Contains(r.Payload, v) {
+			sawReturned = true
+		}
+	}
+	assert.True(t, sawForwarded, "fixture must still carry the forwarded record")
+	assert.True(t, sawReturned, "returned value must appear verbatim in a raw record")
+}
+
 // TestParser_GarbageLinesAreSkippedNotFatal injects synthetic garbage lines
 // (never recorded in a real fixture) into a real fixture's content and
 // asserts the parse is byte-for-byte identical, structurally, to parsing the
