@@ -81,12 +81,41 @@ spec:
         correctly answers "hit" (that mistake failed this test's first CI
         run). The single call produces exactly the miss + fetch + hit spans
         the next step asserts.
+        RETRIED ON TRANSPORT ERROR ONLY: on this test's first P2 CI run the
+        call failed with "connect: connection refused" (vinylprobe exit 2)
+        a few seconds after the StatefulSet's readyReplicas assert above
+        had already gone green — a readiness flap right at startup, not a
+        caching bug; the parallel untraced copy of this test passed a
+        minute later. vinylprobe's exit codes separate transport failure
+        (2) from a wrong verdict (1) exactly so a caller can retry the
+        former without masking the latter: the loop below retries only on
+        exit 2 and lets exit 0 or exit 1 through on the first attempt, so a
+        real assertion failure still fails fast instead of being retried
+        into a false pass. The `sleep 5` here is not an assertion poll —
+        vinylprobe still owns every assertion in this suite — it is a
+        bounded backoff (at most 5 sleeps) between transport-error retries,
+        which is what makes it acceptable under this file's HTTP-client
+        boundary rule (see hack/check-e2e-boundary.sh): chainsaw still
+        drives no HTTP itself here, only kubectl exec plus sleep between
+        vinylprobe invocations. Worst case adds ~30s (5 sleeps of 5s
+        plus fast connection-refused failures and kubectl exec overhead);
+        this step carries no timeout override, so it uses the spec-level
+        `exec: 120s` default, which covers that with wide margin.
       try:
         - script:
             content: |
               set -eu
-              kubectl exec -n $NAMESPACE probe -- \
-                /vinylprobe -url "http://traced-cache-traffic:8080/traced/a" -expect hit
+              rc=2
+              for i in 1 2 3 4 5 6; do
+                set +e
+                kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://traced-cache-traffic:8080/traced/a" -expect hit
+                rc=$?
+                set -e
+                if [ "$rc" -ne 2 ]; then break; fi
+                sleep 5
+              done
+              exit "$rc"
 
     - name: assert-spans
       description: |
