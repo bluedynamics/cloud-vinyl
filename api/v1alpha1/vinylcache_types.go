@@ -71,11 +71,11 @@ type VinylCacheSpec struct {
 	// Entries are sorted by key before being rendered as args, so the pod
 	// template does not churn between reconciles.
 	//
-	// ESI processing is controlled this way too: varnishd's "feature"
-	// parameter takes a comma-separated list of feature tokens, so set
-	// {"feature": "+esi"} to enable it, or {"feature": "+esi,+esi_disable_xml_check"}
-	// if response bodies don't start with '<' (varnishd's ESI XML sniffing
-	// would otherwise reject them).
+	// ESI processing is NOT controlled through this map — see spec.esi.
+	// varnishd's "feature" parameter is still useful alongside it: if ESI
+	// response bodies don't reliably start with '<', also set
+	// {"feature": "+esi_disable_xml_check"} (a real varnishd feature bit;
+	// see spec.esi's doc comment for why there is no "+esi" equivalent).
 	//
 	// Certain security-sensitive parameters (vcc_allow_inline_c, cc_command)
 	// are blocked by the admission webhook.
@@ -142,9 +142,36 @@ type VinylCacheSpec struct {
 	// +optional
 	Tracing TracingSpec `json:"tracing,omitempty"`
 
+	// esi configures Edge Side Includes (ESI) processing.
+	// +optional
+	ESI ESISpec `json:"esi,omitempty"`
+
 	// resources sets CPU and memory requests/limits for the Varnish container.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+// ESISpec configures Edge Side Includes (ESI) processing.
+type ESISpec struct {
+	// enabled gates the generated vcl_backend_response block that sets
+	// beresp.do_esi = true whenever a backend response carries
+	// Surrogate-Control: content="ESI/1.0". ESI is core varnishd
+	// functionality, not a VMOD and not something any "-p feature=..."
+	// flag turns on or off — an earlier convention asked for
+	// {"feature": "+esi"} in spec.varnishParameters, but "+esi" is not a
+	// real varnishd feature bit (varnishd -x parameter lists no bare
+	// "esi" token) and passing it crashes varnishd outright ("Unknown
+	// feature bit (+esi)"), atomically rejecting the whole -p feature=...
+	// value even when combined with a real token. This field replaces
+	// that convention as the only way to enable ESI.
+	//
+	// If response bodies don't reliably start with '<' (varnishd's ESI
+	// implementation sniffs the body to decide whether to scan it for
+	// <esi:...> tags), additionally set spec.varnishParameters'
+	// {"feature": "+esi_disable_xml_check"} — that token IS real and
+	// independent of this field.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
 }
 
 // BackendSpec describes an upstream Kubernetes service used as a Varnish backend.
