@@ -403,9 +403,13 @@ smallest label set of any fixture in this set (no `Fetch`/`Bereq`/
 -   VCL_call       RECV
 -   VCL_return     synth
 ...
--   VCL_call       SYNTH
+-   RespProtocol   HTTP/1.1
 -   RespStatus     410
 -   RespReason     gone
+-   RespHeader     Date: Wed, 30 Sep 2026 12:36:36 GMT
+-   RespHeader     Server: Varnish
+-   RespHeader     X-Varnish: 2
+-   VCL_call       SYNTH
 ```
 
 `VCL_call SYNTH` is the discriminator vs. every other scenario's
