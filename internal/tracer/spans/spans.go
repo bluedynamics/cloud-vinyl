@@ -85,6 +85,13 @@ func (randomIDs) SpanID() trace.SpanID {
 // restart-continuation check gate on it.
 const txTypeRequest = "Request"
 
+// restartReason is the "restart" reason field shared by two distinct VSL
+// records: a "Link req <vxid> restart" (countRestarts, Linker's
+// recordRestartLinks) and a restarted continuation's own "Begin req
+// <vxid> restart" (Linker's isRestartContinuation) — see NOTES.md's
+// restart.txt section for both shapes.
+const restartReason = "restart"
+
 var traceparentRe = regexp.MustCompile(
 	`^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$`)
 
@@ -365,7 +372,7 @@ func countRestarts(tx *vsl.Tx) int {
 			continue
 		}
 		f := strings.Fields(r.Payload)
-		if len(f) >= 3 && f[0] == "req" && f[2] == "restart" {
+		if len(f) >= 3 && f[0] == "req" && f[2] == restartReason {
 			n++
 		}
 	}

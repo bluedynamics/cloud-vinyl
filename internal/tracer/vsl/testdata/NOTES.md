@@ -61,9 +61,9 @@ exactly.
 Confirmed. Group headers:
 
 ```
-1:*   << Request  >> 32770        (the waiter — printed FIRST in the file)
+1:*   << Request  >> 2            (the initiator — printed FIRST in the file)
 43:**  << BeReq    >> 3            (nested under Request 2, not under 32770)
-84:*   << Request  >> 2            (the initiator — printed SECOND, separated by a blank line)
+84:*   << Request  >> 32770        (the waiter — printed SECOND, separated by a blank line)
 ```
 
 Correction to the naive reading: `varnishlog -g request` prints one block

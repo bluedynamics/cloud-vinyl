@@ -27,9 +27,16 @@ type cacheEntry[V any] struct {
 // lookup plus a FIFO ring of keys, oldest first, for O(1) amortized
 // eviction. It is insertion-ordered, not access-ordered (a get never moves
 // an entry within the ring) — simple and sufficient for this use, where
-// every vxid is written once and read at most once. Single-goroutine use
-// only (the supervisor's handle closure calls Linker.Build serially) — no
-// mutex guards it.
+// every vxid is written once and read at most once. A re-set of an
+// already-cached vxid (which would update its value/timestamp without
+// moving its ring position, the one place insertion- vs access-order would
+// matter) is not a realistic concern here: Varnish mints vxids
+// monotonically per transaction for the lifetime of a varnishd process, so
+// the same vxid recurring within one process's TTL window would require
+// billions of intervening transactions or a wraparound neither this cache
+// nor its callers are sized for. Single-goroutine use only (the
+// supervisor's handle closure calls Linker.Build serially) — no mutex
+// guards it.
 type vxidCache[V any] struct {
 	capacity int
 	ttl      time.Duration
@@ -194,13 +201,21 @@ func (l *Linker) Build(tx *vsl.Tx) ([]Span, Outcome) {
 }
 
 // isRestartContinuation reports whether tx is a top-level Request whose own
-// Begin record marks it as a restarted continuation.
+// Begin record marks it as a restarted continuation. Begin's payload is
+// "<type> <parent-vxid> <reason>" (NOTES.md's restart.txt section: "req 2
+// restart"); checking the reason field positionally, rather than a bare
+// substring match, avoids a false positive on some future reason string
+// that merely contains "restart" as a substring.
 func (l *Linker) isRestartContinuation(tx *vsl.Tx) bool {
 	if tx.Type != txTypeRequest {
 		return false
 	}
 	b, ok := tx.First("Begin")
-	return ok && strings.Contains(b, "restart")
+	if !ok {
+		return false
+	}
+	f := strings.Fields(b)
+	return len(f) >= 3 && f[2] == restartReason
 }
 
 // reparentRestart rewrites built (a just-built restart continuation's
@@ -229,7 +244,7 @@ func (l *Linker) recordRestartLinks(tx *vsl.Tx, top Span, now time.Time) {
 			continue
 		}
 		f := strings.Fields(r.Payload)
-		if len(f) < 3 || f[0] != "req" || f[2] != "restart" {
+		if len(f) < 3 || f[0] != "req" || f[2] != restartReason {
 			continue
 		}
 		if vxid, err := strconv.ParseUint(f[1], 10, 64); err == nil {
