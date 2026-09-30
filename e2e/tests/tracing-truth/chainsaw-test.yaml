@@ -148,78 +148,117 @@ spec:
               done
               exit "$rc"
 
-    - name: coalescing-traffic
+    - name: coalescing-traffic-and-assert
       description: |
-        Two backgrounded Detect calls (-url ... -expect hit) at the exact
-        same URL, so they hash to the exact same cache object
-        (vcl_hash.vcl.tmpl hashes req.url + Host); echo_time=2500 (Step 1's
-        confirmed query control) gives the backend a 2.5s delay, comfortably
-        above the ~0-few-hundred-ms kubectl-exec dispatch skew between the
-        two `&` launches, so their first requests reliably overlap the one
-        in-flight fetch rather than racing past it.
-        Real Varnish request coalescing means only ONE of the two actually
-        dials the backend; the other's first request joins the waiting list
-        and is delivered that same winning fetch's object once ready. Each
-        Detect call only trusts its OWN two tokens (internal/probe/cache.go)
-        — the "losing" call's own second request legitimately cannot find
-        either of its own tokens in a body that carries the winner's token,
-        so that call's own hit/miss self-check is expected, by design, to
-        sometimes report an error (vinylprobe exit 2) rather than a clean
-        hit. This step deliberately does not gate on that: plain `wait`
-        (no operands) always returns 0 in POSIX sh and bash regardless of
-        the background jobs' own exit statuses — verified directly against
-        both /bin/bash and /bin/sh before relying on it here — so this
-        step's only job is to generate the overlapping traffic; the next
-        step's -assert-spans calls are what actually decide pass/fail.
-        Budget: both kubectl execs run concurrently, each bounded by
-        vinylprobe's own default -timeout (30s); worst case is ~30s (not
-        60s, since they overlap) plus kubectl exec dispatch overhead, well
-        under the spec-level `exec: 120s` default, so no override.
-      try:
-        - script:
-            content: |
-              set -eu
-              kubectl exec -n $NAMESPACE probe -- \
-                /vinylprobe -url "http://truth-cache-traffic:8080/truth/coalesce?echo_time=2500" \
-                  -expect hit &
-              kubectl exec -n $NAMESPACE probe -- \
-                /vinylprobe -url "http://truth-cache-traffic:8080/truth/coalesce?echo_time=2500" \
-                  -expect hit &
-              wait
+        Bounded retry (up to 3 rounds) wrapping BOTH the coalescing traffic
+        and the varnish.coalesced=true assert, around a genuine VSL
+        emission-order race — the previous single-shot version of this step
+        was a latent flake that could fail even when Varnish genuinely
+        coalesced the two requests, for reasons unrelated to whether
+        coalescing actually happened.
 
-    - name: coalescing-assert-spans
-      description: |
-        Two sequential polls, 90s + 90s = 180s worst case, so the script
-        timeout below is raised to 220s (40s margin over that worst case,
-        covering kubectl exec spawn overhead for both calls) the same way
-        the tracing test's own assert-spans step raises its budget above
-        the spec-level exec default.
-        First call is a broad sanity check (no attr/trace filter) that the
-        sink is receiving current data at all; NOTE it is not, on its own,
-        proof that THIS coalescing scenario's slow fetch specifically
-        reached the sink — warm-up-traffic already put at least one
-        ordinary "varnish fetch" span there. The second call is the actual
-        proof: internal/tracer/spans/linker.go's resolveHit only ever sets
-        varnish.coalesced=true on a "varnish request" span when it resolved
-        that request's own Hit record against a fetch span it had already
-        cached AND that request's Start preceded the cached fetch's End —
-        i.e. only when a real hit-to-fetch link with genuine time overlap
-        was established. Its presence therefore implies the link existed;
-        exact link-id equality (the Link record's target span id matching
-        the fetch span's own id) is already proven at the unit layer
-        (Task 5, coalesce.txt) and is not re-derived here.
+        WHY the assert can miss real coalescing (the ordering race):
+        internal/tracer/spans/linker.go's resolveHit only sets
+        varnish.coalesced=true when it resolves a request's own Hit record
+        against a fetch span it had ALREADY cached from an earlier Build
+        call, AND that request's Start precedes the cached fetch's End.
+        The Linker processes transactions in the order the live log hands
+        them to it, and `varnishlog -g request` emits one block per
+        top-level transaction root in COMPLETION order, not causal/
+        wall-clock order (NOTES.md's coalesce.txt section;
+        TestLinker_CoalescedHitLinksToOriginFetch pins the fixture's own
+        [initiator, waiter] order). Real concurrent traffic gives no such
+        guarantee: if the waiter's group happens to finish — and so get
+        logged — before the initiator's fetch group, the waiter's Hit
+        resolves against an empty fetch cache and degrades to
+        varnish.coalesced_unlinked=true instead (still a correctly linked
+        outcome per the truth-semantics spec table's coalescing row, just
+        not the flag this assert checks). Once resolveHit has run for that
+        specific pair the outcome is final — nothing arrives later to flip
+        a flag that was missed, so a longer -within on the SAME pair cannot
+        help. The only reliable fix is to retry the whole scenario — a
+        fresh concurrent pair against a cold URL — until one attempt lands
+        in the initiator-first order.
+
+        This is a test-level workaround for live-log-processing
+        nondeterminism, not evidence the Linker needs to change. Task 5's
+        controller ruling deliberately did NOT add a pending-hits buffer
+        (queuing an unresolved Hit until a later-arriving fetch resolves
+        it) — the fixture-proven ordering never called for one, and every
+        unit fixture already exercises the flag correctly without it. That
+        ruling stands unmodified; this retry lives entirely here, working
+        around a race that only shows up under real concurrent traffic
+        against a live varnishd and never in a canned fixture.
+
+        Each round uses a FRESH path (/truth/coalesce-r1, -r2, -r3) so
+        every round is a cold coalescing scenario: reusing one path across
+        rounds would mean round 2's pair finds an already-cached object
+        from round 1 and just hits twice — no fetch, no coalescing event to
+        observe at all, defeating the retry's whole purpose. Each round's
+        traffic generation keeps this step's original transport-retry
+        semantics unchanged: two backgrounded `vinylprobe -expect hit`
+        Detect calls at the SAME (round-specific) URL, so they hash to the
+        same cache object; the "losing" call's own hit/miss self-check
+        legitimately sometimes exits 2 (internal/probe/cache.go: it only
+        trusts its own two tokens), so a round still does not gate on
+        either call's exit status — plain `wait` (no operands) always
+        returns 0 regardless, as verified before relying on it originally.
+        A round's own -assert-spans call is what decides that round's
+        pass/fail; a passing round breaks out immediately, three failing
+        rounds exit 1.
+
+        Budget: one fetch-sanity assert (-within 90s, ~2s kubectl overhead
+        = 92s) runs ONCE, before the loop — a broad, round-independent
+        check ("is the sink receiving current data at all") that warm-up-
+        traffic already satisfies on its own, so it needs no knowledge of
+        round paths and gains nothing from repeating per round. Per round:
+        traffic generation is ~30s worst case (both backgrounded Detect
+        calls bounded by vinylprobe's own default -timeout 30s, overlapped
+        not additive — same reasoning as this step's original design) plus
+        ~5s kubectl exec dispatch/overlap-skew overhead = 35s; then one
+        coalesced-assert -within 90s poll plus ~2s kubectl overhead = 92s;
+        round total = 35s + 92s = 127s. Three rounds worst case =
+        3 x 127s = 381s. Grand total worst case = 92s (sanity) + 381s
+        (rounds) = 473s. Script timeout below is raised to 530s, ~57s
+        margin over that 473s worst case (matching this suite's
+        established ~40-58s margins elsewhere, e.g. grace-bgfetch's 58s).
+        Expected case: the ordering race resolves in round 1 about as
+        often as not, so typical wall time sits close to one round's
+        ~10-20s (dominated by the 2.5s echo_time delay and the ~3s OTLP
+        flush, not the full -within budgets).
       try:
         - script:
-            timeout: 220s
+            timeout: 530s
             content: |
               set -eu
               kubectl exec -n $NAMESPACE probe -- \
                 /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
                   -span-name "varnish fetch" -min-count 1 -within 90s
-              kubectl exec -n $NAMESPACE probe -- \
-                /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
-                  -span-name "varnish request" -attr varnish.coalesced=true \
-                  -min-count 1 -within 90s
+
+              round=1
+              ok=0
+              while [ "$round" -le 3 ]; do
+                path="/truth/coalesce-r${round}"
+                kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://truth-cache-traffic:8080${path}?echo_time=2500" \
+                    -expect hit &
+                kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://truth-cache-traffic:8080${path}?echo_time=2500" \
+                    -expect hit &
+                wait
+                if kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
+                    -span-name "varnish request" -attr varnish.coalesced=true \
+                    -min-count 1 -within 90s; then
+                  ok=1
+                  break
+                fi
+                round=$((round + 1))
+              done
+              if [ "$ok" -ne 1 ]; then
+                echo "FAIL: varnish.coalesced=true not observed in any of 3 rounds (r1..r3)"
+                exit 1
+              fi
 
     - name: grace-bgfetch
       description: |
