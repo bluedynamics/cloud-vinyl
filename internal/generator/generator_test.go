@@ -465,7 +465,7 @@ func TestGenerate_ESI_NoVmodImport(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
 	input.Spec.VarnishParams = map[string]string{
-		"feature +esi": "on",
+		"feature": "+esi",
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
@@ -1439,7 +1439,7 @@ func TestGenerate_ESI_EnablesDoESIOnSurrogateControl(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
 	input.Spec.VarnishParams = map[string]string{
-		"feature +esi": "on",
+		"feature": "+esi",
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
@@ -1457,4 +1457,43 @@ func TestGenerate_NoESI_NoDoESI(t *testing.T) {
 		"do_esi block must not be rendered when ESI is not enabled")
 	assert.NotContains(t, r.VCL, `Surrogate-Control ~ "ESI/1.0"`,
 		"Surrogate-Control check must not appear when ESI is not enabled")
+}
+
+// TestGenerate_ESI_DisableXMLCheckAlone_NoDoESI guards against the substring
+// trap: "+esi_disable_xml_check" contains "+esi" as a substring, so a naive
+// strings.Contains(v, "+esi") check would wrongly treat this varnishd
+// feature-list value as enabling ESI processing even though "+esi" itself
+// was never requested.
+func TestGenerate_ESI_DisableXMLCheckAlone_NoDoESI(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.VarnishParams = map[string]string{
+		"feature": "+esi_disable_xml_check",
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.NotContains(t, r.VCL, `set beresp.do_esi = true;`,
+		"+esi_disable_xml_check alone must not be mistaken for +esi (substring trap)")
+	assert.NotContains(t, r.VCL, `Surrogate-Control ~ "ESI/1.0"`,
+		"+esi_disable_xml_check alone must not enable the ESI Surrogate-Control gate")
+}
+
+// TestGenerate_ESI_MultiValueFeatureList_EnablesDoESI proves the parser
+// handles varnishd's real comma-separated "feature" parameter syntax: both
+// "+esi" and "+esi_disable_xml_check" can be requested together (the latter
+// is needed whenever a response body doesn't start with '<', per varnishd's
+// own ESI XML sniffing), and the exact-token match must still find "+esi"
+// among the other list entries.
+func TestGenerate_ESI_MultiValueFeatureList_EnablesDoESI(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.VarnishParams = map[string]string{
+		"feature": "+esi,+esi_disable_xml_check",
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, `set beresp.do_esi = true;`,
+		"+esi among other comma-separated feature values must still enable do_esi")
+	assert.Contains(t, r.VCL, `Surrogate-Control ~ "ESI/1.0"`,
+		"+esi among other comma-separated feature values must still enable the Surrogate-Control gate")
 }

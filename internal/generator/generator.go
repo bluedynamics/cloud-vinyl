@@ -224,9 +224,13 @@ func buildTemplateData(input Input) TemplateData {
 		data.HasBAN = input.Spec.Invalidation.BAN.Enabled
 	}
 
-	// ESI: check VarnishParams for explicit feature flag.
-	_, hasESI := input.Spec.VarnishParams["feature +esi"]
-	data.HasESI = hasESI
+	// ESI: varnishd's "feature" parameter (spec.varnishParameters["feature"])
+	// is a comma-separated list of feature-flag tokens, e.g.
+	// "+esi,+esi_disable_xml_check". Match the exact "+esi" token rather than
+	// a substring: "+esi_disable_xml_check" also contains "+esi" as a
+	// substring, and a naive strings.Contains check would wrongly enable ESI
+	// processing for a param value that only meant to disable XML sniffing.
+	data.HasESI = hasVarnishFeature(input.Spec.VarnishParams["feature"], "+esi")
 
 	data.HasTracing = input.Spec.Tracing.Enabled
 
@@ -323,6 +327,20 @@ func buildTemplateData(input Input) TemplateData {
 	}
 
 	return data
+}
+
+// hasVarnishFeature reports whether token is present among the comma-separated
+// values of a varnishd "feature" parameter (e.g. "+esi,+esi_disable_xml_check").
+// Each item is trimmed of surrounding whitespace and compared for an exact
+// match against token; a substring match is deliberately not used, since
+// "+esi" is itself a substring of "+esi_disable_xml_check".
+func hasVarnishFeature(features, token string) bool {
+	for item := range strings.SplitSeq(features, ",") {
+		if strings.TrimSpace(item) == token {
+			return true
+		}
+	}
+	return false
 }
 
 // fmtDuration formats a time.Duration into a Varnish-compatible duration string.
