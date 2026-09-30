@@ -224,13 +224,13 @@ func buildTemplateData(input Input) TemplateData {
 		data.HasBAN = input.Spec.Invalidation.BAN.Enabled
 	}
 
-	// ESI: varnishd's "feature" parameter (spec.varnishParameters["feature"])
-	// is a comma-separated list of feature-flag tokens, e.g.
-	// "+esi,+esi_disable_xml_check". Match the exact "+esi" token rather than
-	// a substring: "+esi_disable_xml_check" also contains "+esi" as a
-	// substring, and a naive strings.Contains check would wrongly enable ESI
-	// processing for a param value that only meant to disable XML sniffing.
-	data.HasESI = hasVarnishFeature(input.Spec.VarnishParams["feature"], "+esi")
+	// ESI is a first-class field, not a varnishParameters convention: the
+	// previous approach gated this on VarnishParams["feature"] containing
+	// "+esi", but that string is rendered verbatim into varnishd's real
+	// -p feature=... argument and real varnishd has no "esi" feature bit —
+	// passing it crashes varnishd outright ("Unknown feature bit (+esi)").
+	// spec.esi.enabled carries no such risk: it never reaches varnishd argv.
+	data.HasESI = input.Spec.ESI.Enabled
 
 	data.HasTracing = input.Spec.Tracing.Enabled
 
@@ -327,20 +327,6 @@ func buildTemplateData(input Input) TemplateData {
 	}
 
 	return data
-}
-
-// hasVarnishFeature reports whether token is present among the comma-separated
-// values of a varnishd "feature" parameter (e.g. "+esi,+esi_disable_xml_check").
-// Each item is trimmed of surrounding whitespace and compared for an exact
-// match against token; a substring match is deliberately not used, since
-// "+esi" is itself a substring of "+esi_disable_xml_check".
-func hasVarnishFeature(features, token string) bool {
-	for item := range strings.SplitSeq(features, ",") {
-		if strings.TrimSpace(item) == token {
-			return true
-		}
-	}
-	return false
 }
 
 // fmtDuration formats a time.Duration into a Varnish-compatible duration string.

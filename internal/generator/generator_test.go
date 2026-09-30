@@ -458,15 +458,13 @@ func TestGenerate_BackendWithConnectionParameters(t *testing.T) {
 // image). Emitting "import esi;" made VCC-compiler fail every time with
 // "Could not find VMOD esi" for any CR enabling ESI — confirmed 2026-09-30 by
 // feeding both a hand-written repro and this generator's own real output
-// (feature +esi + tracing enabled) to `varnishd -C -f` against a real
+// (ESI + tracing both enabled) to `varnishd -C -f` against a real
 // varnish:8.0.2 container: identical failure with the import, clean compile
 // (exit 0, do_esi gate intact) with it removed. See P3 Task 9's report.
 func TestGenerate_ESI_NoVmodImport(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.VarnishParams = map[string]string{
-		"feature": "+esi",
-	}
+	input.Spec.ESI.Enabled = true
 	r, err := g.Generate(input)
 	require.NoError(t, err)
 	assert.NotContains(t, r.VCL, "import esi",
@@ -1438,13 +1436,11 @@ func TestGenerate_TracingWithUserSnippets_BothPresent(t *testing.T) {
 func TestGenerate_ESI_EnablesDoESIOnSurrogateControl(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.VarnishParams = map[string]string{
-		"feature": "+esi",
-	}
+	input.Spec.ESI.Enabled = true
 	r, err := g.Generate(input)
 	require.NoError(t, err)
 	assert.Contains(t, r.VCL, `set beresp.do_esi = true;`,
-		"ESI flag in VarnishParams must enable do_esi when Surrogate-Control matches")
+		"spec.esi.enabled must enable do_esi when Surrogate-Control matches")
 	assert.Contains(t, r.VCL, `Surrogate-Control ~ "ESI/1.0"`,
 		"do_esi must be guarded by a Surrogate-Control check per W3C ESI 1.0")
 }
@@ -1454,37 +1450,20 @@ func TestGenerate_NoESI_NoDoESI(t *testing.T) {
 	r, err := g.Generate(makeMinimalInput())
 	require.NoError(t, err)
 	assert.NotContains(t, r.VCL, `set beresp.do_esi = true;`,
-		"do_esi block must not be rendered when ESI is not enabled")
+		"do_esi block must not be rendered when spec.esi.enabled is false/unset")
 	assert.NotContains(t, r.VCL, `Surrogate-Control ~ "ESI/1.0"`,
-		"Surrogate-Control check must not appear when ESI is not enabled")
+		"Surrogate-Control check must not appear when spec.esi.enabled is false/unset")
 }
 
-// TestGenerate_ESI_DisableXMLCheckAlone_NoDoESI guards against the substring
-// trap: "+esi_disable_xml_check" contains "+esi" as a substring, so a naive
-// strings.Contains(v, "+esi") check would wrongly treat this varnishd
-// feature-list value as enabling ESI processing even though "+esi" itself
-// was never requested.
-func TestGenerate_ESI_DisableXMLCheckAlone_NoDoESI(t *testing.T) {
-	g := newGenerator(t)
-	input := makeMinimalInput()
-	input.Spec.VarnishParams = map[string]string{
-		"feature": "+esi_disable_xml_check",
-	}
-	r, err := g.Generate(input)
-	require.NoError(t, err)
-	assert.NotContains(t, r.VCL, `set beresp.do_esi = true;`,
-		"+esi_disable_xml_check alone must not be mistaken for +esi (substring trap)")
-	assert.NotContains(t, r.VCL, `Surrogate-Control ~ "ESI/1.0"`,
-		"+esi_disable_xml_check alone must not enable the ESI Surrogate-Control gate")
-}
-
-// TestGenerate_ESI_MultiValueFeatureList_EnablesDoESI proves the parser
-// handles varnishd's real comma-separated "feature" parameter syntax: both
-// "+esi" and "+esi_disable_xml_check" can be requested together (the latter
-// is needed whenever a response body doesn't start with '<', per varnishd's
-// own ESI XML sniffing), and the exact-token match must still find "+esi"
-// among the other list entries.
-func TestGenerate_ESI_MultiValueFeatureList_EnablesDoESI(t *testing.T) {
+// TestGenerate_ESI_VarnishParamsFeatureIgnored guards against reintroducing
+// the removed (and broken) VarnishParams["feature"]-token convention:
+// spec.esi.enabled is now the only gate for do_esi, so a "feature" param
+// value alone — even the exact "+esi" token the old convention asked for —
+// must have no effect on ESI processing. (That old convention is also why
+// it was broken: this same map renders verbatim into varnishd's real -p
+// feature=... argument, and real varnishd has no "esi" feature bit at all —
+// see api/v1alpha1/vinylcache_types.go's ESISpec doc comment.)
+func TestGenerate_ESI_VarnishParamsFeatureIgnored(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
 	input.Spec.VarnishParams = map[string]string{
@@ -1492,28 +1471,8 @@ func TestGenerate_ESI_MultiValueFeatureList_EnablesDoESI(t *testing.T) {
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
-	assert.Contains(t, r.VCL, `set beresp.do_esi = true;`,
-		"+esi among other comma-separated feature values must still enable do_esi")
-	assert.Contains(t, r.VCL, `Surrogate-Control ~ "ESI/1.0"`,
-		"+esi among other comma-separated feature values must still enable the Surrogate-Control gate")
-}
-
-// TestGenerate_ESI_ExplicitDisable_NoDoESI pins existing (already-correct)
-// behavior: varnishd's feature list uses a leading '-' to explicitly
-// disable a feature, so "-esi" must not be mistaken for "+esi" by the
-// exact-token match. Nothing regressed this — hasVarnishFeature's token
-// comparison already distinguishes "+esi" from "-esi" — but it was
-// previously unpinned by any test.
-func TestGenerate_ESI_ExplicitDisable_NoDoESI(t *testing.T) {
-	g := newGenerator(t)
-	input := makeMinimalInput()
-	input.Spec.VarnishParams = map[string]string{
-		"feature": "-esi",
-	}
-	r, err := g.Generate(input)
-	require.NoError(t, err)
 	assert.NotContains(t, r.VCL, `set beresp.do_esi = true;`,
-		"\"-esi\" (explicit disable) must not be mistaken for \"+esi\"")
+		"varnishParameters[\"feature\"] must not gate do_esi; only spec.esi.enabled does")
 	assert.NotContains(t, r.VCL, `Surrogate-Control ~ "ESI/1.0"`,
-		"\"-esi\" (explicit disable) must not enable the Surrogate-Control gate")
+		"varnishParameters[\"feature\"] must not enable the Surrogate-Control gate")
 }
