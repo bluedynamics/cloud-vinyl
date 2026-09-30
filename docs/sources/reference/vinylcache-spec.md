@@ -90,9 +90,11 @@ See the [per-backend directors how-to](../how-to/per-backend-directors.md) for w
 
 ### varnishParameters
 
-A free-form `map[string]string`. Each entry becomes one `-p` flag on `varnishd`:
-the key is the bare parameter name, the value is passed through unchanged. For
-example:
+A `map[string]string`. Each entry becomes one `-p` flag on `varnishd`: the key
+must be a bare varnishd parameter name (lowercase letters, digits, and
+underscores, starting with a letter — the admission webhook rejects anything
+else, including padding whitespace or uppercase), and the value is passed
+through unchanged. For example:
 
 ```yaml
 varnishParameters:

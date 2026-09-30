@@ -125,6 +125,69 @@ func TestValidate_VarnishParameters_Empty(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// --- varnishParameters key shape ---
+//
+// varnishParamArgs (controller-side) renders a varnishParameters map key
+// straight into the varnish container's argv. Before that existed, a bare
+// forbiddenVarnishParams[k] map lookup with no normalization was harmless;
+// now it is a live security boundary, and a padded or case-varied key such
+// as "  cc_command" or "CC_COMMAND" would slip past an exact lookup while
+// still reaching varnishd as (or close enough to) the blocked parameter.
+// isValidVarnishParamKey rejects anything outside plain lowercase
+// [a-z][a-z0-9_]* shape, closing that off independently of the blocklist.
+
+func TestValidate_VarnishParameters_KeyShape(t *testing.T) {
+	cases := []struct {
+		name    string
+		key     string
+		wantErr bool
+	}{
+		{name: "leading-space padded key is rejected", key: "  cc_command", wantErr: true},
+		{name: "trailing-space padded key is rejected", key: "thread_pool_min ", wantErr: true},
+		{name: "uppercase key is rejected", key: "THREAD_POOL_MIN", wantErr: true},
+		{name: "legitimate lowercase key is accepted", key: "thread_pool_min", wantErr: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vc := minimalValidVC()
+			vc.Spec.VarnishParams = map[string]string{tc.key: "1"}
+
+			_, err := webhook.ValidateVinylCache(vc)
+			if tc.wantErr {
+				require.Error(t, err, "expected validation error for key %q", tc.key)
+				assert.Contains(t, err.Error(), "not a valid varnishd parameter name")
+			} else {
+				assert.NoError(t, err, "expected no validation error for key %q", tc.key)
+			}
+		})
+	}
+}
+
+func TestValidate_VarnishParameters_BlockedKeyStillRejected(t *testing.T) {
+	vc := minimalValidVC()
+	vc.Spec.VarnishParams = map[string]string{"cc_command": "gcc"}
+
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `varnishParameters key "cc_command" is not allowed`)
+}
+
+func TestValidate_VarnishParameters_BlockedKeyWithPadding_RejectedByShapeRule(t *testing.T) {
+	// "cc_command " does not match forbiddenVarnishParams's exact-string
+	// lookup, but it is not a valid varnishd parameter name either; the
+	// shape rule alone must catch it, proving padding cannot be used to
+	// dodge the blocklist.
+	vc := minimalValidVC()
+	vc.Spec.VarnishParams = map[string]string{"cc_command ": "gcc"}
+
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a valid varnishd parameter name")
+	assert.NotContains(t, err.Error(), `"cc_command " is not allowed`,
+		"blocklist map lookup must not match a padded key; the shape rule must be what catches it")
+}
+
 // --- storage type blocklist ---
 
 func TestValidate_StorageType_Blocklist(t *testing.T) {
