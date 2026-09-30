@@ -101,7 +101,7 @@ Settled 2026-09-21, in conversation:
 
 ### VCL snippet (operator template)
 
-Injected via the existing snippet mechanism when tracing is enabled:
+Injected by the generator itself when tracing is enabled — a HasTracing template flag, the same pattern as the xkey/esi imports; the user snippet fields stay untouched:
 
 - `vcl_recv`: validate incoming `traceparent` against the W3C regex, unset
   garbage (untrusted client input). No rewrite here; the original stays
@@ -110,8 +110,7 @@ Injected via the existing snippet mechanism when tracing is enabled:
   `varnish:8.0.2`): `uuid_v4()`, dashes stripped, first 16 hex chars. Set
   `bereq.http.traceparent` keeping trace id and flags. No incoming
   traceparent → mint a full trace id too and self-root.
-- The existing `X-Cache` response-header practice stays, so ingress
-  attributes keep working.
+- Ingress-side capture of cache-status response headers (e.g. Traefik's capturedResponseHeaders) is a deployment concern; this design changes no response headers.
 
 ### Trace model
 
@@ -152,8 +151,7 @@ spec:
     resources: {}               # like spec.monitoring.exporter
 ```
 
-- Defaulter fills protocol and serviceName; validator requires a non-empty
-  endpoint when enabled and checks host:port shape.
+- Protocol and serviceName defaults are applied controller-side in the sidecar builder (the exporter convention); the webhook only validates.
 - `buildTracerContainer` alongside `buildExporterContainer`: image from
   `TRACER_IMAGE` env (Helm chart, like `AGENT_IMAGE`), `varnish-workdir`
   mounted read-only, OTLP config via env, nonroot / read-only-rootfs /
@@ -171,7 +169,7 @@ stage; a `FROM ${VARNISH_IMAGE}` stage as the source of a matching
 `varnishlog` plus `libvarnishapi.so.3*` and its libraries, with the same
 soname build guard (#91); runtime `gcr.io/distroless/base-debian13:nonroot`
 (base, not static: varnishlog needs glibc). Published as
-`ghcr.io/bluedynamics/vinyl-tracer:<version>`.
+`ghcr.io/bluedynamics/cloud-vinyl-tracer:<version>`.
 
 ## Testing
 
@@ -181,8 +179,7 @@ soname build guard (#91); runtime `gcr.io/distroless/base-debian13:nonroot`
   unsampled, garbage traceparent, truncated/overrun output, streaming.
   Operator side: fake-client tests for container/volume/env wiring and VCL
   snippet rendering.
-- **envtest**: webhook defaulting and validation of `spec.tracing`; adds
-  real admission assertions to a currently near-stub layer.
+- **envtest**: webhook validation of `spec.tracing`; adds real admission assertions to a currently near-stub layer.
 - **E2E**: `vinylprobe` grows two HTTP-only modes, preserving the enforced
   boundary (no `k8s.io/*` imports in vinylprobe, no curl in chainsaw):
   1. `otlp-sink`: an OTLP/http-protobuf receiver holding recent spans in
