@@ -17,6 +17,7 @@
 | `director` | object | no | Director configuration (defaults: `type: shard`). |
 | `cluster` | object | no | Clustering / peer-routing configuration. |
 | `varnishParameters` | object | no | Runtime parameters passed to `varnishd` via `-p` flags. See [varnishParameters](#varnishparameters) below. |
+| `esi` | object | no | Edge Side Includes (ESI) processing. See [esi](#esi) below. |
 | `invalidation` | object | no | Cache invalidation configuration. |
 | `debounce.duration` | duration | no | Wait after last change before VCL push (default: `1s`). |
 | `retry.maxAttempts` | integer | no | Maximum VCL push retry attempts (default: `3`). |
@@ -100,10 +101,10 @@ through unchanged. For example:
 varnishParameters:
   thread_pool_min: "100"
   thread_pool_max: "1000"
-  feature: "+esi,+esi_disable_xml_check"
+  feature: "+esi_disable_xml_check"
 ```
 
-renders as `-p feature=+esi,+esi_disable_xml_check -p thread_pool_max=1000 -p thread_pool_min=100`
+renders as `-p feature=+esi_disable_xml_check -p thread_pool_max=1000 -p thread_pool_min=100`
 on the varnish container — note the args come out sorted by key (`feature` <
 `thread_pool_max` < `thread_pool_min`), not in the order they were written in
 YAML, so the pod template does not churn between reconciles for the same
@@ -113,22 +114,41 @@ Two parameters are blocked by the admission webhook regardless of value,
 because they allow arbitrary code execution at VCL-compile time:
 `vcc_allow_inline_c` and `cc_command`.
 
-**Enabling ESI:** `varnishd`'s `feature` parameter takes a comma-separated
-list of feature tokens rather than a boolean, so ESI (Edge Side Includes)
-processing is turned on with:
+ESI (Edge Side Includes) processing is **not** controlled through this map —
+see [esi](#esi) below. `varnishParameters`' `feature` key is still relevant
+alongside it, for the one real varnishd feature bit ESI sometimes needs
+(`esi_disable_xml_check`); see that section for when and why.
+
+### esi
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `false` | Enable Edge Side Includes (ESI) processing. |
 
 ```yaml
-varnishParameters:
-  feature: "+esi"
+esi:
+  enabled: true
 ```
 
-If response bodies don't reliably start with `<` (varnishd's ESI implementation
-sniffs the body to decide whether to scan it for `<esi:...>` tags), also add
-`+esi_disable_xml_check`:
+Setting `esi.enabled: true` makes the generated VCL set `beresp.do_esi = true`
+whenever a backend response carries `Surrogate-Control: content="ESI/1.0"`.
+ESI is core varnishd functionality, not a VMOD, and — unlike most varnishd
+behaviour toggles — it is not controlled by any `varnishParameters`/`-p
+feature=...` flag either: real varnishd has no `esi` feature bit, so passing
+`{"feature": "+esi"}` (an earlier, now-removed convention) crashes varnishd
+outright with `Unknown feature bit (+esi)` rather than enabling anything.
+`esi.enabled` replaces that convention and carries no such risk — it never
+reaches varnishd's argv at all.
+
+If response bodies don't reliably start with `<` (varnishd's ESI
+implementation sniffs the body to decide whether to scan it for `<esi:...>`
+tags), also set the real varnishd feature token alongside it:
 
 ```yaml
+esi:
+  enabled: true
 varnishParameters:
-  feature: "+esi,+esi_disable_xml_check"
+  feature: "+esi_disable_xml_check"
 ```
 
 ### invalidation
