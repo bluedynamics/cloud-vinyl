@@ -18,22 +18,30 @@ spec:
     file): the pinned e2e/fixtures/backends/echo-service.yaml image,
     ealen/echo-server:0.9.2, supports both controls this suite needs,
     confirmed from the upstream README (github.com/Ealenn/Echo-Server) —
-    query params (and equivalent request headers), on by default, no
-    feature-toggle gating required:
+    query params (and equivalent request headers):
       - echo_time=<ms> (COMMANDS__TIME__QUERY, default name), 0 <= ms <=
-        60000 (CONTROLS__TIMES__MIN/MAX defaults) — response delay.
+        60000 (CONTROLS__TIMES__MIN/MAX defaults) — response delay. The
+        README's Configuration table lists no Condition for this command;
+        it is on by default.
       - echo_header=<Name:Value> (COMMANDS__HTTPHEADERS__QUERY, default
         name) — sets an arbitrary response header, e.g.
-        Cache-Control:max-age=1.
+        Cache-Control:max-age=1. The SAME table's Condition column for this
+        command reads "Enable header `true`" — i.e. it is gated behind
+        ECHO__ENABLE__HEADER, the exact same env var that also controls
+        echoing REQUEST headers into the response BODY (the feature the
+        tracing test's rewrite-proof step and vinylprobe's own
+        Detect/-seed/-body-capture already depend on to tell hit from
+        miss). One toggle, two purposes — not two unrelated switches.
     Both commands existed since echo-server v0.4.0, long before the pinned
-    0.9.2. This is unrelated to the fixture's existing ECHO__ENABLE__HEADER
-    env var, which (per the same README) controls whether REQUEST headers
-    are echoed into the response BODY — the feature the tracing test's
-    rewrite-proof step and vinylprobe's own Detect/-seed/-body-capture
-    already depend on to tell hit from miss. Because both controls the
-    brief asked to verify are covered, no truth-backend fixture (configmap
-    + python, the internal/tracer/vsl/testdata/truthbackend.py pattern) was
-    added: e2e/fixtures/backends/echo-service.yaml is reused completely
+    0.9.2. e2e/fixtures/backends/echo-service.yaml already sets
+    ECHO__ENABLE__HEADER: "true" for the body-echo purpose above; that same
+    setting is LOAD-BEARING for this suite's grace-bgfetch step, whose
+    Cache-Control shaping (echo_header) would silently stop working if it
+    were ever flipped off for a reason that only considered the body-echo
+    use. Because both controls the brief asked to verify are covered, no
+    truth-backend fixture (configmap + python, the
+    internal/tracer/vsl/testdata/truthbackend.py pattern) was added:
+    e2e/fixtures/backends/echo-service.yaml is reused completely
     unmodified, addressed with query strings per scenario below.
 
     Reuses the tracing test's fixture set (echo-backend, otlp-sink, probe)
@@ -118,10 +126,12 @@ spec:
         a caller can retry the former without masking the latter: the loop
         below retries only on exit 2 and lets exit 0 or exit 1 through on
         the first attempt.
-        Budget: worst case adds ~30s (5 sleeps of 5s, plus fast
-        connection-refused failures and kubectl exec overhead); this step
-        carries no timeout override, so it uses the spec-level `exec: 120s`
-        default, which covers that with wide margin.
+        Budget: the loop sleeps after every rc==2 attempt, including the
+        6th, so worst case is 6 sleeps of 5s = 30s from sleeps alone, plus
+        6 fast connection-refused failures and kubectl exec dispatch
+        overhead on top (~36s all told); this step carries no timeout
+        override, so it uses the spec-level `exec: 120s` default, which
+        covers that with wide margin.
       try:
         - script:
             content: |
