@@ -5,46 +5,22 @@
 # give for not sharing a name even though chainsaw already isolates each
 # test by namespace. Tracing config matches both of theirs verbatim.
 #
-# --- varnishParameters DELIBERATELY omits "+esi" — read before changing ---
+# esi.enabled: true is the first-class field that gates the generated VCL's
+# `set beresp.do_esi = true;` block (see api/v1alpha1/vinylcache_types.go's
+# ESISpec doc comment and docs/sources/reference/vinylcache-spec.md's esi
+# section for why this exists instead of a varnishParameters convention).
 #
-# api/v1alpha1/vinylcache_types.go and docs/sources/reference/
-# vinylcache-spec.md both document {"feature": "+esi"} as how to turn ESI
-# on, and internal/generator/generator.go's hasVarnishFeature() gates the
-# generated VCL's `set beresp.do_esi = true;` block on that exact "+esi"
-# token being present in this same map. But this map is rendered VERBATIM
-# into varnishd's real "-p feature=..." argument
-# (internal/controller/statefulset.go's varnishParamArgs — no translation,
-# no stripping), and real varnishd 8.0.2 has no "esi" feature bit at all:
-# `varnishd -x parameter`'s feature section lists only http2, short_panic,
-# no_coredump, https_scheme, http_date_postel, esi_ignore_https,
-# esi_disable_xml_check, esi_ignore_other_elements, esi_remove_bom,
-# esi_include_onerror, wait_silo, validate_headers, busy_stats_rate, trace,
-# vcl_req_reset. Verified directly against a varnish:8.0.2 container:
-# `varnishd ... -p feature=+esi` refuses to start at all —
-#   Error: Unknown feature bit (+esi)
-# — and rejects the WHOLE feature value even combined with a real token,
-# e.g. "-p feature=+esi,+esi_disable_xml_check" fails identically (varnishd
-# validates the comma-separated value atomically, not token-by-token). So
-# setting "+esi" here would crash-loop this StatefulSet before any ESI
-# traffic could ever be sent — this is a real bug in code already committed
-# on this branch (generator.go's HasESI gate reuses a CRD-facing detection
-# token as though it were also valid real varnishd argv), which this
-# e2e-only fixture does not attempt to fix.
-#
-# Instead this fixture sets do_esi itself via the pre-existing,
-# general-purpose vcl.snippets.vclBackendResponse mechanism below (the exact
-# same condition the broken HasESI-gated block would have produced, just
-# injected through a path that doesn't require the fictional token), and
-# varnishParameters only carries the genuinely-valid token,
-# +esi_disable_xml_check — which the backend's non-'<' body
-# (e2e/fixtures/backends/esi-backend.yaml) actually needs, matching
-# internal/tracer/vsl/testdata/NOTES.md's "Rig deviation" section exactly.
-# This IS still the first fixture in the repo exercising the new -p
-# plumbing end to end, and a meaningful one: chainsaw-test.yaml's
+# varnishParameters still carries feature=+esi_disable_xml_check — the real
+# varnishd token the backend's body actually needs, since it deliberately
+# does NOT start with '<' (e2e/fixtures/backends/esi-backend.yaml mirrors
+# internal/tracer/vsl/testdata/truthbackend.py and NOTES.md's "Rig
+# deviation" scenario exactly). This combination — a first-class boolean
+# field plus a real varnishd feature token flowing through the -p plumbing
+# — proves both halves of #109 end to end: chainsaw-test.yaml's
 # assembly-proof step fails outright without +esi_disable_xml_check
 # actually reaching varnishd (verified by hand: omitting it serves the raw,
 # unexpanded "<esi:include.../>" tag instead of the assembled "FRAGMENT"
-# token — the same ESI_xmlerror degradation NOTES.md recorded).
+# token).
 apiVersion: vinyl.bluedynamics.eu/v1alpha1
 kind: VinylCache
 metadata:
@@ -69,11 +45,7 @@ spec:
       endpoint: otlp-sink:4318
       protocol: http/protobuf
       insecure: true
+  esi:
+    enabled: true
   varnishParameters:
     feature: "+esi_disable_xml_check"
-  vcl:
-    snippets:
-      vclBackendResponse: |
-        if (beresp.http.Surrogate-Control ~ "ESI/1.0") {
-          set beresp.do_esi = true;
-        }

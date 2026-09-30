@@ -9,7 +9,7 @@ spec:
     Issue #109's second half: the ESI E2E that P3 left BLOCKED because
     spec.varnishParameters never reached varnishd, so `feature
     +esi_disable_xml_check` could not actually be enabled on a cluster.
-    That plumbing is fixed earlier on this branch (varnishParameters now
+    That -p plumbing is fixed earlier on this branch (varnishParameters now
     render as sorted -p key=value args; see
     internal/controller/statefulset.go's varnishParamArgs and
     docs/sources/reference/vinylcache-spec.md's varnishParameters section).
@@ -19,6 +19,18 @@ spec:
     that the resulting ESI subrequest shows up as a child "varnish request"
     span carrying varnish.esi=true.
 
+    ESI ITSELF IS A FIRST-CLASS FIELD, not a varnishParameters convention:
+    spec.esi.enabled (api/v1alpha1/vinylcache_types.go's ESISpec) gates the
+    generated VCL's `beresp.do_esi = true` block directly. An earlier
+    convention asked for {"feature": "+esi"} in spec.varnishParameters
+    instead — discovered while writing this test to be broken against real
+    varnishd (no "esi" feature bit exists; the value is rendered verbatim
+    into varnishd's real -p feature=... argument, so passing it crashed
+    varnishd outright with "Unknown feature bit (+esi)") — and has since
+    been replaced by this field; see the ESISpec doc comment and
+    docs/sources/reference/vinylcache-spec.md's esi section for the full
+    account.
+
     FEATURE-FLAG DECISION (see e2e/fixtures/vinylcaches/esi-cache.yaml's own
     header comment for the full account): the backend
     (e2e/fixtures/backends/esi-backend.yaml) serves a body that does NOT
@@ -26,29 +38,12 @@ spec:
     shape internal/tracer/vsl/testdata/NOTES.md's "Rig deviation" section
     recorded triggering ESI_xmlerror against a vanilla varnishd. This
     fixture's varnishParameters therefore carries
-    feature=+esi_disable_xml_check, the real varnishd token that fixes it,
-    verified by hand against a varnish:8.0.2 container (omitting it serves
-    the raw, unexpanded tag instead of the assembled "FRAGMENT" token).
-
-    BLOCKED-AND-WORKED-AROUND FINDING, load-bearing for reading this
-    fixture set: the OTHER half of the documented ESI convention —
-    {"feature": "+esi"}, which internal/generator/generator.go's
-    hasVarnishFeature() requires to gate the generated VCL's
-    `beresp.do_esi = true` block on at all — turned out to be unusable
-    against real varnishd. That map is rendered verbatim into varnishd's
-    actual "-p feature=..." argument with no translation layer, and real
-    varnishd 8.0.2 has no "esi" feature bit (confirmed against
-    `varnishd -x parameter` and by hand: `-p feature=+esi` refuses to start
-    at all, "Error: Unknown feature bit (+esi)", and rejects the whole
-    value even combined with a real token). Setting it here would
-    crash-loop the StatefulSet before any ESI traffic could run at all —
-    this is a real bug in code already committed on this branch that a
-    test-fixtures-only change does not touch or fix. Worked around instead
-    via the pre-existing, general-purpose vcl.snippets.vclBackendResponse
-    mechanism to set do_esi directly (esi-cache.yaml), which a hand-run
-    against real varnishd:8.0.2 confirmed produces correct assembly
-    ("before FRAGMENT after"). Recommend a follow-up issue against
-    generator.go's HasESI convention; out of scope here.
+    feature=+esi_disable_xml_check — a real varnishd feature bit, unlike
+    the removed "+esi" — verified by hand against a varnish:8.0.2 container
+    (omitting it serves the raw, unexpanded tag instead of the assembled
+    "FRAGMENT" token). Combined with esi.enabled: true, this is the first
+    fixture in the repo exercising both the new first-class field AND the
+    -p plumbing reaching varnishd for real, in one scenario.
 
     TRACE-ID LINKING: NOT asserted. -assert-spans's own stdout contract
     (cmd/vinylprobe/main.go's runAssertSpans/decideSpans) only ever prints
