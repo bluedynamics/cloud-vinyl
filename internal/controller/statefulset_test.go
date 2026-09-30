@@ -68,7 +68,7 @@ func TestVarnishParamArgs_Empty(t *testing.T) {
 func TestVarnishParamArgs_SortedByKey(t *testing.T) {
 	params := map[string]string{
 		"thread_pool_timeout": "300",
-		"feature":             "+esi",
+		"default_ttl":         "120",
 		"cli_timeout":         "60",
 		"timeout_idle":        "5",
 		"http_max_hdr":        "64",
@@ -78,7 +78,7 @@ func TestVarnishParamArgs_SortedByKey(t *testing.T) {
 	got := varnishParamArgs(params)
 	assert.Equal(t, []string{
 		"-p", "cli_timeout=60",
-		"-p", "feature=+esi",
+		"-p", "default_ttl=120",
 		"-p", "http_max_hdr=64",
 		"-p", "thread_pool_min=100",
 		"-p", "thread_pool_timeout=300",
