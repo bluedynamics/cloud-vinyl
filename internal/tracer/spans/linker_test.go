@@ -11,17 +11,13 @@ import (
 )
 
 // TestLinker_CoalescedHitLinksToOriginFetch is the brief's Step 1 test
-// against coalesce.txt. NOTES.md's own group-header excerpt for this
-// fixture mislabels which vxid prints first (it claims Request 32770 — the
-// waiter — is first, Request 2 — the initiator — second); the raw fixture
-// bytes say the opposite (Request 2, containing "Link bereq 3 fetch", opens
-// the file at line 1; Request 32770, containing "Hit 3 ...", follows after
-// the blank line at 83). The field-level quotes (Link at line 23, Hit at
-// line 104) are internally consistent with the real file once attributed to
-// the right vxid, so the raw file — not the mislabeled prose — is what this
-// test reconciles against: fixtureTxs returns [initiator, waiter], meaning
-// the fetch is cached before the waiter's Build call resolves its Hit — no
-// pending-hits buffer is needed for this ordering.
+// against coalesce.txt. File order (NOTES.md, corrected in 8afb10c): Request
+// 2 — the initiator, containing "Link bereq 3 fetch" (line 23) — opens the
+// file at line 1; Request 32770 — the waiter, containing "Hit 3 ..." (line
+// 104) — follows after the blank line at 83. fixtureTxs returns
+// [initiator, waiter] in that same order, meaning the fetch is cached
+// before the waiter's Build call resolves its Hit — no pending-hits buffer
+// is needed for this ordering.
 func TestLinker_CoalescedHitLinksToOriginFetch(t *testing.T) {
 	txs := fixtureTxs(t, "coalesce.txt")
 	require.Len(t, txs, 2)
@@ -188,6 +184,40 @@ func TestLinker_RestartContinuationCacheMissSelfRoots(t *testing.T) {
 	assert.Zero(t, cont.ParentID, "a cache miss must self-root exactly as Build does today")
 	assert.False(t, attrHas(cont.Attrs, "varnish.restart_continuation"))
 	assert.Equal(t, 1, misses)
+}
+
+// TestLinker_RestartMissNotCountedWhenGroupUnusable: a synthetic top-level
+// Request tx whose Begin record marks it a restart continuation (so
+// isRestartContinuation(tx) is true) but which is missing the Start
+// timestamp Build needs — BuildWithOutcome must classify it OutcomeUnusable
+// and return zero spans, never reaching the point where a restart-identity
+// lookup would mean anything. Purity contract: the link-cache-misses
+// counter tracks failed CORRELATIONS against a group that actually built,
+// not every empty result — an unusable (or unsampled) group is a different,
+// already-counted kind of loss (BuildWithOutcome's own Outcome), and must
+// not also inflate the restart-linking miss counter. Before the fix, the
+// early len(built)==0 branch in Build ran the restart-cache check
+// unconditionally whenever isRestartContinuation(tx) was true, regardless
+// of why built came back empty, over-counting this case.
+func TestLinker_RestartMissNotCountedWhenGroupUnusable(t *testing.T) {
+	tx := &vsl.Tx{
+		Type: "Request",
+		VXID: 4,
+		Records: []vsl.Record{
+			{Tag: "Begin", Payload: "req 2 restart"},
+			// Deliberately no "Timestamp Start:" record, so respEnd/Start
+			// resolution fails and BuildWithOutcome returns OutcomeUnusable.
+		},
+	}
+	l := NewLinker(1024, time.Minute, &seqIDs{})
+	misses := 0
+	l.OnCacheMiss = func() { misses++ }
+
+	got, outcome := l.Build(tx)
+	require.Empty(t, got)
+	assert.Equal(t, OutcomeUnusable, outcome)
+	assert.Equal(t, 0, misses,
+		"an unusable group must not also count as a restart-link-cache miss")
 }
 
 // TestVxidCache_EvictsOldestBeyondCapacity: the bounded-LRU contract — once

@@ -126,11 +126,11 @@ Truth semantics:
 
 | Case | Treatment |
 |---|---|
-| Coalescing | Fetch span belongs to the initiating request's trace. Waiting requests get a span link to it (fetch vxid from `Hit`/waitinglist records), resolved via a bounded TTL cache of fetch vxid → (trace id, span id). Hit link = `varnish.coalesced=true`; cache miss degrades to `varnish.coalesced_unlinked=true`, counted. |
-| Grace / bgfetch | Child of the triggering request span, `varnish.bgfetch=true`. May outlive its parent; that is truthful. |
-| ESI | Child spans per `Link req <vxid> esi`, recursively, `varnish.esi=true`. |
+| Coalescing | Fetch span belongs to the initiating request's trace. Every request whose own `Hit` resolves against a cached fetch vxid gets a span link to it (`varnish.link=origin-fetch`; resolved via a bounded TTL cache of fetch vxid → (trace id, span id)), whether or not it actually coalesced — a resolved plain or grace hit links too, well after the fetch completed. `varnish.coalesced=true` is set in addition, only when the hit's own Start precedes the cached fetch's End (genuine time overlap with a still-in-flight fetch); a cache miss (fetch vxid never seen or aged out) degrades to `varnish.coalesced_unlinked=true` instead, counted. |
+| Grace / bgfetch | Child of the triggering request span, `varnish.bgfetch=true`. May outlive its parent; that is truthful. Varnish does not propagate the parent's traceparent into a background fetch's bereq, so its fetch mints a fresh trace id of its own; `varnish.minted_trace_mismatch=true` flags this on that fetch span. |
+| ESI | Child spans per `Link req <vxid> esi`, recursively, `varnish.esi=true`. Same header-propagation gap as bgfetch — no incoming traceparent reaches an ESI subrequest — so its own fetch span also mints a fresh trace id and is flagged `varnish.minted_trace_mismatch=true`. |
 | Restarts | Child spans under the original request span, cross-transaction reparenting via the Linker; `varnish.restart_continuation=true` on continuation. `varnish.restarts` counted on the initiator. |
-| Retries | Fetch span attribute `varnish.retry=<n>` for n≥1 (retry depth). Attributes `varnish.minted_trace_mismatch=true` when the fetch's trace id differs from the request's. |
+| Retries | Fetch span attribute `varnish.retry=<n>` for n≥1 (retry depth). A retried bereq's traceparent is inherited and only its span id rewritten, so the trace id is always preserved; `varnish.minted_trace_mismatch` never fires here. |
 | Pipe / synth | Request span with `varnish.pipe` / `varnish.synthetic`; no fetch span pretensions. |
 | Streaming | Fetch span may end after the request span; no containment assumption. |
 

@@ -156,7 +156,11 @@ func NewLinker(capacity int, ttl time.Duration, ids IDSource) *Linker {
 //     Link records reference each other symmetrically) — reparent the
 //     whole built subtree under that original span and into its trace,
 //     tagging varnish.restart_continuation=true. A miss self-roots exactly
-//     as BuildWithOutcome already does, plus OnCacheMiss.
+//     as BuildWithOutcome already does, plus OnCacheMiss — counted only
+//     when BuildWithOutcome's own Outcome is OutcomeSpans (a real,
+//     fully-built Request group); an OutcomeUnusable/OutcomeUnsampled
+//     empty result is a different, already-counted kind of loss and must
+//     not also inflate this counter.
 //  2. Record every fetch span just built (Name == "varnish fetch") into the
 //     fetch-identity cache, keyed by its originating BeReq's own VXID.
 //  3. Record this tx's own "Link req <vxid> restart" record(s), if any,
@@ -173,7 +177,19 @@ func (l *Linker) Build(tx *vsl.Tx) ([]Span, Outcome) {
 	now := time.Now()
 	built, outcome := BuildWithOutcome(tx, l.ids)
 	if len(built) == 0 {
-		if l.isRestartContinuation(tx) {
+		// Purity: only OutcomeSpans means "this was a real Request group
+		// that Build fully processed" (BuildWithOutcome's own doc: a
+		// tx.Type != Request group also reports OutcomeSpans, since
+		// neither is trace loss). OutcomeUnusable/OutcomeUnsampled are
+		// intentional silence or already-counted data loss on their own
+		// metric — not a failed restart-link correlation — so a Begin
+		// marking this tx a restart continuation must not also inflate the
+		// link-cache-misses counter here. (In practice this branch cannot
+		// both have outcome == OutcomeSpans and isRestartContinuation(tx)
+		// true: a real Request group with valid timestamps always builds
+		// at least one span. The guard documents that invariant instead of
+		// relying on it silently.)
+		if outcome == OutcomeSpans && l.isRestartContinuation(tx) {
 			if _, ok := l.restarts.get(tx.VXID, now); !ok {
 				l.miss()
 			}
