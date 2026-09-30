@@ -53,6 +53,37 @@ func TestBatcher_ExportsEnqueuedSpans(t *testing.T) {
 	assert.Equal(t, "test-svc", svcName(t, got[0]))
 }
 
+// TestBatcher_ExportsLinkedSpanRoundTrip is the export layer's TDD target
+// for Task 6: a spans.Span carrying a Link must survive roSpan.Links()'s
+// mapping and the batcher's real export path (tracetest.InMemoryExporter,
+// not a hand-rolled fake) with its trace/span id and attributes intact.
+func TestBatcher_ExportsLinkedSpanRoundTrip(t *testing.T) {
+	mem := tracetest.NewInMemoryExporter()
+	b := NewBatcher(mem, "test-svc", 16)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { b.Run(ctx); close(done) }()
+
+	linked := testSpan(1)
+	linked.Links = []spans.Link{{
+		TraceID: trace.TraceID{0xcc, 1},
+		SpanID:  trace.SpanID{0xdd, 1},
+		Attrs:   []attribute.KeyValue{attribute.String("varnish.link", "origin-fetch")},
+	}}
+	b.Enqueue(linked)
+	cancel()
+	<-done
+
+	got := mem.GetSpans()
+	require.Len(t, got, 1)
+	require.Len(t, got[0].Links, 1)
+	link := got[0].Links[0]
+	assert.Equal(t, trace.TraceID{0xcc, 1}, link.SpanContext.TraceID())
+	assert.Equal(t, trace.SpanID{0xdd, 1}, link.SpanContext.SpanID())
+	require.Len(t, link.Attributes, 1)
+	assert.Equal(t, attribute.String("varnish.link", "origin-fetch"), link.Attributes[0])
+}
+
 func TestBatcher_DropsWhenFullWithoutBlocking(t *testing.T) {
 	mem := tracetest.NewInMemoryExporter()
 	b := NewBatcher(mem, "test-svc", 1) // queue of one

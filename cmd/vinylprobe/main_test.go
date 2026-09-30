@@ -111,7 +111,7 @@ func TestDecideSpans_SatisfiedPasses(t *testing.T) {
 		{Name: "varnish request", Attrs: map[string]string{"varnish.handling": "hit"}},
 		{Name: "varnish request", Attrs: map[string]string{"varnish.handling": "miss"}},
 	}
-	v := decideSpans(spans, "varnish request", map[string]string{"varnish.handling": "hit"}, "", "", 1)
+	v := decideSpans(spans, "varnish request", map[string]string{"varnish.handling": "hit"}, "", "", "", 0, 1)
 	if !v.satisfied {
 		t.Fatalf("want satisfied, got %+v", v)
 	}
@@ -119,7 +119,7 @@ func TestDecideSpans_SatisfiedPasses(t *testing.T) {
 
 func TestDecideSpans_CountShortfallNotSatisfied(t *testing.T) {
 	spans := []probe.SpanSummary{{Name: "varnish request", Attrs: map[string]string{}}}
-	v := decideSpans(spans, "varnish request", nil, "", "", 2)
+	v := decideSpans(spans, "varnish request", nil, "", "", "", 0, 2)
 	if v.satisfied {
 		t.Fatal("one span must not satisfy min-count 2")
 	}
@@ -129,7 +129,7 @@ func TestDecideSpans_AttrMismatchNotCounted(t *testing.T) {
 	spans := []probe.SpanSummary{
 		{Name: "varnish request", Attrs: map[string]string{"varnish.handling": "miss"}},
 	}
-	v := decideSpans(spans, "varnish request", map[string]string{"varnish.handling": "hit"}, "", "", 1)
+	v := decideSpans(spans, "varnish request", map[string]string{"varnish.handling": "hit"}, "", "", "", 0, 1)
 	if v.satisfied {
 		t.Fatal("attr mismatch must not count")
 	}
@@ -137,7 +137,7 @@ func TestDecideSpans_AttrMismatchNotCounted(t *testing.T) {
 
 func TestDecideSpans_NameMismatchNotCounted(t *testing.T) {
 	spans := []probe.SpanSummary{{Name: "other span", Attrs: map[string]string{}}}
-	v := decideSpans(spans, "varnish request", nil, "", "", 1)
+	v := decideSpans(spans, "varnish request", nil, "", "", "", 0, 1)
 	if v.satisfied {
 		t.Fatal("a span with a different name must not count")
 	}
@@ -152,7 +152,7 @@ func TestDecideSpans_MultipleAttrsAllMustMatch(t *testing.T) {
 		{Name: "varnish request", Attrs: map[string]string{"varnish.handling": "hit", "http.status_code": "500"}},
 	}
 	v := decideSpans(spans, "varnish request",
-		map[string]string{"varnish.handling": "hit", "http.status_code": "200"}, "", "", 1)
+		map[string]string{"varnish.handling": "hit", "http.status_code": "200"}, "", "", "", 0, 1)
 	if !v.satisfied {
 		t.Fatalf("want satisfied, got %+v", v)
 	}
@@ -171,7 +171,7 @@ func TestDecideSpans_MissingAttrDoesNotMatchEmptyWant(t *testing.T) {
 	spans := []probe.SpanSummary{
 		{Name: "varnish request", Attrs: map[string]string{}},
 	}
-	v := decideSpans(spans, "varnish request", map[string]string{"varnish.route": ""}, "", "", 1)
+	v := decideSpans(spans, "varnish request", map[string]string{"varnish.route": ""}, "", "", "", 0, 1)
 	if v.satisfied {
 		t.Fatal("a span missing the key must not match an empty want")
 	}
@@ -187,7 +187,7 @@ func TestDecideSpans_PresentEmptyAttrMatchesEmptyWant(t *testing.T) {
 	spans := []probe.SpanSummary{
 		{Name: "varnish request", Attrs: map[string]string{"varnish.route": ""}},
 	}
-	v := decideSpans(spans, "varnish request", map[string]string{"varnish.route": ""}, "", "", 1)
+	v := decideSpans(spans, "varnish request", map[string]string{"varnish.route": ""}, "", "", "", 0, 1)
 	if !v.satisfied {
 		t.Fatalf("want satisfied, got %+v", v)
 	}
@@ -201,7 +201,7 @@ func TestDecideSpans_TraceIDFilter(t *testing.T) {
 		{Name: "varnish fetch", TraceID: "aa11", SpanID: "bb22", Attrs: map[string]string{}},
 		{Name: "varnish fetch", TraceID: "cc33", SpanID: "dd44", Attrs: map[string]string{}},
 	}
-	v := decideSpans(spans, "varnish fetch", nil, "aa11", "", 1)
+	v := decideSpans(spans, "varnish fetch", nil, "aa11", "", "", 0, 1)
 	if !v.satisfied || v.matched != 1 {
 		t.Fatalf("trace-id filter: want 1 match, got %+v", v)
 	}
@@ -211,11 +211,65 @@ func TestDecideSpans_SpanIDFilter(t *testing.T) {
 	spans := []probe.SpanSummary{
 		{Name: "varnish fetch", TraceID: "aa11", SpanID: "bb22", Attrs: map[string]string{}},
 	}
-	if v := decideSpans(spans, "varnish fetch", nil, "", "zz99", 1); v.satisfied {
+	if v := decideSpans(spans, "varnish fetch", nil, "", "zz99", "", 0, 1); v.satisfied {
 		t.Fatal("span-id mismatch must not satisfy")
 	}
-	if v := decideSpans(spans, "varnish fetch", nil, "aa11", "bb22", 1); !v.satisfied {
+	if v := decideSpans(spans, "varnish fetch", nil, "aa11", "bb22", "", 0, 1); !v.satisfied {
 		t.Fatal("both filters matching must satisfy")
+	}
+}
+
+// decideSpans -link-span-id filter: a matching span must carry a Link whose
+// SpanID equals -link-span-id, independent of the name/attrs/trace-id/
+// span-id match.
+
+func TestDecideSpans_LinkSpanIDFilterMatch(t *testing.T) {
+	spans := []probe.SpanSummary{
+		{Name: "varnish request", Attrs: map[string]string{}, Links: []probe.LinkSummary{{SpanID: "ee55"}}},
+	}
+	v := decideSpans(spans, "varnish request", nil, "", "", "ee55", 0, 1)
+	if !v.satisfied || v.matched != 1 {
+		t.Fatalf("link-span-id filter: want 1 match, got %+v", v)
+	}
+}
+
+func TestDecideSpans_LinkSpanIDFilterMismatch(t *testing.T) {
+	spans := []probe.SpanSummary{
+		{Name: "varnish request", Attrs: map[string]string{}, Links: []probe.LinkSummary{{SpanID: "ee55"}}},
+		{Name: "varnish request", Attrs: map[string]string{}}, // no links at all
+	}
+	v := decideSpans(spans, "varnish request", nil, "", "", "ff66", 0, 1)
+	if v.satisfied {
+		t.Fatalf("link-span-id mismatch must not satisfy, got %+v", v)
+	}
+	if v.matched != 0 {
+		t.Fatalf("matched = %d, want 0", v.matched)
+	}
+}
+
+// decideSpans -min-duration filter: a matching span's EndUnixNano -
+// StartUnixNano must be >= -min-duration.
+
+func TestDecideSpans_MinDurationThresholdPass(t *testing.T) {
+	spans := []probe.SpanSummary{
+		{Name: "varnish request", Attrs: map[string]string{}, StartUnixNano: 1_000_000_000, EndUnixNano: 3_000_000_000},
+	}
+	v := decideSpans(spans, "varnish request", nil, "", "", "", 2*time.Second, 1)
+	if !v.satisfied {
+		t.Fatalf("duration 2s meeting min-duration 2s must satisfy, got %+v", v)
+	}
+}
+
+func TestDecideSpans_MinDurationThresholdFail(t *testing.T) {
+	spans := []probe.SpanSummary{
+		{Name: "varnish request", Attrs: map[string]string{}, StartUnixNano: 1_000_000_000, EndUnixNano: 2_500_000_000},
+	}
+	v := decideSpans(spans, "varnish request", nil, "", "", "", 2*time.Second, 1)
+	if v.satisfied {
+		t.Fatalf("duration 1.5s short of min-duration 2s must not satisfy, got %+v", v)
+	}
+	if v.matched != 0 {
+		t.Fatalf("matched = %d, want 0", v.matched)
 	}
 }
 
@@ -275,6 +329,30 @@ func TestValidate_AssertSpansRejectsCheck(t *testing.T) {
 	f := probeFlags{assertSpans: true, sink: "http://x", spanName: "y", check: "tok"}
 	if err := f.validate(); err == nil {
 		t.Fatal("want error: -assert-spans is mutually exclusive with -check")
+	}
+}
+
+func TestValidate_LinkSpanIDRequiresAssertSpans(t *testing.T) {
+	f := probeFlags{linkSpanID: "ee55"}
+	if err := f.validate(); err == nil {
+		t.Fatal("want error: -link-span-id requires -assert-spans")
+	}
+}
+
+func TestValidate_MinDurationRequiresAssertSpans(t *testing.T) {
+	f := probeFlags{minDuration: time.Second}
+	if err := f.validate(); err == nil {
+		t.Fatal("want error: -min-duration requires -assert-spans")
+	}
+}
+
+func TestValidate_LinkSpanIDAndMinDurationWithAssertSpansIsValid(t *testing.T) {
+	f := probeFlags{
+		assertSpans: true, sink: "http://x", spanName: "y",
+		linkSpanID: "ee55", minDuration: time.Second,
+	}
+	if err := f.validate(); err != nil {
+		t.Fatalf("want no error, got %v", err)
 	}
 }
 

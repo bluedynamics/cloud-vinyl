@@ -20,7 +20,30 @@ var (
 	})
 	groupsUnusable = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "vinyl_tracer_groups_unusable_total",
-		Help: "Request groups that yielded no spans (truncated/overrun log data). Trace loss must be visible, never silent.",
+		Help: "Request groups that were genuinely unusable (missing a " +
+			"timestamp a span needs, e.g. truncated/overrun log data) and " +
+			"yielded no spans. Trace loss must be visible, never silent.",
+	})
+	groupsUnsampled = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "vinyl_tracer_groups_unsampled_total",
+		Help: "Request groups skipped because the incoming trace context is unsampled.",
+	})
+	linkCacheMisses = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "vinyl_tracer_link_cache_misses_total",
+		Help: "spans.Linker correlations (hit-to-fetch or restart continuation) that " +
+			"could not resolve because the target vxid was never cached or aged out, " +
+			"including a parked hit released without ever resolving (age-out, " +
+			"parking-lot overflow eviction, or Flush at shutdown).",
+	})
+	hitsParked = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "vinyl_tracer_hits_parked_total",
+		Help: "Hit records spans.Linker withheld (parked) because they proved " +
+			"themselves genuine coalescing waiters (their own Waitinglist record) " +
+			"whose fetch vxid had not yet resolved — the waiter-first half of the " +
+			"known VSL group-ordering race. An ordinary warm hit (no Waitinglist " +
+			"record) is never parked and does not count here. Most parked hits go " +
+			"on to resolve a Build call or two later; see " +
+			"vinyl_tracer_link_cache_misses_total for the ones that never do.",
 	})
 )
 

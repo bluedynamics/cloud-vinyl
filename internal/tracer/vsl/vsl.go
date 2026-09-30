@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -118,6 +119,23 @@ func (t *Tx) Has(tag string) bool {
 // First returns the payload of the first record with the given tag.
 func (t *Tx) First(tag string) (string, bool) {
 	for _, r := range t.Records {
+		if r.Tag == tag {
+			return r.Payload, true
+		}
+	}
+	return "", false
+}
+
+// Last returns the payload of the last record with the given tag. Within
+// one Tx, some tags are logged more than once as VCL mutates the value
+// (e.g. a "TTL" record per beresp.ttl/beresp.grace mutation, restart.txt's
+// BeReq group per NOTES.md); the last such record is the one that actually
+// governs, so Last returns it rather than the first. This does not stitch
+// values that are rewritten across separate top-level Tx's (a restarted
+// request's RespStatus lives in a different Tx, linked only via a "Link req
+// <vxid> restart" record) — that is a Linker's job, not Last's.
+func (t *Tx) Last(tag string) (string, bool) {
+	for _, r := range slices.Backward(t.Records) {
 		if r.Tag == tag {
 			return r.Payload, true
 		}

@@ -34,7 +34,7 @@ semantics, docs/publication are later plans).
 - Test fixtures for the VSL parser are RECORDED from real varnishd (`varnish:8.0.2`), never hand-written. Docker: local `default` context only.
 - Unit tests: plain `testing` + testify (`assert`/`require`) + controller-runtime fake client. Ginkgo only in existing envtest suites.
 - No changelog file exists in this repo; do not invent one.
-- Commit messages end with `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
+- Commit messages end with `Assisted-by: Claude Fable 5`.
 - Run `make lint` before each commit that touches Go code (golangci-lint v2.13.1; `lll` 120-char limit applies to `cmd/*`).
 
 ---

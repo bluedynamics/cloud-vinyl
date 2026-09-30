@@ -2,6 +2,7 @@ package probe
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -139,4 +140,54 @@ func TestOTLPSink_EmptyStringAttrIsPreserved(t *testing.T) {
 	val, ok := got[0].Attrs["varnish.route"]
 	assert.True(t, ok, "attribute key must be present even with an empty value")
 	assert.Equal(t, "", val)
+}
+
+// TestOTLPSink_LinksAndTimestampsSummarized is the sink layer's TDD target
+// for Task 6: a real tracepb.Span carrying a Span_Link and start/end
+// timestamps (the same shape the tracer's own OTLP exporter emits once
+// roSpan.Links() is wired up) must summarize into SpanSummary.Links and
+// StartUnixNano/EndUnixNano. Built with the real tracepb.Span_Link type,
+// not a probe-side stand-in, so a shape mismatch with the real exporter
+// would show up here.
+func TestOTLPSink_LinksAndTimestampsSummarized(t *testing.T) {
+	sink := NewOTLPSink(128)
+	srv := httptest.NewServer(sink.Handler())
+	defer srv.Close()
+
+	linkTraceID := bytes.Repeat([]byte{0xcc}, 16)
+	linkSpanID := bytes.Repeat([]byte{0xdd}, 8)
+	req := &collpb.ExportTraceServiceRequest{
+		ResourceSpans: []*tracepb.ResourceSpans{{
+			ScopeSpans: []*tracepb.ScopeSpans{{
+				Spans: []*tracepb.Span{{
+					Name:              "varnish request",
+					TraceId:           bytes.Repeat([]byte{0xaa}, 16),
+					SpanId:            bytes.Repeat([]byte{0xbb}, 8),
+					StartTimeUnixNano: 1000,
+					EndTimeUnixNano:   2500,
+					Links: []*tracepb.Span_Link{{
+						TraceId: linkTraceID,
+						SpanId:  linkSpanID,
+					}},
+				}},
+			}},
+		}},
+	}
+	body, err := proto.Marshal(req)
+	require.NoError(t, err)
+
+	resp, err := http.Post(srv.URL+"/v1/traces", "application/x-protobuf", bytes.NewReader(body))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	list, err := http.Get(srv.URL + "/spans")
+	require.NoError(t, err)
+	var got []SpanSummary
+	require.NoError(t, json.NewDecoder(list.Body).Decode(&got))
+	require.Len(t, got, 1)
+	assert.Equal(t, int64(1000), got[0].StartUnixNano)
+	assert.Equal(t, int64(2500), got[0].EndUnixNano)
+	require.Len(t, got[0].Links, 1)
+	assert.Equal(t, hex.EncodeToString(linkTraceID), got[0].Links[0].TraceID)
+	assert.Equal(t, hex.EncodeToString(linkSpanID), got[0].Links[0].SpanID)
 }

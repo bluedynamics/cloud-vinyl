@@ -126,10 +126,11 @@ Truth semantics:
 
 | Case | Treatment |
 |---|---|
-| Coalescing | Fetch span belongs to the initiating request's trace. Waiting requests get a span link to it (fetch vxid from `Hit`/waitinglist records), resolved via a bounded TTL cache of fetch vxid → (trace id, span id). Cache miss degrades to `varnish.coalesced=true` without a link, counted. |
-| Grace / bgfetch | Child of the triggering request span, `varnish.bgfetch=true`. May outlive its parent; that is truthful. |
-| ESI | Child spans per `Link req <vxid> esi`, recursively. |
-| Restarts | Child spans under the original request span, `varnish.restarts` counted. |
+| Coalescing | Fetch span belongs to the initiating request's trace. Every request whose own `Hit` resolves against a cached fetch vxid gets a span link to it (`varnish.link=origin-fetch`; resolved via a bounded TTL cache of fetch vxid → (trace id, span id)), whether or not it actually coalesced — a resolved plain or grace hit links too, well after the fetch completed. `varnish.coalesced=true` is set in addition, only when the hit's own Start precedes the cached fetch's End (genuine time overlap with a still-in-flight fetch). `varnishlog -g request` emits a coalescing initiator's group (with the fetch) and a waiter's group (with the `Hit`) in *completion* order, a true ~50/50 race independent of which one actually started first; the Linker resolves **both** orderings to the link, not just initiator-first — but only for a hit proven to be a genuine coalescing waiter by its own `Timestamp Waitinglist:` record. When such a waiter's vxid does not resolve at Build time, its span set is parked (withheld, not emitted) in a small bounded lot — size and per-entry age both capped — instead of degrading immediately: a later `Build` call that records the matching fetch identity releases it resolved, with the same link + overlap rule as if the orderings had been the other way round. Only a parked hit released *without* ever resolving — aged out, evicted by the lot overflowing, or flushed at shutdown — degrades to `varnish.coalesced_unlinked=true`, counted (`vinyl_tracer_link_cache_misses_total`); the act of parking itself is counted separately (`vinyl_tracer_hits_parked_total`) purely for visibility into how often the race occurs. An ordinary *warm* hit — no `Waitinglist` record, because it never blocked on anything; its origin fetch is simply long gone (evicted past the fetch-identity cache's own TTL, or predates this process) — can never resolve no matter how long it waits, so it is never parked: it degrades to `varnish.coalesced_unlinked=true` immediately, exactly as it did before the parking lot existed, keeping the dominant warm-hit traffic class off the bounded wait entirely. |
+| Grace / bgfetch | Child of the triggering request span, `varnish.bgfetch=true`. May outlive its parent; that is truthful. Varnish does not propagate the parent's traceparent into a background fetch's bereq, so its fetch mints a fresh trace id of its own; `varnish.minted_trace_mismatch=true` flags this on that fetch span. |
+| ESI | Child spans per `Link req <vxid> esi`, recursively, `varnish.esi=true`. Same header-propagation gap as bgfetch — no incoming traceparent reaches an ESI subrequest — so its own fetch span also mints a fresh trace id and is flagged `varnish.minted_trace_mismatch=true`. |
+| Restarts | Child spans under the original request span, cross-transaction reparenting via the Linker; `varnish.restart_continuation=true` on continuation. `varnish.restarts` counted on the initiator. |
+| Retries | Fetch span attribute `varnish.retry=<n>` for n≥1 (retry depth). A retried bereq's traceparent is inherited and only its span id rewritten, so the trace id is always preserved; `varnish.minted_trace_mismatch` never fires here. |
 | Pipe / synth | Request span with `varnish.pipe` / `varnish.synthetic`; no fetch span pretensions. |
 | Streaming | Fetch span may end after the request span; no containment assumption. |
 
@@ -188,9 +189,11 @@ soname build guard (#91); runtime `gcr.io/distroless/base-debian13:nonroot`
      chainsaw as a Job like existing probes.
   E2E uses `http/protobuf`; the gRPC exporter path is unit-covered. Cluster
   tests: honest timing against a delayed backend, one fetch + N links under
-  concurrent cold-cache load, grace/bgfetch, ESI children, NetworkPolicy
-  egress. Coalescing and grace go in the `full` suite. Assertions poll the
-  sink with timeouts; no sleeps.
+  concurrent cold-cache load, grace/bgfetch, NetworkPolicy egress. Coalescing
+  and grace go in the `full` suite. Assertions poll the sink with timeouts;
+  no sleeps. ESI end-to-end enablement is deferred to issue #109
+  (varnishParameters never reach varnishd -p; ESI span truth is unit-proven
+  against recorded fixtures).
 
 ## Build order
 

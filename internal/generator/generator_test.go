@@ -450,7 +450,18 @@ func TestGenerate_BackendWithConnectionParameters(t *testing.T) {
 		"backend max_connections must appear in VCL")
 }
 
-func TestGenerate_ESI_ImportsEsiVmod(t *testing.T) {
+// TestGenerate_ESI_NoVmodImport guards against reintroducing the pre-existing
+// (initial-commit) defect this test used to assert the opposite of: Varnish's
+// ESI processing (beresp.do_esi, set by Task 7's vcl_backend_response gate)
+// is core functionality, not a VMOD, and no "esi" VMOD ships in the
+// varnish:8.0.2 image's /usr/lib/varnish/vmods/ (checked directly against the
+// image). Emitting "import esi;" made VCC-compiler fail every time with
+// "Could not find VMOD esi" for any CR enabling ESI — confirmed 2026-09-30 by
+// feeding both a hand-written repro and this generator's own real output
+// (feature +esi + tracing enabled) to `varnishd -C -f` against a real
+// varnish:8.0.2 container: identical failure with the import, clean compile
+// (exit 0, do_esi gate intact) with it removed. See P3 Task 9's report.
+func TestGenerate_ESI_NoVmodImport(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
 	input.Spec.VarnishParams = map[string]string{
@@ -458,8 +469,8 @@ func TestGenerate_ESI_ImportsEsiVmod(t *testing.T) {
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
-	assert.Contains(t, r.VCL, "import esi",
-		"ESI flag in VarnishParams must trigger 'import esi'")
+	assert.NotContains(t, r.VCL, "import esi",
+		"ESI is core Varnish functionality (beresp.do_esi); no 'esi' VMOD exists to import")
 }
 
 func TestGenerate_CustomHeaderSnippet(t *testing.T) {
@@ -1422,4 +1433,28 @@ func TestGenerate_TracingWithUserSnippets_BothPresent(t *testing.T) {
 	assert.Contains(t, r.VCL, "# user backend_fetch snippet")
 	assert.Contains(t, r.VCL, "set bereq.http.traceparent",
 		"operator tracing block must not displace user snippets")
+}
+
+func TestGenerate_ESI_EnablesDoESIOnSurrogateControl(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.VarnishParams = map[string]string{
+		"feature +esi": "on",
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, `set beresp.do_esi = true;`,
+		"ESI flag in VarnishParams must enable do_esi when Surrogate-Control matches")
+	assert.Contains(t, r.VCL, `Surrogate-Control ~ "ESI/1.0"`,
+		"do_esi must be guarded by a Surrogate-Control check per W3C ESI 1.0")
+}
+
+func TestGenerate_NoESI_NoDoESI(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(makeMinimalInput())
+	require.NoError(t, err)
+	assert.NotContains(t, r.VCL, `set beresp.do_esi = true;`,
+		"do_esi block must not be rendered when ESI is not enabled")
+	assert.NotContains(t, r.VCL, `Surrogate-Control ~ "ESI/1.0"`,
+		"Surrogate-Control check must not appear when ESI is not enabled")
 }

@@ -32,6 +32,26 @@ type Span struct {
 	Start    time.Time
 	End      time.Time
 	Attrs    []attribute.KeyValue
+	// Links are soft references to other spans this one did not literally
+	// parent onto (e.g. a HIT request linking to the fetch whose cached
+	// object it looked up). Populated by a Linker, never by Build itself.
+	Links []Link
+	// vxid is the originating vsl.Tx's VXID (the request's own for a
+	// "varnish request" span, the BeReq's for a "varnish fetch" span).
+	// Linker bookkeeping only — unexported so it never leaks past this
+	// package as part of the public Span contract Task 6 (export/readonly)
+	// consumes.
+	vxid uint64
+}
+
+// Link is a soft reference from one span to another, mirroring OTel's own
+// Span Link shape (trace/span id plus attributes describing the relation).
+// A Linker attaches these post hoc, across transactions Build never sees
+// together (e.g. a coalescing hit and the fetch it waited on).
+type Link struct {
+	TraceID trace.TraceID
+	SpanID  trace.SpanID
+	Attrs   []attribute.KeyValue
 }
 
 // IDSource mints trace and span ids for spans that Build constructs. Tests
@@ -59,6 +79,19 @@ func (randomIDs) SpanID() trace.SpanID {
 	return id
 }
 
+// txTypeRequest is the vsl.Tx.Type value for both a top-level client
+// request and an ESI child subrequest (a "Request" group in varnishlog's
+// output) — factored out because both BuildWithOutcome and the Linker's
+// restart-continuation check gate on it.
+const txTypeRequest = "Request"
+
+// restartReason is the "restart" reason field shared by two distinct VSL
+// records: a "Link req <vxid> restart" (countRestarts, Linker's
+// recordRestartLinks) and a restarted continuation's own "Begin req
+// <vxid> restart" (Linker's isRestartContinuation) — see NOTES.md's
+// restart.txt section for both shapes.
+const restartReason = "restart"
+
 var traceparentRe = regexp.MustCompile(
 	`^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$`)
 
@@ -77,16 +110,47 @@ func parseTraceparent(v string) (trace.TraceID, trace.SpanID, bool, bool) {
 	return tid, sid, flags&0x01 == 0x01, true
 }
 
+// Outcome classifies why BuildWithOutcome did or did not produce spans, so a
+// caller can tell intentional silence apart from real data loss instead of
+// lumping both into one counter.
+type Outcome int
+
+const (
+	// OutcomeSpans covers both "spans were built" and "there was nothing to
+	// build here" (tx is not a top-level Request group, e.g. an orphaned
+	// BeReq/session record) — neither is trace loss, so callers should not
+	// count it.
+	OutcomeSpans Outcome = iota
+	// OutcomeUnsampled means the incoming traceparent was valid but marked
+	// not-sampled: dropping this group is by design, not a bug.
+	OutcomeUnsampled
+	// OutcomeUnusable means the group was missing a timestamp Build needs
+	// (Start, or the timestamp that closes it — see respEnd) — a truncated
+	// or overrun VSL record. This is genuine data loss a caller should count
+	// and alert on.
+	OutcomeUnusable
+)
+
 // Build returns the spans for one top-level Request group, or nil when the
-// transaction is unsampled or not a client request.
+// transaction is unsampled, unusable, or not a client request. It is a thin
+// wrapper over BuildWithOutcome for the many callers/tests that only need
+// the spans themselves.
 func Build(tx *vsl.Tx, ids IDSource) []Span {
-	if tx.Type != "Request" {
-		return nil
+	built, _ := BuildWithOutcome(tx, ids)
+	return built
+}
+
+// BuildWithOutcome is Build plus the reason behind an empty result, so
+// cmd/tracer can count OutcomeUnsampled and OutcomeUnusable on separate
+// metrics instead of conflating intentional silence with real trace loss.
+func BuildWithOutcome(tx *vsl.Tx, ids IDSource) ([]Span, Outcome) {
+	if tx.Type != txTypeRequest {
+		return nil, OutcomeSpans
 	}
 	start, okStart := tx.Timestamp("Start")
-	end, okEnd := tx.Timestamp("Resp")
+	end, okEnd := respEnd(tx)
 	if !okStart || !okEnd {
-		return nil // incomplete group (e.g. truncated log); counted by caller
+		return nil, OutcomeUnusable // incomplete group (e.g. truncated log)
 	}
 
 	var traceID trace.TraceID
@@ -94,41 +158,54 @@ func Build(tx *vsl.Tx, ids IDSource) []Span {
 	if raw, ok := tx.Header("ReqHeader", "traceparent"); ok {
 		if tid, sid, sampled, valid := parseTraceparent(raw); valid {
 			if !sampled {
-				return nil
+				return nil, OutcomeUnsampled
 			}
 			traceID, parentID = tid, sid
 		}
 	}
-	// P2: the VCL snippet mints the fetch span id onto bereq's traceparent
-	// (and the whole trace id when the client sent none). Adopt those ids
-	// so the backend's spans, parented on the minted value, land in the
-	// same trace under the fetch span. A BereqHeader whose span id merely
-	// equals the incoming parent id is an unrewritten P1-style forward —
-	// not a minted id — and is ignored. With multiple direct BeReq children
-	// under a self-root, the first valid child's trace id wins below
-	// (mintedTraceID is only ever set once); later children's backends
-	// would then land in orphaned traces of their own. Practically
-	// unreachable today (one BeReq per top-level Request); P3 revisits
-	// this once retry/ESI fixtures can produce it.
+	// P2/P3: the VCL snippet mints the fetch span id (and, for a self-root,
+	// the trace id) onto a bereq's own traceparent in vcl_backend_fetch —
+	// once per BACKEND_FETCH call, so every attempt/bgfetch/ESI-fragment
+	// bereq anywhere in the descendant tree mints its own. Collect all of
+	// them, not just direct children of tx, so retry attempts (nested under
+	// the failed attempt's BeReq, not under the Request) and ESI fragments
+	// (nested under the ESI child Request) are found too. A BereqHeader
+	// whose span id merely equals the incoming parent id is an unrewritten
+	// P1-style forward — not a minted id — and is ignored.
+	//
+	// The top request's trace id still comes from incoming-or-first-minted
+	// (depth-first over the tree: a direct BeReq wins over one nested
+	// deeper, e.g. under an ESI child). Resolved per the P3 interface
+	// contract: every descendant span — however many levels of retry/ESI/
+	// bgfetch deep — emits under THAT ONE trace id, never its own minted
+	// one. A minted trace id that differs from the adopted one (self-root
+	// bgfetch or ESI fragment minting fresh, since Varnish does not
+	// propagate req.http.traceparent into bgfetch or ESI subrequests) still
+	// gets its bereq's own minted SPAN id adopted, but is flagged
+	// varnish.minted_trace_mismatch=true on that fetch span so the
+	// backend-side orphan is at least visible to a Linker/backend correlating
+	// by trace id.
 	mintedSpanIDs := make(map[*vsl.Tx]trace.SpanID)
+	mintedTraceIDs := make(map[*vsl.Tx]trace.TraceID)
 	var mintedTraceID trace.TraceID
-	for _, child := range tx.Children {
-		if child.Type != "BeReq" {
-			continue
-		}
-		raw, ok := child.Header("BereqHeader", "traceparent")
-		if !ok {
-			continue
-		}
-		tid, sid, _, valid := parseTraceparent(raw)
-		if !valid || sid == parentID {
-			continue
-		}
-		mintedSpanIDs[child] = sid
-		if !mintedTraceID.IsValid() {
-			mintedTraceID = tid
+	var collectMinted func(node *vsl.Tx)
+	collectMinted = func(node *vsl.Tx) {
+		for _, child := range node.Children {
+			if child.Type == "BeReq" {
+				if raw, ok := child.Header("BereqHeader", "traceparent"); ok {
+					if tid, sid, _, valid := parseTraceparent(raw); valid && sid != parentID {
+						mintedSpanIDs[child] = sid
+						mintedTraceIDs[child] = tid
+						if !mintedTraceID.IsValid() {
+							mintedTraceID = tid
+						}
+					}
+				}
+			}
+			collectMinted(child)
 		}
 	}
+	collectMinted(tx)
 
 	if !traceID.IsValid() {
 		if mintedTraceID.IsValid() {
@@ -147,37 +224,159 @@ func Build(tx *vsl.Tx, ids IDSource) []Span {
 		Start:    start,
 		End:      end,
 		Attrs:    requestAttrs(tx),
+		vxid:     tx.VXID,
+	}
+	if n := countRestarts(tx); n > 0 {
+		// Own-records only: a "Link req <vxid> restart" record here means
+		// THIS tx's vcl_deliver decided to restart. The restarted request
+		// is a separate top-level Tx (see respEnd's doc), not a Child of
+		// this one — stitching the two into one logical span tree is the
+		// Linker's job (P3 Task-3 controller ruling), not Build's.
+		req.Attrs = append(req.Attrs, attribute.Int("varnish.restarts", n))
 	}
 	out := []Span{req}
+	out = buildChildren(tx, req.SpanID, traceID, 0, mintedSpanIDs, mintedTraceIDs, ids, out)
+	return out, OutcomeSpans
+}
 
+// buildChildren recursively appends spans for tx's BeReq and ESI Request
+// children onto out, parenting each new span on parentSpanID — the span
+// that structurally owns it in the parsed tree:
+//   - a direct BeReq child of a Request (fetch, bgfetch, or an ESI child's
+//     own fetch) parents onto that Request's span;
+//   - a retried BeReq nested UNDER another BeReq parents onto the OUTER
+//     BeReq's fetch span, not the request span — NOTES.md's retry.txt
+//     section: "The retried bereq sits nested under the first bereq (***,
+//     one level deeper than **) ... not a sibling BeReq group";
+//   - an ESI child Request (Begin payload containing "esi") parents onto
+//     the triggering request's span, per NOTES.md's esi.txt section, and is
+//     itself walked recursively for its own fetch (and, in principle,
+//     further-nested ESI fragments).
+//
+// retryDepth counts BeReq-under-BeReq nesting: 0 for a first attempt (no
+// varnish.retry attribute), 1 for the first retry, 2 for a second, etc. —
+// the interface contract's "varnish.retry=<n> for n>=1".
+func buildChildren(
+	tx *vsl.Tx,
+	parentSpanID trace.SpanID,
+	traceID trace.TraceID,
+	retryDepth int,
+	mintedSpanIDs map[*vsl.Tx]trace.SpanID,
+	mintedTraceIDs map[*vsl.Tx]trace.TraceID,
+	ids IDSource,
+	out []Span,
+) []Span {
 	for _, child := range tx.Children {
-		if child.Type != "BeReq" {
-			continue
+		switch child.Type {
+		case "BeReq":
+			fs, okF := child.Timestamp("Bereq")
+			fe, okE := child.Timestamp("BerespBody")
+			if !okE {
+				fe, okE = child.Timestamp("Beresp")
+			}
+			if !okF || !okE {
+				continue
+			}
+			spanID, minted := mintedSpanIDs[child]
+			if !minted {
+				spanID = ids.SpanID()
+			}
+			attrs := fetchAttrs(child)
+			if retryDepth > 0 {
+				attrs = append(attrs, attribute.Int("varnish.retry", retryDepth))
+			}
+			if minted {
+				if mtid := mintedTraceIDs[child]; mtid.IsValid() && mtid != traceID {
+					attrs = append(attrs, attribute.Bool("varnish.minted_trace_mismatch", true))
+				}
+			}
+			out = append(out, Span{
+				TraceID:  traceID,
+				SpanID:   spanID,
+				ParentID: parentSpanID,
+				Name:     "varnish fetch",
+				Kind:     trace.SpanKindClient,
+				Start:    fs,
+				End:      fe,
+				Attrs:    attrs,
+				vxid:     child.VXID,
+			})
+			// Retry nesting: a BeReq nested under this BeReq is the next
+			// attempt, parented onto THIS fetch span, one ordinal deeper.
+			out = buildChildren(child, spanID, traceID, retryDepth+1, mintedSpanIDs, mintedTraceIDs, ids, out)
+		case txTypeRequest:
+			b, _ := child.First("Begin")
+			if !strings.Contains(b, "esi") {
+				continue // not an ESI subrequest shape this task recognizes
+			}
+			cs, okS := child.Timestamp("Start")
+			ce, okE := respEnd(child)
+			if !okS || !okE {
+				continue
+			}
+			attrs := requestAttrs(child)
+			attrs = append(attrs, attribute.Bool("varnish.esi", true))
+			esiSpanID := ids.SpanID()
+			out = append(out, Span{
+				TraceID:  traceID,
+				SpanID:   esiSpanID,
+				ParentID: parentSpanID,
+				Name:     "varnish request",
+				Kind:     trace.SpanKindServer,
+				Start:    cs,
+				End:      ce,
+				Attrs:    attrs,
+				vxid:     child.VXID,
+			})
+			// ESI fragments recurse: the fragment's own fetch (and, if
+			// Varnish ever nests ESI within ESI, further child requests)
+			// parents onto the ESI span just created, retry depth reset.
+			out = buildChildren(child, esiSpanID, traceID, 0, mintedSpanIDs, mintedTraceIDs, ids, out)
 		}
-		fs, okF := child.Timestamp("Bereq")
-		fe, okE := child.Timestamp("BerespBody")
-		if !okE {
-			fe, okE = child.Timestamp("Beresp")
-		}
-		if !okF || !okE {
-			continue
-		}
-		spanID, minted := mintedSpanIDs[child]
-		if !minted {
-			spanID = ids.SpanID()
-		}
-		out = append(out, Span{
-			TraceID:  traceID,
-			SpanID:   spanID,
-			ParentID: req.SpanID,
-			Name:     "varnish fetch",
-			Kind:     trace.SpanKindClient,
-			Start:    fs,
-			End:      fe,
-			Attrs:    fetchAttrs(child),
-		})
 	}
 	return out
+}
+
+// respEnd returns the timestamp that closes a Request tx: ordinarily
+// "Resp" (the response was actually delivered), but a restarted request's
+// original Tx never reaches vcl_deliver's Resp timestamp — its VCL_return
+// was "restart", not "deliver" — so NOTES.md's restart.txt section records
+// "Timestamp Restart:" as the only record that closes that group. Fall back
+// to it so such a Tx still produces a span instead of Build silently
+// dropping it. A piped Tx reaches neither: NOTES.md's pipe.txt section
+// records the full Timestamp label set as "Start, Req, Process, Pipe,
+// PipeSess" — "No Resp. No Fetch, Beresp, or BerespBody either (piping
+// bypasses the ordinary response-processing path)" — and confirms
+// "PipeSess is present (it marks when the piped byte-stream session itself
+// ended)", so it is the last fallback.
+func respEnd(tx *vsl.Tx) (time.Time, bool) {
+	if end, ok := tx.Timestamp("Resp"); ok {
+		return end, true
+	}
+	if end, ok := tx.Timestamp("Restart"); ok {
+		return end, true
+	}
+	return tx.Timestamp("PipeSess")
+}
+
+// countRestarts counts this tx's own "Link req <vxid> restart" records
+// (NOTES.md's restart.txt section: reason "restart", child type "req", no
+// ESI-style trailing sub-level field). Each one names a SEPARATE top-level
+// Tx (the restarted request) that this function does not and cannot follow
+// — Build only ever sees one top-level Tx at a time — so this counts
+// restarts visible from here without resolving where they lead.
+func countRestarts(tx *vsl.Tx) int {
+	n := 0
+	for _, r := range tx.Records {
+		if r.Tag != "Link" {
+			continue
+		}
+		f := strings.Fields(r.Payload)
+		if len(f) >= 3 && f[0] == "req" && f[2] == restartReason {
+			n++
+		}
+	}
+	return n
 }
 
 func requestAttrs(tx *vsl.Tx) []attribute.KeyValue {
@@ -188,12 +387,23 @@ func requestAttrs(tx *vsl.Tx) []attribute.KeyValue {
 	if u, ok := tx.First("ReqURL"); ok {
 		attrs = append(attrs, attribute.String("url.path", u))
 	}
-	if s, ok := tx.First("RespStatus"); ok {
+	// Last, not First: a tx can log RespStatus more than once (e.g. a
+	// restarted request's original Tx logs one during its aborted
+	// vcl_deliver attempt before VCL_return restart fires); the last one
+	// logged is this tx's own final word on its own records.
+	if s, ok := tx.Last("RespStatus"); ok {
 		if n, err := strconv.Atoi(s); err == nil {
 			attrs = append(attrs, attribute.Int("http.response.status_code", n))
 		}
 	}
-	attrs = append(attrs, attribute.String("varnish.handling", handling(tx)))
+	h := handling(tx)
+	attrs = append(attrs, attribute.String("varnish.handling", h))
+	switch h {
+	case "synth":
+		attrs = append(attrs, attribute.Bool("varnish.synthetic", true))
+	case "pipe":
+		attrs = append(attrs, attribute.Bool("varnish.pipe", true))
+	}
 	// ReqAcct: "reqhdr reqbody reqtotal resphdr respbody resptotal"
 	if a, ok := tx.First("ReqAcct"); ok {
 		if f := strings.Fields(a); len(f) == 6 {
@@ -206,7 +416,11 @@ func requestAttrs(tx *vsl.Tx) []attribute.KeyValue {
 }
 
 // handling derives hit/miss/pass/synth/pipe from the VCL_call sequence,
-// with a Hit record as corroboration for hits.
+// with a Hit record as corroboration for hits. NOTES.md's pipe.txt section:
+// the client group's VCL_call sequence is "RECV, HASH, PIPE" (RECV and HASH
+// match no case here) with no VCL_call MISS/HIT/PASS/SYNTH anywhere in the
+// group, so "PIPE" is an unambiguous discriminator for the pipe path, same
+// shape as the existing hit/pass/synth/miss cases.
 func handling(tx *vsl.Tx) string {
 	for _, r := range tx.Records {
 		if r.Tag != "VCL_call" {
@@ -221,6 +435,8 @@ func handling(tx *vsl.Tx) string {
 			return "synth"
 		case "MISS":
 			return "miss"
+		case "PIPE":
+			return "pipe"
 		}
 	}
 	if tx.Has("Hit") {
@@ -237,7 +453,8 @@ func fetchAttrs(tx *vsl.Tx) []attribute.KeyValue {
 			attrs = append(attrs, attribute.String("varnish.backend", f[1]))
 		}
 	}
-	if s, ok := tx.First("BerespStatus"); ok {
+	// Last, not First: see requestAttrs' comment on the same substitution.
+	if s, ok := tx.Last("BerespStatus"); ok {
 		if n, err := strconv.Atoi(s); err == nil {
 			attrs = append(attrs, attribute.Int("http.response.status_code", n))
 		}

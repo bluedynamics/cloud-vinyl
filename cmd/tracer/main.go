@@ -49,13 +49,28 @@ func main() {
 		os.Exit(1)
 	}
 	batcher := export.NewBatcher(exp, service, 2048)
+	// The batcher runs on its OWN cancellation, deliberately NOT the signal
+	// ctx. ctx.Done() fires for s.run and the batcher at the very same
+	// instant a SIGTERM arrives; Run's ctx.Done() branch drains whatever is
+	// in the channel AT THAT INSTANT and returns within microseconds — long
+	// before s.run(ctx) finishes tearing down the varnishlog subprocess and
+	// before the post-shutdown linker.Flush() loop below has enqueued the
+	// parking lot's contents. Sharing ctx would mean every tail handle()
+	// Enqueue call still in flight during that teardown, and every span
+	// Flush releases, lands in a channel nobody is reading anymore:
+	// Enqueue still succeeds (there is room in the buffer), so
+	// droppedTotal would not even fire — spans lost doubly silently.
+	// batcherCtx is cancelled explicitly, below, only once both s.run(ctx)
+	// and the Flush-enqueue loop have returned — see
+	// TestShutdown_PostSupervisorSpansStillExport for the regression this
+	// fixes (the previous shared-ctx wiring fails that test).
+	batcherCtx, stopBatcher := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
-	wg.Go(func() { batcher.Run(ctx) })
-	// Joined below, after s.run(ctx) returns, so the SIGTERM drain/flush in
-	// Run's ctx.Done() branch is guaranteed to finish before the process
-	// exits (see internal/tracer/export.TestBatcher_ExportsEnqueuedSpans for
-	// the drain-on-cancel coverage; a duplicate of that assertion at the
-	// main-package level would test the same behavior twice for no benefit).
+	wg.Go(func() { batcher.Run(batcherCtx) })
+	// Joined after stopBatcher() below, so Run's drain-on-cancel branch only
+	// runs once nothing more will ever be enqueued (see
+	// internal/tracer/export.TestBatcher_ExportsEnqueuedSpans for the
+	// drain-on-cancel behavior itself).
 	defer wg.Wait()
 
 	// 2. Metrics endpoint.
@@ -74,16 +89,30 @@ func main() {
 
 	// 3. Supervise varnishlog and pump groups into the pipeline.
 	ids := spans.NewRandomIDs()
+	// P3 Task 5: spans.Linker wraps BuildWithOutcome with cross-transaction
+	// correlation (hit-to-fetch links with coalescing detection, restart
+	// continuation stitching) that a single top-level Tx cannot see on its
+	// own. It is stateful but single-goroutine — handle below is called
+	// serially by supervisor.run, matching the Linker's documented
+	// no-mutex contract.
+	linker := spans.NewLinker(4096, 5*time.Minute, ids)
+	linker.OnCacheMiss = linkCacheMisses.Inc
+	linker.OnHitParked = hitsParked.Inc
 	s := &supervisor{
 		binary:  envOrDefault("VARNISHLOG_PATH", "varnishlog"),
 		backoff: time.Second,
 		handle: func(tx *vsl.Tx) {
-			built := spans.Build(tx, ids)
-			if len(built) == 0 && tx.Type == "Request" {
-				// Unsampled is intentional silence; a Request group with no
-				// usable timestamps is data loss and must be counted. Build
-				// cannot tell us which it was cheaply in P1, so count both;
-				// unsampled traffic is rare in the deployments this targets.
+			// P3: spans.BuildWithOutcome (wrapped here by linker.Build)
+			// distinguishes intentional silence (an unsampled trace,
+			// spans.OutcomeUnsampled) from real data loss (a group missing
+			// timestamps a span needs, e.g. truncated/overrun log data,
+			// spans.OutcomeUnusable) instead of lumping both into one
+			// counter as the P1 version of this closure did.
+			built, outcome := linker.Build(tx)
+			switch outcome {
+			case spans.OutcomeUnsampled:
+				groupsUnsampled.Inc()
+			case spans.OutcomeUnusable:
 				groupsUnusable.Inc()
 			}
 			for _, sp := range built {
@@ -92,4 +121,17 @@ func main() {
 		},
 	}
 	s.run(ctx)
+
+	// Graceful shutdown: s.run returned because ctx was cancelled (SIGINT/
+	// SIGTERM). Any span sets still in the Linker's parking lot (P3's
+	// bounded wait for a waiter-first hit's initiator fetch, see
+	// spans.Linker.Flush's doc) would otherwise never be resolved or
+	// exported — flush them, degraded.
+	for _, sp := range linker.Flush() {
+		batcher.Enqueue(sp)
+	}
+	// Only now is it safe to let the batcher drain and return: everything
+	// this process will ever enqueue has been enqueued. The deferred
+	// wg.Wait() above blocks until Run's own drain-on-cancel finishes.
+	stopBatcher()
 }

@@ -16,6 +16,15 @@ sub vcl_backend_response {
     set beresp.http.x-url = bereq.url;
     set beresp.http.x-host = bereq.http.host;
 {{- end }}
+{{- if .HasESI }}
+
+    # ESI processing for backends that declare it (Surrogate-Control per
+    # W3C ESI 1.0). Only meaningful with the esi feature flag enabled
+    # (varnishd -p feature=+esi_disable_xml_check or equivalent).
+    if (beresp.http.Surrogate-Control ~ "ESI/1.0") {
+        set beresp.do_esi = true;
+    }
+{{- end }}
 {{ if .Spec.VCL.Snippets.VCLBackendResponse }}
     # --- custom vcl_backend_response snippet ---
     {{ .Spec.VCL.Snippets.VCLBackendResponse }}

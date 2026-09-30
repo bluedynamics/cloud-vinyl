@@ -20,11 +20,22 @@ import (
 // OTLP span for an E2E assertion to match on, with trace/span/parent IDs
 // hex-encoded for readability.
 type SpanSummary struct {
-	Name     string            `json:"name"`
-	TraceID  string            `json:"traceID"`
-	SpanID   string            `json:"spanID"`
-	ParentID string            `json:"parentID"`
-	Attrs    map[string]string `json:"attrs"`
+	Name          string            `json:"name"`
+	TraceID       string            `json:"traceID"`
+	SpanID        string            `json:"spanID"`
+	ParentID      string            `json:"parentID"`
+	Attrs         map[string]string `json:"attrs"`
+	Links         []LinkSummary     `json:"links"`
+	StartUnixNano int64             `json:"startUnixNano"`
+	EndUnixNano   int64             `json:"endUnixNano"`
+}
+
+// LinkSummary is the JSON shape of one entry in SpanSummary.Links: just
+// enough of an OTLP Span_Link for -assert-spans -link-span-id to match a
+// received span's linked span id against.
+type LinkSummary struct {
+	TraceID string `json:"traceID"`
+	SpanID  string `json:"spanID"`
 }
 
 // OTLPSink is an in-memory OTLP/http-protobuf trace receiver with a ring
@@ -71,12 +82,22 @@ func (s *OTLPSink) receive(w http.ResponseWriter, r *http.Request) {
 				for _, kv := range sp.GetAttributes() {
 					attrs[kv.GetKey()] = formatAnyValue(kv.GetValue())
 				}
+				var links []LinkSummary
+				for _, l := range sp.GetLinks() {
+					links = append(links, LinkSummary{
+						TraceID: hex.EncodeToString(l.GetTraceId()),
+						SpanID:  hex.EncodeToString(l.GetSpanId()),
+					})
+				}
 				s.spans = append(s.spans, SpanSummary{
-					Name:     sp.GetName(),
-					TraceID:  hex.EncodeToString(sp.GetTraceId()),
-					SpanID:   hex.EncodeToString(sp.GetSpanId()),
-					ParentID: hex.EncodeToString(sp.GetParentSpanId()),
-					Attrs:    attrs,
+					Name:          sp.GetName(),
+					TraceID:       hex.EncodeToString(sp.GetTraceId()),
+					SpanID:        hex.EncodeToString(sp.GetSpanId()),
+					ParentID:      hex.EncodeToString(sp.GetParentSpanId()),
+					Attrs:         attrs,
+					Links:         links,
+					StartUnixNano: int64(sp.GetStartTimeUnixNano()),
+					EndUnixNano:   int64(sp.GetEndTimeUnixNano()),
 				})
 			}
 		}

@@ -1,0 +1,116 @@
+*   << Request  >> 2         
+-   Begin          req 1 rxreq
+-   Timestamp      Start: 1790771756.901595 0.000000 0.000000
+-   Timestamp      Req: 1790771756.901595 0.000000 0.000000
+-   VCL_use        boot
+-   ReqStart       10.200.5.4 36368 http
+-   ReqMethod      GET
+-   ReqURL         /teapot
+-   ReqProtocol    HTTP/1.1
+-   ReqHeader      Accept-Encoding: identity
+-   ReqHeader      Host: vslp3-varnish
+-   ReqHeader      User-Agent: Python-urllib/3.12
+-   ReqHeader      Connection: close
+-   ReqHeader      X-Forwarded-For: 10.200.5.4
+-   ReqHeader      Via: 1.1 677e62200a02 (Varnish/8.0)
+-   VCL_call       RECV
+-   VCL_return     hash
+-   ReqUnset       Accept-Encoding: identity
+-   VCL_call       HASH
+-   VCL_return     lookup
+-   VCL_call       MISS
+-   VCL_return     fetch
+-   Link           bereq 3 fetch
+-   Timestamp      Fetch: 1790771756.902436 0.000841 0.000841
+-   RespProtocol   HTTP/1.1
+-   RespStatus     418
+-   RespReason     I'm a Teapot
+-   RespHeader     Server: BaseHTTP/0.6 Python/3.12.14
+-   RespHeader     Date: Wed, 30 Sep 2026 12:35:56 GMT
+-   RespHeader     Content-Length: 6
+-   RespHeader     X-Varnish: 2
+-   RespHeader     Age: 0
+-   RespHeader     Via: 1.1 677e62200a02 (Varnish/8.0)
+-   VCL_call       DELIVER
+-   VCL_return     restart
+-   Timestamp      Restart: 1790771756.902475 0.000880 0.000039
+-   Link           req 4 restart
+-   End            
+**  << BeReq    >> 3         
+--  Begin          bereq 2 fetch
+--  VCL_use        boot
+--  Timestamp      Start: 1790771756.901751 0.000000 0.000000
+--  BereqMethod    GET
+--  BereqURL       /teapot
+--  BereqProtocol  HTTP/1.1
+--  BereqHeader    Host: vslp3-varnish
+--  BereqHeader    User-Agent: Python-urllib/3.12
+--  BereqHeader    X-Forwarded-For: 10.200.5.4
+--  BereqHeader    Via: 1.1 677e62200a02 (Varnish/8.0)
+--  BereqHeader    Accept-Encoding: gzip
+--  BereqHeader    X-Varnish: 3
+--  VCL_call       BACKEND_FETCH
+--  BereqHeader    traceparent: 00-e999f079fc2d47cd863aef9e34bd03df-2abf26de16de4e08-01
+--  VCL_return     fetch
+--  Timestamp      Fetch: 1790771756.901852 0.000100 0.000100
+--  Timestamp      Connected: 1790771756.901952 0.000200 0.000100
+--  BackendOpen    30 default 10.200.5.2 8000 10.200.5.3 38962 connect
+--  Timestamp      Bereq: 1790771756.901998 0.000246 0.000045
+--  BerespProtocol HTTP/1.1
+--  BerespStatus   418
+--  BerespReason   I'm a Teapot
+--  BerespHeader   Server: BaseHTTP/0.6 Python/3.12.14
+--  BerespHeader   Date: Wed, 30 Sep 2026 12:35:56 GMT
+--  BerespHeader   Content-Length: 6
+--  Timestamp      Beresp: 1790771756.902367 0.000616 0.000369
+--  TTL            RFC -1 10 0 1790771757 1790771757 1790771756 0 0 cacheable
+--  VCL_call       BACKEND_RESPONSE
+--  TTL            VCL 60 10 0 1790771757 cacheable
+--  TTL            VCL 60 3600 0 1790771757 cacheable
+--  VCL_return     deliver
+--  Timestamp      Process: 1790771756.902385 0.000633 0.000017
+--  Filters        
+--  Storage        malloc s0
+--  Fetch_Body     3 length stream
+--  BackendClose   30 default recycle
+--  Timestamp      BerespBody: 1790771756.902468 0.000716 0.000083
+--  Length         6
+--  BereqAcct      250 0 250 122 6 128
+--  End            
+*   << Request  >> 4         
+-   Begin          req 2 restart
+-   Timestamp      Start: 1790771756.902475 0.000880 0.000000
+-   ReqStart       10.200.5.4 36368 http
+-   ReqMethod      GET
+-   ReqURL         /teapot
+-   ReqProtocol    HTTP/1.1
+-   ReqHeader      Host: vslp3-varnish
+-   ReqHeader      User-Agent: Python-urllib/3.12
+-   ReqHeader      Connection: close
+-   ReqHeader      X-Forwarded-For: 10.200.5.4
+-   ReqHeader      Via: 1.1 677e62200a02 (Varnish/8.0)
+-   VCL_call       RECV
+-   VCL_return     hash
+-   VCL_call       HASH
+-   VCL_return     lookup
+-   Hit            3 60.000772 3600.000000 0.000000
+-   VCL_call       HIT
+-   VCL_return     deliver
+-   RespProtocol   HTTP/1.1
+-   RespStatus     418
+-   RespReason     I'm a Teapot
+-   RespHeader     Server: BaseHTTP/0.6 Python/3.12.14
+-   RespHeader     Date: Wed, 30 Sep 2026 12:35:56 GMT
+-   RespHeader     Content-Length: 6
+-   RespHeader     X-Varnish: 4 3
+-   RespHeader     Age: 0
+-   RespHeader     Via: 1.1 677e62200a02 (Varnish/8.0)
+-   VCL_call       DELIVER
+-   VCL_return     deliver
+-   Timestamp      Process: 1790771756.902503 0.000907 0.000027
+-   Filters        
+-   RespHeader     Connection: close
+-   Timestamp      Resp: 1790771756.902550 0.000955 0.000047
+-   ReqAcct        123 0 123 202 6 208
+-   End            
+

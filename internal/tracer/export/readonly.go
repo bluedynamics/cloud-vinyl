@@ -45,11 +45,26 @@ func (r roSpan) Parent() trace.SpanContext {
 		TraceFlags: trace.FlagsSampled, Remote: true,
 	})
 }
-func (r roSpan) SpanKind() trace.SpanKind                    { return r.s.Kind }
-func (r roSpan) StartTime() time.Time                        { return r.s.Start }
-func (r roSpan) EndTime() time.Time                          { return r.s.End }
-func (r roSpan) Attributes() []attribute.KeyValue            { return r.s.Attrs }
-func (r roSpan) Links() []sdktrace.Link                      { return nil }
+func (r roSpan) SpanKind() trace.SpanKind         { return r.s.Kind }
+func (r roSpan) StartTime() time.Time             { return r.s.Start }
+func (r roSpan) EndTime() time.Time               { return r.s.End }
+func (r roSpan) Attributes() []attribute.KeyValue { return r.s.Attrs }
+func (r roSpan) Links() []sdktrace.Link {
+	if len(r.s.Links) == 0 {
+		return nil
+	}
+	links := make([]sdktrace.Link, len(r.s.Links))
+	for i, l := range r.s.Links {
+		links[i] = sdktrace.Link{
+			SpanContext: trace.NewSpanContext(trace.SpanContextConfig{
+				TraceID: l.TraceID, SpanID: l.SpanID,
+				TraceFlags: trace.FlagsSampled,
+			}),
+			Attributes: l.Attrs,
+		}
+	}
+	return links
+}
 func (r roSpan) Events() []sdktrace.Event                    { return nil }
 func (r roSpan) Status() sdktrace.Status                     { return sdktrace.Status{} }
 func (r roSpan) InstrumentationScope() instrumentation.Scope { return r.scope }

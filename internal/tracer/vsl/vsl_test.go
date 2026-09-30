@@ -128,6 +128,62 @@ func TestHeader_LastMatchWinsOnRewrittenHeader(t *testing.T) {
 	assert.True(t, sawReturned, "returned value must appear verbatim in a raw record")
 }
 
+// TestLast_TTLReflectsFinalMutation proves Last against real fixture truth
+// rather than the P3 plan's original sketch. NOTES.md's restart.txt section
+// found the restarted request's RespStatus is NOT rewritten within a single
+// Tx: the restarted delivery is a separate top-level Request group (a
+// different *Tx entirely, linked only via "Link req 4 restart"), and it
+// re-delivers the same cached 418, not 200 — a Linker stitching across Tx's
+// via that Link record would need to handle it, not Last on one Tx.
+//
+// What restart.txt's BeReq 3 group (the /teapot fetch) DOES carry, within
+// one Tx, is three same-tag "TTL" records as beresp.ttl/beresp.grace are
+// mutated by VCL (restart.txt lines 66, 68, 69):
+//
+//	--  TTL            RFC -1 10 0 1790771757 1790771757 1790771756 0 0 cacheable
+//	--  TTL            VCL 60 10 0 1790771757 cacheable
+//	--  TTL            VCL 60 3600 0 1790771757 cacheable
+//
+// First("TTL") returns the natural RFC-computed line; Last("TTL") returns
+// the final, VCL-mutated line that actually governs the cached object —
+// exactly the "rewritten during processing, last record is the delivered
+// truth" contract Last exists for.
+func TestLast_TTLReflectsFinalMutation(t *testing.T) {
+	txs := parseAll(t, "restart.txt")
+	require.NotEmpty(t, txs)
+	require.NotEmpty(t, txs[0].Children, "restart.txt's original request must nest its BeReq")
+	bereq := txs[0].Children[0]
+	require.Equal(t, "BeReq", bereq.Type)
+
+	first, ok := bereq.First("TTL")
+	require.True(t, ok)
+	last, ok := bereq.Last("TTL")
+	require.True(t, ok)
+
+	assert.NotEqual(t, first, last, "VCL's beresp.ttl/beresp.grace mutation must rewrite the delivered TTL")
+	assert.Equal(t, "RFC -1 10 0 1790771757 1790771757 1790771756 0 0 cacheable", first)
+	assert.Equal(t, "VCL 60 3600 0 1790771757 cacheable", last)
+
+	// Corroboration: prove there are genuinely three same-tag records, not
+	// two, so Last is discriminating the true final one, not just the
+	// second of a pair.
+	var ttlCount int
+	for _, r := range bereq.Records {
+		if r.Tag == "TTL" {
+			ttlCount++
+		}
+	}
+	assert.Equal(t, 3, ttlCount, "fixture must still carry all three TTL mutation records")
+}
+
+// TestLast_ReturnsFalseWhenTagAbsent mirrors First's not-found contract.
+func TestLast_ReturnsFalseWhenTagAbsent(t *testing.T) {
+	txs := parseAll(t, "restart.txt")
+	require.NotEmpty(t, txs)
+	_, ok := txs[0].Last("NoSuchTag")
+	assert.False(t, ok)
+}
+
 // TestParser_GarbageLinesAreSkippedNotFatal injects synthetic garbage lines
 // (never recorded in a real fixture) into a real fixture's content and
 // asserts the parse is byte-for-byte identical, structurally, to parsing the
