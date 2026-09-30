@@ -1,0 +1,48 @@
+*   << Request  >> 2         
+-   Begin          req 1 rxreq
+-   Timestamp      Start: 1790771783.443189 0.000000 0.000000
+-   Timestamp      Req: 1790771783.443189 0.000000 0.000000
+-   VCL_use        boot
+-   ReqStart       10.200.5.4 33130 http
+-   ReqMethod      GET
+-   ReqURL         /pipe
+-   ReqProtocol    HTTP/1.1
+-   ReqHeader      Accept-Encoding: identity
+-   ReqHeader      Host: vslp3-varnish
+-   ReqHeader      User-Agent: Python-urllib/3.12
+-   ReqHeader      Connection: close
+-   ReqHeader      X-Forwarded-For: 10.200.5.4
+-   ReqHeader      Via: 1.1 677e62200a02 (Varnish/8.0)
+-   VCL_call       RECV
+-   VCL_return     pipe
+-   VCL_call       HASH
+-   VCL_return     lookup
+-   Link           bereq 3 pipe
+-   VCL_call       PIPE
+-   VCL_return     pipe
+-   Timestamp      Process: 1790771783.443266 0.000076 0.000076
+-   Timestamp      Pipe: 1790771783.443444 0.000254 0.000178
+-   Timestamp      PipeSess: 1790771783.444028 0.000839 0.000584
+-   PipeAcct       121 201 0 117
+-   End            
+**  << BeReq    >> 3         
+--  Begin          bereq 2 pipe
+--  Timestamp      Start: 1790771783.443261 0.000000 0.000000
+--  BereqMethod    GET
+--  BereqURL       /pipe
+--  BereqProtocol  HTTP/1.1
+--  BereqHeader    Accept-Encoding: identity
+--  BereqHeader    Host: vslp3-varnish
+--  BereqHeader    User-Agent: Python-urllib/3.12
+--  BereqHeader    Connection: close
+--  BereqHeader    X-Forwarded-For: 10.200.5.4
+--  BereqHeader    Via: 1.1 677e62200a02 (Varnish/8.0)
+--  BereqHeader    X-Varnish: 2
+--  Timestamp      Process: 1790771783.443266 0.000005 0.000005
+--  Timestamp      Connected: 1790771783.443397 0.000136 0.000131
+--  BackendOpen    30 default 10.200.5.2 8000 10.200.5.3 39988 connect
+--  Timestamp      Bereq: 1790771783.443443 0.000182 0.000045
+--  BackendClose   30 default close TX_PIPE
+--  BereqAcct      0 0 0 0 0 0
+--  End            
+
