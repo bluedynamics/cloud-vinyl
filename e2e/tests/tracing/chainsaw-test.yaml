@@ -13,8 +13,7 @@ spec:
     no sleeps are needed.
     SUBTLETY: spans arrive batched (~3s flush), hence the generous -within
     values below.
-    NOT COVERED (later plans): trace-context rewrite toward the backend
-    (P2), coalescing/grace/ESI truth (P3).
+    NOT COVERED (later plans): coalescing/grace/ESI truth (P3).
   timeouts:
     assert: 180s
     delete: 60s
@@ -112,6 +111,37 @@ spec:
                 /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
                   -span-name "varnish request" -attr varnish.handling=hit \
                   -min-count 1 -within 90s
+
+    - name: rewrite-proof
+      description: |
+        P2: the VCL snippet mints the fetch span id onto bereq's
+        traceparent, and the echo backend reflects request headers into
+        its JSON body (lowercased names), so the minted value is readable
+        from the response of the very fetch it labeled. The sink must then
+        hold a "varnish fetch" span with exactly that trace and span id —
+        the backend's parent IS the fetch span. A fresh path guarantees
+        the reflecting response comes from a cold-cache fetch, and sending
+        no client traceparent also proves self-root trace adoption: the
+        "varnish request" span must be in the SAME trace the VCL minted.
+      try:
+        - script:
+            timeout: 120s
+            content: |
+              set -eu
+              TP=$(kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://traced-cache-traffic:8080/traced/rewrite" \
+                  -body-capture '"traceparent":"([0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2})"')
+              echo "backend saw traceparent ${TP}"
+              TID=$(echo "${TP}" | cut -d- -f2)
+              SID=$(echo "${TP}" | cut -d- -f3)
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
+                  -span-name "varnish fetch" -trace-id "${TID}" -span-id "${SID}" \
+                  -min-count 1 -within 60s
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
+                  -span-name "varnish request" -trace-id "${TID}" \
+                  -min-count 1 -within 30s
 
     - name: cleanup
       try:
