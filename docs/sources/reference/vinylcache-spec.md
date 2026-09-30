@@ -16,6 +16,7 @@
 | `backends` | list | yes | One or more backend services. |
 | `director` | object | no | Director configuration (defaults: `type: shard`). |
 | `cluster` | object | no | Clustering / peer-routing configuration. |
+| `varnishParameters` | object | no | Runtime parameters passed to `varnishd` via `-p` flags. See [varnishParameters](#varnishparameters) below. |
 | `invalidation` | object | no | Cache invalidation configuration. |
 | `debounce.duration` | duration | no | Wait after last change before VCL push (default: `1s`). |
 | `retry.maxAttempts` | integer | no | Maximum VCL push retry attempts (default: `3`). |
@@ -86,6 +87,45 @@ See the [per-backend directors how-to](../how-to/per-backend-directors.md) for w
 |-------|------|---------|-------------|
 | `enabled` | boolean | `false` | Enable cluster peer routing between pods. |
 | `peerRouting.type` | string | `shard` | Director type for peer-to-peer routing. |
+
+### varnishParameters
+
+A free-form `map[string]string`. Each entry becomes one `-p` flag on `varnishd`:
+the key is the bare parameter name, the value is passed through unchanged. For
+example:
+
+```yaml
+varnishParameters:
+  thread_pool_min: "100"
+  thread_pool_max: "1000"
+  feature: "+esi,+esi_disable_xml_check"
+```
+
+renders as `-p thread_pool_min=100 -p thread_pool_max=1000 -p feature=+esi,+esi_disable_xml_check`
+on the varnish container (args are sorted by key, so the pod template does not
+churn between reconciles for the same params).
+
+Two parameters are blocked by the admission webhook regardless of value,
+because they allow arbitrary code execution at VCL-compile time:
+`vcc_allow_inline_c` and `cc_command`.
+
+**Enabling ESI:** `varnishd`'s `feature` parameter takes a comma-separated
+list of feature tokens rather than a boolean, so ESI (Edge Side Includes)
+processing is turned on with:
+
+```yaml
+varnishParameters:
+  feature: "+esi"
+```
+
+If response bodies don't reliably start with `<` (varnishd's ESI implementation
+sniffs the body to decide whether to scan it for `<esi:...>` tags), also add
+`+esi_disable_xml_check`:
+
+```yaml
+varnishParameters:
+  feature: "+esi,+esi_disable_xml_check"
+```
 
 ### invalidation
 

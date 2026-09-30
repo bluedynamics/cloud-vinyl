@@ -62,8 +62,20 @@ type VinylCacheSpec struct {
 	// +optional
 	Cluster ClusterSpec `json:"cluster,omitempty"`
 
-	// varnishParameters are runtime parameters passed to varnishd via -p flags.
-	// Certain security-sensitive parameters are blocked by the admission webhook.
+	// varnishParameters are runtime parameters passed to varnishd via -p flags,
+	// one flag per map entry: the key is the bare parameter name and the value
+	// is passed through unchanged, e.g. {"thread_pool_min": "100"} becomes
+	// "-p thread_pool_min=100". Entries are sorted by key before being rendered
+	// as args, so the pod template does not churn between reconciles.
+	//
+	// ESI processing is controlled this way too: varnishd's "feature"
+	// parameter takes a comma-separated list of feature tokens, so set
+	// {"feature": "+esi"} to enable it, or {"feature": "+esi,+esi_disable_xml_check"}
+	// if response bodies don't start with '<' (varnishd's ESI XML sniffing
+	// would otherwise reject them).
+	//
+	// Certain security-sensitive parameters (vcc_allow_inline_c, cc_command)
+	// are blocked by the admission webhook.
 	// +optional
 	VarnishParams map[string]string `json:"varnishParameters,omitempty"`
 
