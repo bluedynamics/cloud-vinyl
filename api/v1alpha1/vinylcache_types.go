@@ -79,7 +79,15 @@ type VinylCacheSpec struct {
 	//
 	// Certain security-sensitive parameters (vcc_allow_inline_c, cc_command)
 	// are blocked by the admission webhook.
+	//
+	// The key shape is also enforced here via CEL, independently of the
+	// admission webhook: the webhook's failurePolicy=fail only protects
+	// against the webhook being down, not against it never having been
+	// installed (e.g. a cluster running these CRDs without the operator's
+	// webhook configuration applied), and varnishParamArgs renders these
+	// keys straight into varnishd's argv.
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="self.all(k, k.matches('^[a-z][a-z0-9_]*$'))",message="varnishParameters keys must be bare varnishd parameter names (lowercase letters, digits, underscore)"
 	VarnishParams map[string]string `json:"varnishParameters,omitempty"`
 
 	// storage configures one or more Varnish storage backends (malloc or file).
