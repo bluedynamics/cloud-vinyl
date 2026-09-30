@@ -1,0 +1,31 @@
+# Same shape as tracing.yaml, under a distinct CR name (truth-cache instead
+# of traced-cache) so e2e/tests/tracing-truth can run in parallel with
+# e2e/tests/tracing without the two tests' resources colliding, even though
+# chainsaw already gives each test its own namespace — see that test's
+# chainsaw-test.yaml description for why a separate fixture (rather than
+# reusing tracing.yaml) was worth the duplication here. Service names resolve
+# inside the test namespace, so the endpoint needs no namespace templating.
+apiVersion: vinyl.bluedynamics.eu/v1alpha1
+kind: VinylCache
+metadata:
+  name: truth-cache
+spec:
+  replicas: 1
+  image: varnish:8.0.2
+  backends:
+    - name: echo
+      serviceRef:
+        name: echo-backend
+      port: 80
+      probe:
+        url: /
+        interval: 5s
+        timeout: 1s
+        threshold: 2
+        window: 5
+  tracing:
+    enabled: true
+    otlp:
+      endpoint: otlp-sink:4318
+      protocol: http/protobuf
+      insecure: true

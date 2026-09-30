@@ -1,0 +1,331 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: tracing-truth
+  labels:
+    suite: full
+spec:
+  description: |
+    P3's E2E truth-under-load suite: proves, against a real varnishd under
+    real concurrent traffic, the three claims the unit/VSL layer (Task 5)
+    could only prove from recorded fixtures — request coalescing, grace/
+    bgfetch, and honest fetch-span timing. `suite: full` (this only runs on
+    push, workflow_dispatch, or a pull request carrying the `e2e-full`
+    label — see .github/workflows/e2e-chainsaw.yml; add that label to run
+    it before merging instead of waiting for a push to main).
+
+    STEP-1 TRAFFIC-SHAPING DECISION (mandatory research before writing this
+    file): the pinned e2e/fixtures/backends/echo-service.yaml image,
+    ealen/echo-server:0.9.2, supports both controls this suite needs,
+    confirmed from the upstream README (github.com/Ealenn/Echo-Server) —
+    query params (and equivalent request headers), on by default, no
+    feature-toggle gating required:
+      - echo_time=<ms> (COMMANDS__TIME__QUERY, default name), 0 <= ms <=
+        60000 (CONTROLS__TIMES__MIN/MAX defaults) — response delay.
+      - echo_header=<Name:Value> (COMMANDS__HTTPHEADERS__QUERY, default
+        name) — sets an arbitrary response header, e.g.
+        Cache-Control:max-age=1.
+    Both commands existed since echo-server v0.4.0, long before the pinned
+    0.9.2. This is unrelated to the fixture's existing ECHO__ENABLE__HEADER
+    env var, which (per the same README) controls whether REQUEST headers
+    are echoed into the response BODY — the feature the tracing test's
+    rewrite-proof step and vinylprobe's own Detect/-seed/-body-capture
+    already depend on to tell hit from miss. Because both controls the
+    brief asked to verify are covered, no truth-backend fixture (configmap
+    + python, the internal/tracer/vsl/testdata/truthbackend.py pattern) was
+    added: e2e/fixtures/backends/echo-service.yaml is reused completely
+    unmodified, addressed with query strings per scenario below.
+
+    Reuses the tracing test's fixture set (echo-backend, otlp-sink, probe)
+    under a NEW VinylCache fixture, e2e/fixtures/vinylcaches/truth.yaml —
+    identical to tracing.yaml except its CR (and so its StatefulSet and
+    "<name>-traffic" Service) is named truth-cache instead of traced-cache,
+    to avoid colliding with e2e/tests/tracing's own resources by name (see
+    that fixture's own comment for why this is worth the duplication even
+    though chainsaw already gives every test its own namespace).
+
+    SUBTLETY (inherited from the tracing test): spans arrive at the sink
+    batched, ~3s flush; every -assert-spans call below budgets around that.
+
+    NOT COVERED: ESI, restart, retry, pipe, synth truth (Task 5's unit/VSL
+    fixtures already cover those; this suite is scoped to coalescing,
+    grace/bgfetch, and honest timing only, per the P3 plan).
+  timeouts:
+    assert: 180s
+    delete: 60s
+    exec: 120s
+  steps:
+    - name: deploy-backend
+      try:
+        - apply:
+            file: ../../fixtures/backends/echo-service.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-backend
+              status:
+                readyReplicas: 1
+
+    - name: start-sink-and-probe
+      try:
+        - apply:
+            file: ../../fixtures/probe/otlp-sink.yaml
+        - apply:
+            file: ../../fixtures/probe/probe-pod.yaml
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: otlp-sink
+              status:
+                phase: Running
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: probe
+              status:
+                phase: Running
+
+    - name: create-cache
+      try:
+        - apply:
+            file: ../../fixtures/vinylcaches/truth.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: truth-cache
+              status:
+                readyReplicas: 1
+
+    - name: warm-up-traffic
+      description: |
+        First traffic against truth-cache-traffic carries the exact same
+        readiness-flap risk the tracing test's traffic-miss-then-hit step
+        documents and works around (#63-adjacent: readyReplicas can flip
+        true a few seconds before the Service's endpoints are actually
+        wired, giving "connect: connection refused" — vinylprobe exit 2 —
+        on the very next request). That step's retry idiom is copied here
+        verbatim, against a warm-up-only path so it does not interact with
+        any of the three scenario paths below. vinylprobe's exit codes
+        separate transport failure (2) from a wrong verdict (1) exactly so
+        a caller can retry the former without masking the latter: the loop
+        below retries only on exit 2 and lets exit 0 or exit 1 through on
+        the first attempt.
+        Budget: worst case adds ~30s (5 sleeps of 5s, plus fast
+        connection-refused failures and kubectl exec overhead); this step
+        carries no timeout override, so it uses the spec-level `exec: 120s`
+        default, which covers that with wide margin.
+      try:
+        - script:
+            content: |
+              set -eu
+              rc=2
+              for i in 1 2 3 4 5 6; do
+                set +e
+                kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://truth-cache-traffic:8080/truth/warmup" -expect hit
+                rc=$?
+                set -e
+                if [ "$rc" -ne 2 ]; then break; fi
+                sleep 5
+              done
+              exit "$rc"
+
+    - name: coalescing-traffic
+      description: |
+        Two backgrounded Detect calls (-url ... -expect hit) at the exact
+        same URL, so they hash to the exact same cache object
+        (vcl_hash.vcl.tmpl hashes req.url + Host); echo_time=2500 (Step 1's
+        confirmed query control) gives the backend a 2.5s delay, comfortably
+        above the ~0-few-hundred-ms kubectl-exec dispatch skew between the
+        two `&` launches, so their first requests reliably overlap the one
+        in-flight fetch rather than racing past it.
+        Real Varnish request coalescing means only ONE of the two actually
+        dials the backend; the other's first request joins the waiting list
+        and is delivered that same winning fetch's object once ready. Each
+        Detect call only trusts its OWN two tokens (internal/probe/cache.go)
+        — the "losing" call's own second request legitimately cannot find
+        either of its own tokens in a body that carries the winner's token,
+        so that call's own hit/miss self-check is expected, by design, to
+        sometimes report an error (vinylprobe exit 2) rather than a clean
+        hit. This step deliberately does not gate on that: plain `wait`
+        (no operands) always returns 0 in POSIX sh and bash regardless of
+        the background jobs' own exit statuses — verified directly against
+        both /bin/bash and /bin/sh before relying on it here — so this
+        step's only job is to generate the overlapping traffic; the next
+        step's -assert-spans calls are what actually decide pass/fail.
+        Budget: both kubectl execs run concurrently, each bounded by
+        vinylprobe's own default -timeout (30s); worst case is ~30s (not
+        60s, since they overlap) plus kubectl exec dispatch overhead, well
+        under the spec-level `exec: 120s` default, so no override.
+      try:
+        - script:
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://truth-cache-traffic:8080/truth/coalesce?echo_time=2500" \
+                  -expect hit &
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://truth-cache-traffic:8080/truth/coalesce?echo_time=2500" \
+                  -expect hit &
+              wait
+
+    - name: coalescing-assert-spans
+      description: |
+        Two sequential polls, 90s + 90s = 180s worst case, so the script
+        timeout below is raised to 220s (40s margin over that worst case,
+        covering kubectl exec spawn overhead for both calls) the same way
+        the tracing test's own assert-spans step raises its budget above
+        the spec-level exec default.
+        First call is a broad sanity check (no attr/trace filter) that the
+        sink is receiving current data at all; NOTE it is not, on its own,
+        proof that THIS coalescing scenario's slow fetch specifically
+        reached the sink — warm-up-traffic already put at least one
+        ordinary "varnish fetch" span there. The second call is the actual
+        proof: internal/tracer/spans/linker.go's resolveHit only ever sets
+        varnish.coalesced=true on a "varnish request" span when it resolved
+        that request's own Hit record against a fetch span it had already
+        cached AND that request's Start preceded the cached fetch's End —
+        i.e. only when a real hit-to-fetch link with genuine time overlap
+        was established. Its presence therefore implies the link existed;
+        exact link-id equality (the Link record's target span id matching
+        the fetch span's own id) is already proven at the unit layer
+        (Task 5, coalesce.txt) and is not re-derived here.
+      try:
+        - script:
+            timeout: 220s
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
+                  -span-name "varnish fetch" -min-count 1 -within 90s
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
+                  -span-name "varnish request" -attr varnish.coalesced=true \
+                  -min-count 1 -within 90s
+
+    - name: grace-bgfetch
+      description: |
+        echo_header=Cache-Control:max-age%3D1 (the "=" percent-encoded so
+        no query-string parser can mistake it for a second key=value pair;
+        after standard URL-decoding the backend sees literal
+        "Cache-Control:max-age=1", per Step 1) gives this path a 1s TTL.
+        internal/generator/templates/vcl_backend_response.vcl.tmpl forces
+        beresp.grace to at least 24h unconditionally, and vcl_hit.vcl.tmpl
+        carries no custom ttl/grace/keep logic (Varnish 8's builtin vcl_hit
+        already implements stale-while-revalidate), so any request arriving
+        after the 1s TTL lapses but well within the 24h grace window is
+        served the stale object immediately while Varnish kicks an async
+        bgfetch to revalidate — internal/tracer/spans/spans.go sets
+        varnish.bgfetch=true on a "varnish fetch" span whenever that
+        transaction's own Begin record contains "bgfetch".
+        Sleep is banned in scripts except bounded retry loops: this is one.
+        Each of the 20 iterations below re-requests the URL with a single
+        -seed call (a genuine fresh request, not a bare sleep) and then
+        asks -assert-spans -within 1s whether the bgfetch span has already
+        landed. That -within 1s is deliberately cheap, not a real poll
+        window: cmd/vinylprobe/main.go's runAssertSpans sleeps 2s
+        unconditionally between attempts before rechecking its own
+        deadline, so a non-matching quick check costs ~2s wall time
+        regardless of the -within value passed — it exists only to let the
+        loop exit the moment the span shows up, not to do meaningful
+        polling on its own. The 3s gap between iterations, driven by real
+        traffic each time, is what actually carries the object past its
+        1s TTL (the second, or occasionally third, iteration's request is
+        expected to be the one that lands in the post-TTL/pre-grace-expiry
+        window and triggers the bgfetch).
+        If no quick check ever caught it within 20 iterations, one final
+        call uses the exact -within 120s the brief specifies, giving the
+        ~3s OTLP batch flush (this suite's inherited SUBTLETY) and the
+        async bgfetch itself their full due on a single generous poll
+        rather than failing on a check that never had time to see a
+        just-arrived span.
+        Budget: loop worst case ~= 20 x (seed exec ~3s + quick check ~3s
+        [2s internal sleep-then-exit + ~1s kubectl overhead] + explicit
+        sleep 3s) = 20 x 9s = 180s; plus the final -within 120s call
+        (~2s kubectl overhead) = ~122s; total worst case ~= 302s. Script
+        timeout below is raised to 360s, ~58s margin. In the expected case
+        this resolves in 2-4 iterations (~10-20s): TTL is 1s and requests
+        are 3s apart, so the loop's second iteration is already past TTL.
+      try:
+        - script:
+            timeout: 360s
+            content: |
+              set -eu
+              i=0
+              until [ "$i" -ge 20 ]; do
+                i=$((i + 1))
+                kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://truth-cache-traffic:8080/truth/grace?echo_header=Cache-Control:max-age%3D1" \
+                    -seed >/dev/null
+                if kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
+                    -span-name "varnish fetch" -attr varnish.bgfetch=true \
+                    -min-count 1 -within 1s; then
+                  exit 0
+                fi
+                sleep 3
+              done
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
+                  -span-name "varnish fetch" -attr varnish.bgfetch=true \
+                  -min-count 1 -within 120s
+
+    - name: honest-timing-traffic
+      description: |
+        echo_time=2000 on a fresh path (never requested before in this
+        test, so this is guaranteed a real cache miss, not an instant
+        cached reply) gives the backend a 2s delay. A single -seed call
+        (one cold request, per the brief) is enough: only the resulting
+        "varnish fetch" span's own recorded duration is asserted next, not
+        any hit/miss verdict, so Detect's two-request pattern would only
+        add an unneeded extra round trip.
+        Budget: one kubectl exec, bounded by vinylprobe's default -timeout
+        (30s; actual wall time ~2s given the delay), well under the
+        spec-level `exec: 120s` default, so no override.
+      try:
+        - script:
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://truth-cache-traffic:8080/truth/honest?echo_time=2000" \
+                  -seed >/dev/null
+
+    - name: honest-timing-assert
+      description: |
+        The spec's honest-timing E2E, finally expressible now that
+        -min-duration exists (Task 5-onward machinery): a "varnish fetch"
+        span whose own EndUnixNano-StartUnixNano is at least 1500ms proves
+        the recorded span duration reflects the real ~2s backend delay,
+        not a fabricated or truncated value. 1500ms leaves ~500ms of margin
+        below the actual ~2000ms delay for scheduling/network jitter while
+        still failing outright on a span that reports anywhere near-zero
+        duration for a fetch that truly took ~2s.
+        Budget: single -within 60s poll, well under the spec-level
+        `exec: 120s` default, so no override.
+      try:
+        - script:
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
+                  -span-name "varnish fetch" -min-duration 1500ms \
+                  -min-count 1 -within 60s
+
+    - name: cleanup
+      try:
+        - delete:
+            file: ../../fixtures/probe/probe-pod.yaml
+        - delete:
+            file: ../../fixtures/probe/otlp-sink.yaml
+        - delete:
+            file: ../../fixtures/vinylcaches/truth.yaml
+        - delete:
+            file: ../../fixtures/backends/echo-service.yaml
