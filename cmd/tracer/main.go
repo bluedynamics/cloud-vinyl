@@ -74,17 +74,25 @@ func main() {
 
 	// 3. Supervise varnishlog and pump groups into the pipeline.
 	ids := spans.NewRandomIDs()
+	// P3 Task 5: spans.Linker wraps BuildWithOutcome with cross-transaction
+	// correlation (hit-to-fetch links with coalescing detection, restart
+	// continuation stitching) that a single top-level Tx cannot see on its
+	// own. It is stateful but single-goroutine — handle below is called
+	// serially by supervisor.run, matching the Linker's documented
+	// no-mutex contract.
+	linker := spans.NewLinker(4096, 5*time.Minute, ids)
+	linker.OnCacheMiss = linkCacheMisses.Inc
 	s := &supervisor{
 		binary:  envOrDefault("VARNISHLOG_PATH", "varnishlog"),
 		backoff: time.Second,
 		handle: func(tx *vsl.Tx) {
-			// P3: spans.BuildWithOutcome distinguishes intentional silence
-			// (an unsampled trace, spans.OutcomeUnsampled) from real data
-			// loss (a group missing timestamps a span needs, e.g.
-			// truncated/overrun log data, spans.OutcomeUnusable) instead of
-			// lumping both into one counter as the P1 version of this
-			// closure did.
-			built, outcome := spans.BuildWithOutcome(tx, ids)
+			// P3: spans.BuildWithOutcome (wrapped here by linker.Build)
+			// distinguishes intentional silence (an unsampled trace,
+			// spans.OutcomeUnsampled) from real data loss (a group missing
+			// timestamps a span needs, e.g. truncated/overrun log data,
+			// spans.OutcomeUnusable) instead of lumping both into one
+			// counter as the P1 version of this closure did.
+			built, outcome := linker.Build(tx)
 			switch outcome {
 			case spans.OutcomeUnsampled:
 				groupsUnsampled.Inc()

@@ -28,6 +28,11 @@ var (
 		Name: "vinyl_tracer_groups_unsampled_total",
 		Help: "Request groups skipped because the incoming trace context is unsampled.",
 	})
+	linkCacheMisses = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "vinyl_tracer_link_cache_misses_total",
+		Help: "spans.Linker correlations (hit-to-fetch or restart continuation) that " +
+			"could not resolve because the target vxid was never cached or aged out.",
+	})
 )
 
 // supervisor keeps one varnishlog subprocess running and feeds its stdout

@@ -32,6 +32,26 @@ type Span struct {
 	Start    time.Time
 	End      time.Time
 	Attrs    []attribute.KeyValue
+	// Links are soft references to other spans this one did not literally
+	// parent onto (e.g. a HIT request linking to the fetch whose cached
+	// object it looked up). Populated by a Linker, never by Build itself.
+	Links []Link
+	// vxid is the originating vsl.Tx's VXID (the request's own for a
+	// "varnish request" span, the BeReq's for a "varnish fetch" span).
+	// Linker bookkeeping only — unexported so it never leaks past this
+	// package as part of the public Span contract Task 6 (export/readonly)
+	// consumes.
+	vxid uint64
+}
+
+// Link is a soft reference from one span to another, mirroring OTel's own
+// Span Link shape (trace/span id plus attributes describing the relation).
+// A Linker attaches these post hoc, across transactions Build never sees
+// together (e.g. a coalescing hit and the fetch it waited on).
+type Link struct {
+	TraceID trace.TraceID
+	SpanID  trace.SpanID
+	Attrs   []attribute.KeyValue
 }
 
 // IDSource mints trace and span ids for spans that Build constructs. Tests
@@ -58,6 +78,12 @@ func (randomIDs) SpanID() trace.SpanID {
 	_, _ = rand.Read(id[:])
 	return id
 }
+
+// txTypeRequest is the vsl.Tx.Type value for both a top-level client
+// request and an ESI child subrequest (a "Request" group in varnishlog's
+// output) — factored out because both BuildWithOutcome and the Linker's
+// restart-continuation check gate on it.
+const txTypeRequest = "Request"
 
 var traceparentRe = regexp.MustCompile(
 	`^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$`)
@@ -111,7 +137,7 @@ func Build(tx *vsl.Tx, ids IDSource) []Span {
 // cmd/tracer can count OutcomeUnsampled and OutcomeUnusable on separate
 // metrics instead of conflating intentional silence with real trace loss.
 func BuildWithOutcome(tx *vsl.Tx, ids IDSource) ([]Span, Outcome) {
-	if tx.Type != "Request" {
+	if tx.Type != txTypeRequest {
 		return nil, OutcomeSpans
 	}
 	start, okStart := tx.Timestamp("Start")
@@ -191,6 +217,7 @@ func BuildWithOutcome(tx *vsl.Tx, ids IDSource) ([]Span, Outcome) {
 		Start:    start,
 		End:      end,
 		Attrs:    requestAttrs(tx),
+		vxid:     tx.VXID,
 	}
 	if n := countRestarts(tx); n > 0 {
 		// Own-records only: a "Link req <vxid> restart" record here means
@@ -265,11 +292,12 @@ func buildChildren(
 				Start:    fs,
 				End:      fe,
 				Attrs:    attrs,
+				vxid:     child.VXID,
 			})
 			// Retry nesting: a BeReq nested under this BeReq is the next
 			// attempt, parented onto THIS fetch span, one ordinal deeper.
 			out = buildChildren(child, spanID, traceID, retryDepth+1, mintedSpanIDs, mintedTraceIDs, ids, out)
-		case "Request":
+		case txTypeRequest:
 			b, _ := child.First("Begin")
 			if !strings.Contains(b, "esi") {
 				continue // not an ESI subrequest shape this task recognizes
@@ -291,6 +319,7 @@ func buildChildren(
 				Start:    cs,
 				End:      ce,
 				Attrs:    attrs,
+				vxid:     child.VXID,
 			})
 			// ESI fragments recurse: the fragment's own fetch (and, if
 			// Varnish ever nests ESI within ESI, further child requests)
