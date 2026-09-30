@@ -2,6 +2,7 @@ package spans
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -305,4 +306,84 @@ func TestBuild_GraceHitEmitsBgfetchSpan(t *testing.T) {
 		}
 	}
 	require.NotNil(t, bg, "the stale hit must carry a bgfetch fetch span")
+}
+
+// TestBuild_PipeYieldsRequestSpanOnly: NOTES.md's pipe.txt section — the
+// client group carries Timestamp Start/Req/Process/Pipe/PipeSess but no
+// Resp, and the BeReq (vxid 3) never calls vcl_backend_fetch (no minted
+// BereqHeader traceparent, no BerespBody/Beresp timestamp) since piping
+// bypasses ordinary response processing entirely: "Pipe requests never get a
+// minted fetch span id — a fetch-span-per-request assumption breaks here by
+// design." One request span, no fetch span, closed by PipeSess.
+func TestBuild_PipeYieldsRequestSpanOnly(t *testing.T) {
+	txs := fixtureTxs(t, "pipe.txt")
+	got := Build(txs[0], &seqIDs{})
+	require.Len(t, got, 1, "pipe: request span only, no fetch span")
+	req := got[0]
+	assert.Equal(t, "pipe", attrString(t, req.Attrs, "varnish.handling"))
+	assert.Equal(t, "true", attrString(t, req.Attrs, "varnish.pipe"))
+	assert.False(t, req.Start.IsZero())
+	assert.True(t, req.End.After(req.Start), "PipeSess must close the span with nonzero duration")
+}
+
+// TestBuild_SynthHasSyntheticAttr: NOTES.md's synth.txt section — no BeReq
+// group, no Link record, "VCL_call SYNTH" is the discriminator vs. every
+// other scenario's VCL_call DELIVER-only path. The existing "synth" handling
+// classification (case "SYNTH" in handling()) already matched this fixture;
+// this test adds the varnish.synthetic=true attribute the interface
+// contract requires alongside it.
+func TestBuild_SynthHasSyntheticAttr(t *testing.T) {
+	txs := fixtureTxs(t, "synth.txt")
+	got := Build(txs[0], &seqIDs{})
+	require.Len(t, got, 1, "synth: no backend interaction, one span")
+	req := got[0]
+	assert.Equal(t, "synth", attrString(t, req.Attrs, "varnish.handling"))
+	assert.Equal(t, "true", attrString(t, req.Attrs, "varnish.synthetic"))
+}
+
+// TestBuildWithOutcome_SuccessIsOutcomeSpans is the control case: a normal
+// fixture must report OutcomeSpans alongside its built spans.
+func TestBuildWithOutcome_SuccessIsOutcomeSpans(t *testing.T) {
+	txs := fixtureTxs(t, "miss_then_hit.txt")
+	got, outcome := BuildWithOutcome(txs[0], &seqIDs{})
+	assert.Equal(t, OutcomeSpans, outcome)
+	assert.Len(t, got, 2)
+}
+
+// TestBuildWithOutcome_UnsampledFlagsIsOutcomeUnsampled reuses
+// TestParseTraceparent_UnsampledMeansNoSpans's in-memory mutation (rewrite
+// the recorded header's flags to 00) but asserts the Outcome BuildWithOutcome
+// reports rather than only the nil spans Build already covers: this is
+// intentional silence, not data loss, so cmd/tracer must count it on its own
+// metric, separate from genuinely unusable groups.
+func TestBuildWithOutcome_UnsampledFlagsIsOutcomeUnsampled(t *testing.T) {
+	txs := fixtureTxs(t, "miss_then_hit.txt")
+	for i, r := range txs[0].Records {
+		if r.Tag == "ReqHeader" && len(r.Payload) > 2 {
+			txs[0].Records[i].Payload =
+				r.Payload[:len(r.Payload)-2] + "00"
+		}
+	}
+	got, outcome := BuildWithOutcome(txs[0], &seqIDs{})
+	assert.Nil(t, got)
+	assert.Equal(t, OutcomeUnsampled, outcome)
+}
+
+// TestBuildWithOutcome_MissingStartIsOutcomeUnusable simulates a
+// truncated/overrun VSL group by stripping the Start timestamp record
+// in-memory (never touching the fixture file itself) — this is data loss
+// distinct from unsampled silence, so it must map to OutcomeUnusable.
+func TestBuildWithOutcome_MissingStartIsOutcomeUnusable(t *testing.T) {
+	txs := fixtureTxs(t, "miss_then_hit.txt")
+	var stripped []vsl.Record
+	for _, r := range txs[0].Records {
+		if r.Tag == "Timestamp" && strings.HasPrefix(r.Payload, "Start: ") {
+			continue
+		}
+		stripped = append(stripped, r)
+	}
+	txs[0].Records = stripped
+	got, outcome := BuildWithOutcome(txs[0], &seqIDs{})
+	assert.Nil(t, got)
+	assert.Equal(t, OutcomeUnusable, outcome)
 }

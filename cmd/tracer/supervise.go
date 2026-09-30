@@ -20,7 +20,13 @@ var (
 	})
 	groupsUnusable = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "vinyl_tracer_groups_unusable_total",
-		Help: "Request groups that yielded no spans (truncated/overrun log data). Trace loss must be visible, never silent.",
+		Help: "Request groups that were genuinely unusable (missing a " +
+			"timestamp a span needs, e.g. truncated/overrun log data) and " +
+			"yielded no spans. Trace loss must be visible, never silent.",
+	})
+	groupsUnsampled = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "vinyl_tracer_groups_unsampled_total",
+		Help: "Request groups skipped because the incoming trace context is unsampled.",
 	})
 )
 

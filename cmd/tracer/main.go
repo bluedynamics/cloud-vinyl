@@ -78,12 +78,17 @@ func main() {
 		binary:  envOrDefault("VARNISHLOG_PATH", "varnishlog"),
 		backoff: time.Second,
 		handle: func(tx *vsl.Tx) {
-			built := spans.Build(tx, ids)
-			if len(built) == 0 && tx.Type == "Request" {
-				// Unsampled is intentional silence; a Request group with no
-				// usable timestamps is data loss and must be counted. Build
-				// cannot tell us which it was cheaply in P1, so count both;
-				// unsampled traffic is rare in the deployments this targets.
+			// P3: spans.BuildWithOutcome distinguishes intentional silence
+			// (an unsampled trace, spans.OutcomeUnsampled) from real data
+			// loss (a group missing timestamps a span needs, e.g.
+			// truncated/overrun log data, spans.OutcomeUnusable) instead of
+			// lumping both into one counter as the P1 version of this
+			// closure did.
+			built, outcome := spans.BuildWithOutcome(tx, ids)
+			switch outcome {
+			case spans.OutcomeUnsampled:
+				groupsUnsampled.Inc()
+			case spans.OutcomeUnusable:
 				groupsUnusable.Inc()
 			}
 			for _, sp := range built {

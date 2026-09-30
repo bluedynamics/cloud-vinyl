@@ -77,16 +77,47 @@ func parseTraceparent(v string) (trace.TraceID, trace.SpanID, bool, bool) {
 	return tid, sid, flags&0x01 == 0x01, true
 }
 
+// Outcome classifies why BuildWithOutcome did or did not produce spans, so a
+// caller can tell intentional silence apart from real data loss instead of
+// lumping both into one counter.
+type Outcome int
+
+const (
+	// OutcomeSpans covers both "spans were built" and "there was nothing to
+	// build here" (tx is not a top-level Request group, e.g. an orphaned
+	// BeReq/session record) — neither is trace loss, so callers should not
+	// count it.
+	OutcomeSpans Outcome = iota
+	// OutcomeUnsampled means the incoming traceparent was valid but marked
+	// not-sampled: dropping this group is by design, not a bug.
+	OutcomeUnsampled
+	// OutcomeUnusable means the group was missing a timestamp Build needs
+	// (Start, or the timestamp that closes it — see respEnd) — a truncated
+	// or overrun VSL record. This is genuine data loss a caller should count
+	// and alert on.
+	OutcomeUnusable
+)
+
 // Build returns the spans for one top-level Request group, or nil when the
-// transaction is unsampled or not a client request.
+// transaction is unsampled, unusable, or not a client request. It is a thin
+// wrapper over BuildWithOutcome for the many callers/tests that only need
+// the spans themselves.
 func Build(tx *vsl.Tx, ids IDSource) []Span {
+	built, _ := BuildWithOutcome(tx, ids)
+	return built
+}
+
+// BuildWithOutcome is Build plus the reason behind an empty result, so
+// cmd/tracer can count OutcomeUnsampled and OutcomeUnusable on separate
+// metrics instead of conflating intentional silence with real trace loss.
+func BuildWithOutcome(tx *vsl.Tx, ids IDSource) ([]Span, Outcome) {
 	if tx.Type != "Request" {
-		return nil
+		return nil, OutcomeSpans
 	}
 	start, okStart := tx.Timestamp("Start")
 	end, okEnd := respEnd(tx)
 	if !okStart || !okEnd {
-		return nil // incomplete group (e.g. truncated log); counted by caller
+		return nil, OutcomeUnusable // incomplete group (e.g. truncated log)
 	}
 
 	var traceID trace.TraceID
@@ -94,7 +125,7 @@ func Build(tx *vsl.Tx, ids IDSource) []Span {
 	if raw, ok := tx.Header("ReqHeader", "traceparent"); ok {
 		if tid, sid, sampled, valid := parseTraceparent(raw); valid {
 			if !sampled {
-				return nil
+				return nil, OutcomeUnsampled
 			}
 			traceID, parentID = tid, sid
 		}
@@ -171,7 +202,7 @@ func Build(tx *vsl.Tx, ids IDSource) []Span {
 	}
 	out := []Span{req}
 	out = buildChildren(tx, req.SpanID, traceID, 0, mintedSpanIDs, mintedTraceIDs, ids, out)
-	return out
+	return out, OutcomeSpans
 }
 
 // buildChildren recursively appends spans for tx's BeReq and ESI Request
@@ -276,12 +307,20 @@ func buildChildren(
 // was "restart", not "deliver" — so NOTES.md's restart.txt section records
 // "Timestamp Restart:" as the only record that closes that group. Fall back
 // to it so such a Tx still produces a span instead of Build silently
-// dropping it.
+// dropping it. A piped Tx reaches neither: NOTES.md's pipe.txt section
+// records the full Timestamp label set as "Start, Req, Process, Pipe,
+// PipeSess" — "No Resp. No Fetch, Beresp, or BerespBody either (piping
+// bypasses the ordinary response-processing path)" — and confirms
+// "PipeSess is present (it marks when the piped byte-stream session itself
+// ended)", so it is the last fallback.
 func respEnd(tx *vsl.Tx) (time.Time, bool) {
 	if end, ok := tx.Timestamp("Resp"); ok {
 		return end, true
 	}
-	return tx.Timestamp("Restart")
+	if end, ok := tx.Timestamp("Restart"); ok {
+		return end, true
+	}
+	return tx.Timestamp("PipeSess")
 }
 
 // countRestarts counts this tx's own "Link req <vxid> restart" records
@@ -321,7 +360,14 @@ func requestAttrs(tx *vsl.Tx) []attribute.KeyValue {
 			attrs = append(attrs, attribute.Int("http.response.status_code", n))
 		}
 	}
-	attrs = append(attrs, attribute.String("varnish.handling", handling(tx)))
+	h := handling(tx)
+	attrs = append(attrs, attribute.String("varnish.handling", h))
+	switch h {
+	case "synth":
+		attrs = append(attrs, attribute.Bool("varnish.synthetic", true))
+	case "pipe":
+		attrs = append(attrs, attribute.Bool("varnish.pipe", true))
+	}
 	// ReqAcct: "reqhdr reqbody reqtotal resphdr respbody resptotal"
 	if a, ok := tx.First("ReqAcct"); ok {
 		if f := strings.Fields(a); len(f) == 6 {
@@ -334,7 +380,11 @@ func requestAttrs(tx *vsl.Tx) []attribute.KeyValue {
 }
 
 // handling derives hit/miss/pass/synth/pipe from the VCL_call sequence,
-// with a Hit record as corroboration for hits.
+// with a Hit record as corroboration for hits. NOTES.md's pipe.txt section:
+// the client group's VCL_call sequence is "RECV, HASH, PIPE" (RECV and HASH
+// match no case here) with no VCL_call MISS/HIT/PASS/SYNTH anywhere in the
+// group, so "PIPE" is an unambiguous discriminator for the pipe path, same
+// shape as the existing hit/pass/synth/miss cases.
 func handling(tx *vsl.Tx) string {
 	for _, r := range tx.Records {
 		if r.Tag != "VCL_call" {
@@ -349,6 +399,8 @@ func handling(tx *vsl.Tx) string {
 			return "synth"
 		case "MISS":
 			return "miss"
+		case "PIPE":
+			return "pipe"
 		}
 	}
 	if tx.Has("Hit") {
