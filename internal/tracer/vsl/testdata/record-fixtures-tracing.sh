@@ -28,7 +28,8 @@ sub vcl_recv {
         unset req.http.traceparent;
     }
     if (req.http.traceparent ~ "^[0-9a-f]{2}-0{32}-" ||
-        req.http.traceparent ~ "-0{16}-[0-9a-f]{2}$") {
+        req.http.traceparent ~ "-0{16}-[0-9a-f]{2}$" ||
+        req.http.traceparent ~ "^ff-") {
         unset req.http.traceparent;
     }
 }

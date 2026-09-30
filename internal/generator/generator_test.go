@@ -1385,6 +1385,11 @@ func TestGenerate_TracingEnabled_RecvValidatesTraceparent(t *testing.T) {
 	assert.Contains(t, r.VCL,
 		`req.http.traceparent !~ "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$"`)
 	assert.Contains(t, r.VCL, "unset req.http.traceparent")
+	assert.Contains(t, r.VCL, `req.http.traceparent ~ "^ff-"`,
+		"version ff is forbidden by W3C trace-context and rejected by "+
+			"parseTraceparent; the VCL gate must unset it too, or a minted "+
+			"bereq id under version ff reaches the backend disconnected from "+
+			"the tracer's adopted trace")
 	// The validation must run before cluster routing: relayed requests
 	// return(pass) inside the routing block and would skip anything later.
 	validation := strings.Index(r.VCL, "unset req.http.traceparent")

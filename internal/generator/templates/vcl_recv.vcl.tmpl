@@ -11,14 +11,16 @@ sub vcl_recv {
 {{- if .HasTracing }}
 
     # Tracing: the incoming traceparent is untrusted client input. Drop
-    # anything not matching the W3C trace-context shape, and all-zero ids,
-    # so the tracer and the backend only ever see a well-formed header.
+    # anything not matching the W3C trace-context shape, all-zero ids, or
+    # the forbidden version ff, so the tracer and the backend only ever
+    # see a well-formed header.
     if (req.http.traceparent &&
         req.http.traceparent !~ "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$") {
         unset req.http.traceparent;
     }
     if (req.http.traceparent ~ "^[0-9a-f]{2}-0{32}-" ||
-        req.http.traceparent ~ "-0{16}-[0-9a-f]{2}$") {
+        req.http.traceparent ~ "-0{16}-[0-9a-f]{2}$" ||
+        req.http.traceparent ~ "^ff-") {
         unset req.http.traceparent;
     }
 {{- end }}
