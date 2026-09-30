@@ -103,9 +103,11 @@ varnishParameters:
   feature: "+esi,+esi_disable_xml_check"
 ```
 
-renders as `-p thread_pool_min=100 -p thread_pool_max=1000 -p feature=+esi,+esi_disable_xml_check`
-on the varnish container (args are sorted by key, so the pod template does not
-churn between reconciles for the same params).
+renders as `-p feature=+esi,+esi_disable_xml_check -p thread_pool_max=1000 -p thread_pool_min=100`
+on the varnish container — note the args come out sorted by key (`feature` <
+`thread_pool_max` < `thread_pool_min`), not in the order they were written in
+YAML, so the pod template does not churn between reconciles for the same
+params.
 
 Two parameters are blocked by the admission webhook regardless of value,
 because they allow arbitrary code execution at VCL-compile time:

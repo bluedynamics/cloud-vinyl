@@ -1497,3 +1497,23 @@ func TestGenerate_ESI_MultiValueFeatureList_EnablesDoESI(t *testing.T) {
 	assert.Contains(t, r.VCL, `Surrogate-Control ~ "ESI/1.0"`,
 		"+esi among other comma-separated feature values must still enable the Surrogate-Control gate")
 }
+
+// TestGenerate_ESI_ExplicitDisable_NoDoESI pins existing (already-correct)
+// behavior: varnishd's feature list uses a leading '-' to explicitly
+// disable a feature, so "-esi" must not be mistaken for "+esi" by the
+// exact-token match. Nothing regressed this — hasVarnishFeature's token
+// comparison already distinguishes "+esi" from "-esi" — but it was
+// previously unpinned by any test.
+func TestGenerate_ESI_ExplicitDisable_NoDoESI(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.VarnishParams = map[string]string{
+		"feature": "-esi",
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.NotContains(t, r.VCL, `set beresp.do_esi = true;`,
+		"\"-esi\" (explicit disable) must not be mistaken for \"+esi\"")
+	assert.NotContains(t, r.VCL, `Surrogate-Control ~ "ESI/1.0"`,
+		"\"-esi\" (explicit disable) must not enable the Surrogate-Control gate")
+}
