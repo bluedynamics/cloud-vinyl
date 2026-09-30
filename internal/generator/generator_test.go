@@ -1423,3 +1423,27 @@ func TestGenerate_TracingWithUserSnippets_BothPresent(t *testing.T) {
 	assert.Contains(t, r.VCL, "set bereq.http.traceparent",
 		"operator tracing block must not displace user snippets")
 }
+
+func TestGenerate_ESI_EnablesDoESIOnSurrogateControl(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.VarnishParams = map[string]string{
+		"feature +esi": "on",
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, `set beresp.do_esi = true;`,
+		"ESI flag in VarnishParams must enable do_esi when Surrogate-Control matches")
+	assert.Contains(t, r.VCL, `Surrogate-Control ~ "ESI/1.0"`,
+		"do_esi must be guarded by a Surrogate-Control check per W3C ESI 1.0")
+}
+
+func TestGenerate_NoESI_NoDoESI(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(makeMinimalInput())
+	require.NoError(t, err)
+	assert.NotContains(t, r.VCL, `set beresp.do_esi = true;`,
+		"do_esi block must not be rendered when ESI is not enabled")
+	assert.NotContains(t, r.VCL, `Surrogate-Control ~ "ESI/1.0"`,
+		"Surrogate-Control check must not appear when ESI is not enabled")
+}
