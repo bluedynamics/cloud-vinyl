@@ -7,9 +7,11 @@ Three layers, described in full in
 Read it before adding a test.
 
 - **Unit tests** with fake clients: does the operator build the right objects?
-- **envtest** (`make test-int`): does a real API server accept them? Today this
-  layer is close to a stub — one real `It` block in the controller suite, and a
-  webhook suite that boots envtest but exercises no admission decision yet.
+- **envtest** (`make test-int`): does a real API server accept them? The
+  controller suite has one real `It` block (a happy-path reconcile); the
+  webhook suite boots a real manager with the validating webhook wired in and
+  now exercises real admission decisions — tracing-endpoint validation, and
+  telling a CRD-level CEL rejection apart from a webhook rejection.
   Say what a layer is *for*, not what it currently covers; the two are not the
   same claim.
 - **E2E** (chainsaw + kind + Calico): only what a real cluster can prove — real
