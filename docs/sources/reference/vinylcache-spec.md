@@ -16,8 +16,8 @@
 | `backends` | list | yes | One or more backend services. |
 | `director` | object | no | Director configuration (defaults: `type: shard`). |
 | `cluster` | object | no | Clustering / peer-routing configuration. |
-| `varnishParameters` | object | no | Runtime parameters passed to `varnishd` via `-p` flags. See [varnishParameters](#varnishparameters) below. |
-| `esi` | object | no | Edge Side Includes (ESI) processing. See [esi](#esi) below. |
+| `varnishParameters` | object | no | Runtime parameters passed to `varnishd` via `-p` flags. See the `varnishParameters` section below. |
+| `esi` | object | no | Edge Side Includes (ESI) processing. See the `esi` section below. |
 | `invalidation` | object | no | Cache invalidation configuration. |
 | `debounce.duration` | duration | no | Wait after last change before VCL push (default: `1s`). |
 | `retry.maxAttempts` | integer | no | Maximum VCL push retry attempts (default: `3`). |
@@ -115,7 +115,7 @@ because they allow arbitrary code execution at VCL-compile time:
 `vcc_allow_inline_c` and `cc_command`.
 
 ESI (Edge Side Includes) processing is **not** controlled through this map —
-see [esi](#esi) below. `varnishParameters`' `feature` key is still relevant
+see the `esi` section below. `varnishParameters`' `feature` key is still relevant
 alongside it, for the one real varnishd feature bit ESI sometimes needs
 (`esi_disable_xml_check`); see that section for when and why.
 
