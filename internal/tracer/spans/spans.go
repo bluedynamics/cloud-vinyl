@@ -104,7 +104,12 @@ func Build(tx *vsl.Tx, ids IDSource) []Span {
 	// so the backend's spans, parented on the minted value, land in the
 	// same trace under the fetch span. A BereqHeader whose span id merely
 	// equals the incoming parent id is an unrewritten P1-style forward —
-	// not a minted id — and is ignored.
+	// not a minted id — and is ignored. With multiple direct BeReq children
+	// under a self-root, the first valid child's trace id wins below
+	// (mintedTraceID is only ever set once); later children's backends
+	// would then land in orphaned traces of their own. Practically
+	// unreachable today (one BeReq per top-level Request); P3 revisits
+	// this once retry/ESI fixtures can produce it.
 	mintedSpanIDs := make(map[*vsl.Tx]trace.SpanID)
 	var mintedTraceID trace.TraceID
 	for _, child := range tx.Children {
