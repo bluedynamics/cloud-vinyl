@@ -450,7 +450,18 @@ func TestGenerate_BackendWithConnectionParameters(t *testing.T) {
 		"backend max_connections must appear in VCL")
 }
 
-func TestGenerate_ESI_ImportsEsiVmod(t *testing.T) {
+// TestGenerate_ESI_NoVmodImport guards against reintroducing the pre-existing
+// (initial-commit) defect this test used to assert the opposite of: Varnish's
+// ESI processing (beresp.do_esi, set by Task 7's vcl_backend_response gate)
+// is core functionality, not a VMOD, and no "esi" VMOD ships in the
+// varnish:8.0.2 image's /usr/lib/varnish/vmods/ (checked directly against the
+// image). Emitting "import esi;" made VCC-compiler fail every time with
+// "Could not find VMOD esi" for any CR enabling ESI — confirmed 2026-09-30 by
+// feeding both a hand-written repro and this generator's own real output
+// (feature +esi + tracing enabled) to `varnishd -C -f` against a real
+// varnish:8.0.2 container: identical failure with the import, clean compile
+// (exit 0, do_esi gate intact) with it removed. See P3 Task 9's report.
+func TestGenerate_ESI_NoVmodImport(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
 	input.Spec.VarnishParams = map[string]string{
@@ -458,8 +469,8 @@ func TestGenerate_ESI_ImportsEsiVmod(t *testing.T) {
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
-	assert.Contains(t, r.VCL, "import esi",
-		"ESI flag in VarnishParams must trigger 'import esi'")
+	assert.NotContains(t, r.VCL, "import esi",
+		"ESI is core Varnish functionality (beresp.do_esi); no 'esi' VMOD exists to import")
 }
 
 func TestGenerate_CustomHeaderSnippet(t *testing.T) {
