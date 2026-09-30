@@ -123,9 +123,14 @@ spec:
         the reflecting response comes from a cold-cache fetch, and sending
         no client traceparent also proves self-root trace adoption: the
         "varnish request" span must be in the SAME trace the VCL minted.
+        Worst case is 120s: the -body-capture call's default -timeout (30s)
+        plus the two -assert-spans polls' -within budgets (60s, 30s); the
+        script timeout below is raised to 180s to leave 60s of margin for
+        the three kubectl exec spawns' own overhead, the same reasoning
+        the assert-spans step above documents for its own budget.
       try:
         - script:
-            timeout: 120s
+            timeout: 180s
             content: |
               set -eu
               TP=$(kubectl exec -n $NAMESPACE probe -- \
