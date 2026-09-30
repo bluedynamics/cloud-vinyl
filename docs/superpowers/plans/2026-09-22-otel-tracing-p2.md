@@ -34,7 +34,7 @@ the spec itself). P1 landed in PR #107.
 - vinylprobe exit codes: 0 pass, 1 assertion failure, 2 usage/transport. `lll` 120-char lint applies to `cmd/*`; long flag help strings go in the existing `const` block.
 - Unit tests: plain `testing` + testify, except `internal/webhook/v1alpha1` (ginkgo envtest suite) and generator tests (external `generator_test` package, inline `assert.Contains` on rendered VCL — no golden files).
 - TDD with RED/GREEN evidence per task; `make lint` (golangci-lint v2.13.1) before each commit.
-- No changelog file exists in this repo; do not invent one. Commits end with `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
+- No changelog file exists in this repo; do not invent one. Commits end with `Assisted-by: Claude Fable 5`.
 
 ---
 
