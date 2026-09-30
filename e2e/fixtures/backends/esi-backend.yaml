@@ -1,0 +1,140 @@
+# ESI-capable backend for e2e/tests/tracing-esi (issue #109). ealen/echo-server
+# (the backend all other e2e fixtures use, see echo-service.yaml) cannot emit
+# ESI markup, so this fixture is a purpose-built stand-in.
+#
+# Shape mirrors internal/tracer/vsl/testdata/truthbackend.py, the rig script
+# P3 used to record the VSL fixtures this branch's ESI detection code was
+# reconciled against: plain stdlib http.server, no dependencies, single file.
+# python:3.12-slim was chosen over nginx:alpine because the whole point is
+# precise, obvious control over exactly two responses' status/headers/body —
+# a ConfigMap'd nginx.conf plus a second ConfigMap'd static file to get the
+# same effect (custom header via add_header, body via a served file) is two
+# moving parts doing what this script does in one, and there is already a
+# proven-correct prior-art script in this repo to mirror instead of inventing
+# nginx config from scratch.
+#
+# The /esi body is 'before <esi:include src="/frag"/> after' — deliberately
+# NOT starting with '<' (first byte is 'b'), the exact shape that made
+# varnishd log ESI_xmlerror and silently serve the body unparsed in P3's
+# fixture recording (internal/tracer/vsl/testdata/NOTES.md's "Rig deviation"
+# section). e2e/fixtures/vinylcaches/esi-cache.yaml's comment explains why
+# that byte is kept exactly as recorded rather than swapped for a leading
+# '<' to dodge the issue.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: esi-backend-script
+data:
+  esi_backend.py: |
+    """Minimal ESI backend for cloud-vinyl's e2e ESI test (issue #109).
+
+    Routes:
+    /esi/*  -> 200, Surrogate-Control: content="ESI/1.0", body embeds
+               <esi:include src="/frag"/>. Body does NOT start with '<'
+               (see this ConfigMap's own header comment).
+    /frag   -> 200 "FRAGMENT" — the token the assembled parent page must
+               contain if, and only if, Varnish actually performed the
+               ESI include rather than just proxying the raw parent body.
+    anything else -> 404
+    """
+    import http.server
+
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_GET(self):  # noqa: N802 - stdlib API name
+            if self.path.startswith("/esi"):
+                body = b'before <esi:include src="/frag"/> after'
+                self.send_response(200)
+                self.send_header("Surrogate-Control", 'content="ESI/1.0"')
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            elif self.path.startswith("/frag"):
+                body = b"FRAGMENT"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                self.send_response(404)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+        def log_message(self, *a):  # keep container logs quiet
+            pass
+
+
+    http.server.ThreadingHTTPServer(("", 80), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: esi-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: esi-backend
+  template:
+    metadata:
+      labels:
+        app: esi-backend
+    spec:
+      # Plain stdlib http.server has no installed signal handler of its own,
+      # so it takes Python's default SIGTERM disposition (immediate
+      # termination) — same fast-exit shape echo-service.yaml documents for
+      # echo-server, same reason to declare it explicitly (#63: the 30s
+      # default grace period overshoots Chainsaw's cleanup timeout).
+      terminationGracePeriodSeconds: 5
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: esi-backend
+          image: python:3.12-slim
+          # -B: never write __pycache__ bytecode — the script's own directory
+          # is a read-only ConfigMap mount, and readOnlyRootFilesystem below
+          # forbids writing anywhere else either. Verified by hand (docker
+          # run --read-only --user 1000:1000 --cap-drop ALL) that the script
+          # starts and serves both routes correctly under this exact profile.
+          command: ["python3", "-B", "/scripts/esi_backend.py"]
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: script
+          configMap:
+            name: esi-backend-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: esi-backend
+spec:
+  selector:
+    app: esi-backend
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP

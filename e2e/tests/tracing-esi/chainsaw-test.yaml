@@ -1,0 +1,231 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: tracing-esi
+  labels:
+    suite: full
+spec:
+  description: |
+    Issue #109's second half: the ESI E2E that P3 left BLOCKED because
+    spec.varnishParameters never reached varnishd, so `feature
+    +esi_disable_xml_check` could not actually be enabled on a cluster.
+    That plumbing is fixed earlier on this branch (varnishParameters now
+    render as sorted -p key=value args; see
+    internal/controller/statefulset.go's varnishParamArgs and
+    docs/sources/reference/vinylcache-spec.md's varnishParameters section).
+    This test proves ESI assembly happens against a REAL varnishd on a real
+    cluster — not just the unit-level VSL-fixture replay P3's Task 5 already
+    covers (internal/tracer/vsl/testdata/NOTES.md's esi.txt section) — and
+    that the resulting ESI subrequest shows up as a child "varnish request"
+    span carrying varnish.esi=true.
+
+    FEATURE-FLAG DECISION (see e2e/fixtures/vinylcaches/esi-cache.yaml's own
+    header comment for the full account): the backend
+    (e2e/fixtures/backends/esi-backend.yaml) serves a body that does NOT
+    start with '<' — 'before <esi:include src="/frag"/> after' — the exact
+    shape internal/tracer/vsl/testdata/NOTES.md's "Rig deviation" section
+    recorded triggering ESI_xmlerror against a vanilla varnishd. This
+    fixture's varnishParameters therefore carries
+    feature=+esi_disable_xml_check, the real varnishd token that fixes it,
+    verified by hand against a varnish:8.0.2 container (omitting it serves
+    the raw, unexpanded tag instead of the assembled "FRAGMENT" token).
+
+    BLOCKED-AND-WORKED-AROUND FINDING, load-bearing for reading this
+    fixture set: the OTHER half of the documented ESI convention —
+    {"feature": "+esi"}, which internal/generator/generator.go's
+    hasVarnishFeature() requires to gate the generated VCL's
+    `beresp.do_esi = true` block on at all — turned out to be unusable
+    against real varnishd. That map is rendered verbatim into varnishd's
+    actual "-p feature=..." argument with no translation layer, and real
+    varnishd 8.0.2 has no "esi" feature bit (confirmed against
+    `varnishd -x parameter` and by hand: `-p feature=+esi` refuses to start
+    at all, "Error: Unknown feature bit (+esi)", and rejects the whole
+    value even combined with a real token). Setting it here would
+    crash-loop the StatefulSet before any ESI traffic could run at all —
+    this is a real bug in code already committed on this branch that a
+    test-fixtures-only change does not touch or fix. Worked around instead
+    via the pre-existing, general-purpose vcl.snippets.vclBackendResponse
+    mechanism to set do_esi directly (esi-cache.yaml), which a hand-run
+    against real varnishd:8.0.2 confirmed produces correct assembly
+    ("before FRAGMENT after"). Recommend a follow-up issue against
+    generator.go's HasESI convention; out of scope here.
+
+    TRACE-ID LINKING: NOT asserted. -assert-spans's own stdout contract
+    (cmd/vinylprobe/main.go's runAssertSpans/decideSpans) only ever prints
+    a match COUNT ("OK: N span(s) named %q matched"), never a matched
+    span's trace or span id — unlike -body-capture, which is a value
+    extractor by design. There is no vinylprobe flag that would let a
+    script step pull the ESI child span's actual trace id back out of the
+    sink to compare against the parent's, and reaching into the sink's raw
+    JSON with a raw HTTP client instead would both violate this repo's
+    HTTP-client boundary (hack/check-e2e-boundary.sh: chainsaw scripts may
+    only drive HTTP through vinylprobe) and duplicate logic that belongs in
+    vinylprobe, not a chainsaw script. The
+    ESI child span's varnish.esi=true attribute plus its existence
+    alongside a same-page parent span is the assertion this test can make
+    without fragile shell gymnastics; the parent/child trace-sharing claim
+    itself is already pinned at the unit level (P3's linker_test.go against
+    NOTES.md's esi.txt fixture).
+
+    Reuses the sink+probe fixture set tracing.yaml/truth.yaml already
+    established (e2e/fixtures/probe/otlp-sink.yaml,
+    e2e/fixtures/probe/probe-pod.yaml) under this test's OWN backend
+    (esi-backend, since ealen/echo-server cannot emit ESI markup — see that
+    fixture's own header comment for why a new backend was worth adding
+    instead of reusing echo-service.yaml) and OWN VinylCache CR (esi-cache,
+    to avoid colliding with tracing's traced-cache or tracing-truth's
+    truth-cache — chainsaw namespaces each test already, but this repo's
+    established convention keeps CR names distinct too; see esi-cache.yaml
+    and truth.yaml's own comments).
+
+    SUBTLETY (inherited from tracing/tracing-truth): spans arrive at the
+    sink batched, ~3s flush; every -assert-spans call below budgets around
+    that.
+  timeouts:
+    assert: 180s
+    delete: 60s
+    exec: 120s
+  steps:
+    - name: deploy-backend
+      try:
+        - apply:
+            file: ../../fixtures/backends/esi-backend.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: esi-backend
+              status:
+                readyReplicas: 1
+
+    - name: start-sink-and-probe
+      try:
+        - apply:
+            file: ../../fixtures/probe/otlp-sink.yaml
+        - apply:
+            file: ../../fixtures/probe/probe-pod.yaml
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: otlp-sink
+              status:
+                phase: Running
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: probe
+              status:
+                phase: Running
+
+    - name: create-cache
+      try:
+        - apply:
+            file: ../../fixtures/vinylcaches/esi-cache.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: esi-cache
+              status:
+                readyReplicas: 1
+
+    - name: esi-traffic-and-assert-assembly
+      description: |
+        First traffic against esi-cache-traffic carries the same
+        readiness-flap risk tracing's traffic-miss-then-hit step and
+        tracing-truth's warm-up-traffic step both document and work around
+        (#63-adjacent: readyReplicas can flip true a few seconds before the
+        Service's endpoints are actually wired, giving
+        "connect: connection refused" — vinylprobe exit 2 — on the very
+        next request). That idiom is copied here verbatim: retry only on
+        exit 2, let exit 0 or exit 1 through on the first attempt so a
+        genuine assembly failure fails fast instead of being retried into
+        a false pass.
+
+        The traffic itself IS the assembly proof: -body-capture '(FRAGMENT)'
+        against the parent page GETs it once and regex-captures "FRAGMENT"
+        from the response body (internal/probe/cache.go's BodyCapture; see
+        cmd/vinylprobe/main.go's runBodyCapture for the exit-code contract
+        this reuses: 2 transport, 1 no-match, 0 match-with-value-on-stdout —
+        the same three-way split -seed/-expect use elsewhere in this repo,
+        which is what makes this call drop into the established
+        transport-retry loop unmodified). The backend's raw /esi body
+        (esi-backend.yaml) contains no literal "FRAGMENT" text anywhere —
+        only the unexpanded "<esi:include src=\"/frag\"/>" tag — so a
+        successful capture is proof Varnish actually performed the
+        include, not that the parent was merely proxied through unchanged.
+
+        Budget: identical shape to warm-up-traffic's, so identical
+        arithmetic: worst case 6 sleeps of 5s = 30s from sleeps alone, plus
+        6 fast connection-refused failures and kubectl exec dispatch
+        overhead on top (~36s all told); this step carries no timeout
+        override, so it uses the spec-level `exec: 120s` default, which
+        covers that with wide margin.
+      try:
+        - script:
+            content: |
+              set -eu
+              rc=2
+              for i in 1 2 3 4 5 6; do
+                set +e
+                FRAG=$(kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://esi-cache-traffic:8080/esi/page" \
+                    -body-capture '(FRAGMENT)')
+                rc=$?
+                set -e
+                if [ "$rc" -ne 2 ]; then break; fi
+                sleep 5
+              done
+              echo "assembled body capture: ${FRAG:-<none>}"
+              exit "$rc"
+
+    - name: assert-esi-and-parent-spans
+      description: |
+        Two sequential -assert-spans polls, each with its own -within
+        deadline. First: the ESI subrequest itself, a "varnish request"
+        span carrying varnish.esi=true (internal/tracer/spans/spans.go's
+        buildChildren, the txTypeRequest/"esi" case — matches
+        NOTES.md's esi.txt section: "Link req 4 esi 1", a nested Request
+        group one level deeper than its parent). Second, a sanity check
+        that the PARENT request span for the same page exists too —
+        "varnish request" carrying url.path=/esi/page
+        (internal/tracer/spans/spans.go's requestAttrs sets url.path from
+        ReqURL) — distinct from the child's url.path=/frag, so this is
+        specifically the top-level page request, not a second match on the
+        child itself.
+
+        Budget: two sequential -within 90s polls = 180s worst case, plus
+        ~2s kubectl exec overhead each (~184s total); the script step's own
+        timeout is raised to 230s, ~46s margin, matching this repo's
+        established ~40-58s margins elsewhere (e.g. tracing-truth's
+        grace-bgfetch step, tracing's assert-spans/rewrite-proof steps).
+      try:
+        - script:
+            timeout: 230s
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
+                  -span-name "varnish request" -attr varnish.esi=true \
+                  -min-count 1 -within 90s
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -assert-spans -sink "http://otlp-sink:4318" \
+                  -span-name "varnish request" -attr url.path=/esi/page \
+                  -min-count 1 -within 90s
+
+    - name: cleanup
+      try:
+        - delete:
+            file: ../../fixtures/probe/probe-pod.yaml
+        - delete:
+            file: ../../fixtures/probe/otlp-sink.yaml
+        - delete:
+            file: ../../fixtures/vinylcaches/esi-cache.yaml
+        - delete:
+            file: ../../fixtures/backends/esi-backend.yaml
