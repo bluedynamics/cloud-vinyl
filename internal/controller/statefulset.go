@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"sort"
 	"strconv"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -121,6 +122,8 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 		}
 		// Append -s args for each spec.storage entry (after the fixed args).
 		varnishArgs = append(varnishArgs, storageArgs(vc.Spec.Storage)...)
+		// Append -p args for each spec.varnishParameters entry (after storage args).
+		varnishArgs = append(varnishArgs, varnishParamArgs(vc.Spec.VarnishParams)...)
 
 		varnishContainer := corev1.Container{
 			Name:  "varnish",
@@ -436,6 +439,33 @@ func storageArgs(storage []v1alpha1.StorageSpec) []string {
 			continue // webhook already rejects other types; belt-and-braces skip
 		}
 		args = append(args, "-s", spec)
+	}
+	return args
+}
+
+// varnishParamArgs turns spec.varnishParameters into "-p key=value" args for
+// varnishd, one pair per entry, sorted by key.
+//
+// The sort is load-bearing, not cosmetic: Go map iteration order is
+// randomized per process, so building the args slice by ranging over the map
+// directly would make the pod template's Args order differ between one
+// reconcile and the next even though the params themselves didn't change.
+// controllerutil.CreateOrUpdate diffs the built object against the stored
+// one, so a reordered-but-otherwise-identical Args slice reads as a change
+// and the StatefulSet would be updated, and its pods rolled, on every single
+// reconcile.
+func varnishParamArgs(params map[string]string) []string {
+	if len(params) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	args := make([]string, 0, 2*len(params))
+	for _, k := range keys {
+		args = append(args, "-p", fmt.Sprintf("%s=%s", k, params[k]))
 	}
 	return args
 }
