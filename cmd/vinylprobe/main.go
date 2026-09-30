@@ -50,8 +50,12 @@ const (
 	withinHelp      = "deadline for -assert-spans to keep polling -sink before failing"
 	bodyCaptureHelp = "regex with one capture group applied to the -url response body; " +
 		"prints the first group (exit 0), FAIL exit 1 on no match"
-	traceIDHelp = "assert-spans: only count spans with this exact hex trace id"
-	spanIDHelp  = "assert-spans: only count spans with this exact hex span id"
+	traceIDHelp    = "assert-spans: only count spans with this exact hex trace id"
+	spanIDHelp     = "assert-spans: only count spans with this exact hex span id"
+	linkSpanIDHelp = "assert-spans: only count spans carrying a link whose span id equals this exact hex value " +
+		"(requires -assert-spans)"
+	minDurationHelp = "assert-spans: only count spans whose end-start duration is at least this long " +
+		"(requires -assert-spans)"
 )
 
 // probeFlags holds every flag plus which ones were explicitly passed
@@ -78,6 +82,8 @@ type probeFlags struct {
 	within      time.Duration
 	traceID     string
 	spanID      string
+	linkSpanID  string
+	minDuration time.Duration
 
 	// bodyCapture is a -url-family mode: see bodyCaptureHelp.
 	bodyCapture string
@@ -106,6 +112,8 @@ func parseFlags() probeFlags {
 	within := flag.Duration("within", 60*time.Second, withinHelp)
 	traceID := flag.String("trace-id", "", traceIDHelp)
 	spanID := flag.String("span-id", "", spanIDHelp)
+	linkSpanID := flag.String("link-span-id", "", linkSpanIDHelp)
+	minDuration := flag.Duration("min-duration", 0, minDurationHelp)
 	bodyCapture := flag.String("body-capture", "", bodyCaptureHelp)
 	var attrPairs []string
 	flag.Func("attr", attrHelp, func(s string) error {
@@ -143,6 +151,8 @@ func parseFlags() probeFlags {
 		within:       *within,
 		traceID:      *traceID,
 		spanID:       *spanID,
+		linkSpanID:   *linkSpanID,
+		minDuration:  *minDuration,
 		bodyCapture:  *bodyCapture,
 	}
 	flag.Visit(func(fl *flag.Flag) {
@@ -179,6 +189,8 @@ func (f probeFlags) validateSpanModes() (handled bool, err error) {
 		return true, errors.New("-assert-spans requires -span-name")
 	case (f.traceID != "" || f.spanID != "") && !f.assertSpans:
 		return true, errors.New("-trace-id/-span-id require -assert-spans")
+	case (f.linkSpanID != "" || f.minDuration != 0) && !f.assertSpans:
+		return true, errors.New("-link-span-id/-min-duration require -assert-spans")
 	case f.assertSpans, f.otlpSink != "":
 		return true, nil
 	default:
@@ -419,11 +431,14 @@ type spanVerdict struct {
 // decideSpans is pure so the pass/fail rule is unit-testable, the same
 // decidePurge pattern used for -purge: a span counts when its name matches
 // name, its TraceID/SpanID match traceID/spanID (when those filters are
-// non-empty), and every entry in attrs equals the span's own attribute of
-// that key (a missing attribute compares unequal to any wanted value,
-// including "").
+// non-empty), it carries a Link whose SpanID equals linkSpanID (when
+// linkSpanID is non-empty), its EndUnixNano-StartUnixNano duration is at
+// least minDuration (when minDuration is nonzero), and every entry in attrs
+// equals the span's own attribute of that key (a missing attribute compares
+// unequal to any wanted value, including "").
 func decideSpans(
-	spans []probe.SpanSummary, name string, attrs map[string]string, traceID, spanID string, minCount int,
+	spans []probe.SpanSummary, name string, attrs map[string]string,
+	traceID, spanID, linkSpanID string, minDuration time.Duration, minCount int,
 ) spanVerdict {
 	matched := 0
 	for _, s := range spans {
@@ -434,6 +449,12 @@ func decideSpans(
 			continue
 		}
 		if spanID != "" && s.SpanID != spanID {
+			continue
+		}
+		if linkSpanID != "" && !hasLinkSpanID(s.Links, linkSpanID) {
+			continue
+		}
+		if minDuration != 0 && time.Duration(s.EndUnixNano-s.StartUnixNano) < minDuration {
 			continue
 		}
 		ok := true
@@ -449,6 +470,16 @@ func decideSpans(
 		}
 	}
 	return spanVerdict{satisfied: matched >= minCount, matched: matched}
+}
+
+// hasLinkSpanID reports whether any of a span's links names spanID.
+func hasLinkSpanID(links []probe.LinkSummary, spanID string) bool {
+	for _, l := range links {
+		if l.SpanID == spanID {
+			return true
+		}
+	}
+	return false
 }
 
 // runOTLPSink serves the in-memory OTLP sink until the process is killed or
@@ -480,7 +511,7 @@ func runAssertSpans(ctx context.Context, f probeFlags) {
 		spans, err := fetchSpans(ctx, f.sink)
 		lastErr = err
 		if err == nil {
-			last = decideSpans(spans, f.spanName, f.attrs, f.traceID, f.spanID, f.minCount)
+			last = decideSpans(spans, f.spanName, f.attrs, f.traceID, f.spanID, f.linkSpanID, f.minDuration, f.minCount)
 			if last.satisfied {
 				fmt.Printf("OK: %d span(s) named %q matched\n", last.matched, f.spanName)
 				os.Exit(0)
