@@ -126,10 +126,11 @@ Truth semantics:
 
 | Case | Treatment |
 |---|---|
-| Coalescing | Fetch span belongs to the initiating request's trace. Waiting requests get a span link to it (fetch vxid from `Hit`/waitinglist records), resolved via a bounded TTL cache of fetch vxid → (trace id, span id). Cache miss degrades to `varnish.coalesced=true` without a link, counted. |
+| Coalescing | Fetch span belongs to the initiating request's trace. Waiting requests get a span link to it (fetch vxid from `Hit`/waitinglist records), resolved via a bounded TTL cache of fetch vxid → (trace id, span id). Hit link = `varnish.coalesced=true`; cache miss degrades to `varnish.coalesced_unlinked=true`, counted. |
 | Grace / bgfetch | Child of the triggering request span, `varnish.bgfetch=true`. May outlive its parent; that is truthful. |
-| ESI | Child spans per `Link req <vxid> esi`, recursively. |
-| Restarts | Child spans under the original request span, `varnish.restarts` counted. |
+| ESI | Child spans per `Link req <vxid> esi`, recursively, `varnish.esi=true`. |
+| Restarts | Child spans under the original request span, cross-transaction reparenting via the Linker; `varnish.restart_continuation=true` on continuation. `varnish.restarts` counted on the initiator. |
+| Retries | Fetch span attribute `varnish.retry=<n>` for n≥1 (retry depth). Attributes `varnish.minted_trace_mismatch=true` when the fetch's trace id differs from the request's. |
 | Pipe / synth | Request span with `varnish.pipe` / `varnish.synthetic`; no fetch span pretensions. |
 | Streaming | Fetch span may end after the request span; no containment assumption. |
 
@@ -188,9 +189,11 @@ soname build guard (#91); runtime `gcr.io/distroless/base-debian13:nonroot`
      chainsaw as a Job like existing probes.
   E2E uses `http/protobuf`; the gRPC exporter path is unit-covered. Cluster
   tests: honest timing against a delayed backend, one fetch + N links under
-  concurrent cold-cache load, grace/bgfetch, ESI children, NetworkPolicy
-  egress. Coalescing and grace go in the `full` suite. Assertions poll the
-  sink with timeouts; no sleeps.
+  concurrent cold-cache load, grace/bgfetch, NetworkPolicy egress. Coalescing
+  and grace go in the `full` suite. Assertions poll the sink with timeouts;
+  no sleeps. ESI end-to-end enablement is deferred to issue #109
+  (varnishParameters never reach varnishd -p; ESI span truth is unit-proven
+  against recorded fixtures).
 
 ## Build order
 
