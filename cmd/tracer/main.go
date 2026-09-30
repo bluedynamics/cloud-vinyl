@@ -82,6 +82,7 @@ func main() {
 	// no-mutex contract.
 	linker := spans.NewLinker(4096, 5*time.Minute, ids)
 	linker.OnCacheMiss = linkCacheMisses.Inc
+	linker.OnHitParked = hitsParked.Inc
 	s := &supervisor{
 		binary:  envOrDefault("VARNISHLOG_PATH", "varnishlog"),
 		backoff: time.Second,
@@ -105,4 +106,14 @@ func main() {
 		},
 	}
 	s.run(ctx)
+
+	// Graceful shutdown: s.run returned because ctx was cancelled (SIGINT/
+	// SIGTERM). Any span sets still in the Linker's parking lot (P3's
+	// bounded wait for a waiter-first hit's initiator fetch, see
+	// spans.Linker.Flush's doc) would otherwise never be resolved or
+	// exported — flush them, degraded, before the deferred wg.Wait() lets
+	// the batcher's own ctx.Done() drain run and the process exit.
+	for _, sp := range linker.Flush() {
+		batcher.Enqueue(sp)
+	}
 }

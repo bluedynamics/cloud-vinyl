@@ -102,10 +102,50 @@ type restartInfo struct {
 	spanID  trace.SpanID
 }
 
+// parkedSet holds one top-level Request group's already-built span set that
+// Build withheld from its own caller because its "Hit <vxid> ..." record did
+// not resolve against the fetch-identity cache at that instant.
+//
+// Why parking exists: varnishlog -g request emits a coalescing initiator's
+// group (carrying the fetch) and the waiter's group (carrying the Hit) in
+// completion order, which is a genuine ~50/50 race (see
+// coalesce-investigation.md) — NOT ordered by which one started first. At
+// the moment the waiter's own Build call runs, an unresolved Hit vxid is
+// indistinguishable between "genuinely unresolvable" (the fetch identity
+// was never recorded, or aged out of the fetches cache) and "the other half
+// of that race: the initiator's own Build call, which is what records the
+// fetch identity this vxid needs, simply has not happened yet." Parking
+// gives the latter case a bounded window (the Linker's ageLimit) to resolve
+// before conceding permanent degradation, instead of degrading immediately
+// and irreversibly on the very call that lost the race.
+type parkedSet struct {
+	vxid      uint64
+	spans     []Span
+	arrivedAt time.Time
+}
+
+// defaultMaxParked and defaultParkAgeLimit bound the Linker's parking lot:
+// at most this many unresolved hit-groups held back at once, each for at
+// most this long, before Build gives up and releases it degraded. Both are
+// deliberately small — this is a short-lived holding pen for a race that
+// normally resolves within one or two Build calls (milliseconds of
+// log-processing time), not a general-purpose store. A parked set overstays
+// only when the thing it is waiting for (the initiator's fetch identity)
+// genuinely never arrives — a crashed/restarted varnishd, a truncated log,
+// or a coalescing hit whose initiator fell outside the fetch-identity
+// cache's own TTL — at which point today's degradation (coalesced_unlinked
+// + a link-cache-miss) is still exactly the right, honest answer.
+const (
+	defaultMaxParked    = 256
+	defaultParkAgeLimit = 10 * time.Second
+)
+
 // Linker wraps BuildWithOutcome with cross-transaction correlation that a
 // single top-level Tx cannot see on its own:
 //   - hit-to-fetch links, including coalescing detection (NOTES.md's
-//     coalesce.txt and grace_bgfetch.txt sections);
+//     coalesce.txt and grace_bgfetch.txt sections), now resolved for BOTH
+//     VSL group-emission orderings via a small bounded parking lot (see
+//     parkedSet's doc) rather than only the initiator-first half;
 //   - restart continuation stitching, parenting a restarted request's span
 //     under the original request's span and into its trace (NOTES.md's
 //     restart.txt section — "Restarts: Child spans under the original
@@ -113,39 +153,80 @@ type restartInfo struct {
 //     you; only the Link record ties the two Tx's together).
 //
 // Both are driven by small bounded, TTL-expiring caches of vxid -> span
-// identity. Single-goroutine use only (the supervisor's handle closure
-// calls Build serially, exactly like it called BuildWithOutcome directly
-// before this task) — no mutex guards the caches.
+// identity, plus the parking lot for hit resolution. Single-goroutine use
+// only (the supervisor's handle closure calls Build serially, exactly like
+// it called BuildWithOutcome directly before this task) — no mutex guards
+// any of this state, the parking lot included.
 type Linker struct {
 	ids      IDSource
 	fetches  *vxidCache[fetchInfo]
 	restarts *vxidCache[restartInfo]
 
 	// OnCacheMiss, if set, is called synchronously whenever a correlation
-	// genuinely cannot be resolved against the cache — a HIT record whose
-	// fetch vxid was never seen or has aged out, or a restart continuation
-	// whose original was never seen or has aged out. cmd/tracer wires this
-	// to the vinyl_tracer_link_cache_misses_total counter; the spans
-	// package itself stays free of a metrics dependency, matching how
-	// BuildWithOutcome's Outcome return already lets the caller own its own
-	// counters instead of this package reaching for one directly.
+	// genuinely cannot be resolved — a restart continuation whose original
+	// was never seen or has aged out, or a hit's parked group released
+	// WITHOUT ever resolving (age-out, parking-lot overflow eviction, or
+	// Flush at shutdown). It is never called for the mere act of parking a
+	// hit (see OnHitParked) — only for a release that ends in degradation.
+	// cmd/tracer wires this to the vinyl_tracer_link_cache_misses_total
+	// counter; the spans package itself stays free of a metrics dependency,
+	// matching how BuildWithOutcome's Outcome return already lets the
+	// caller own its own counters instead of this package reaching for one
+	// directly.
 	OnCacheMiss func()
+
+	// OnHitParked, if set, is called synchronously whenever a hit's group is
+	// newly parked (its vxid did not resolve on its own Build call). This is
+	// a distinct event from OnCacheMiss: most parked sets go on to resolve
+	// normally a Build call or two later, so parking itself is not a miss —
+	// only a release that never resolved counts there. cmd/tracer wires this
+	// to vinyl_tracer_hits_parked_total, purely for observability into how
+	// often the race the parking lot exists for actually happens.
+	OnHitParked func()
+
+	maxParked int
+	ageLimit  time.Duration
+	// nowFunc is the wall clock the parking lot's age bookkeeping reads.
+	// Set-once (to time.Now) at construction in production; tests override
+	// it directly before driving the Linker, following
+	// internal/controller/debounce.go's existing clock-seam pattern.
+	nowFunc func() time.Time
+
+	// parked holds every span set currently withheld from its own Build
+	// call's return, oldest-arrived first (parking always appends; overflow
+	// and age-out both remove from the front first) — see parkedSet's doc.
+	parked []*parkedSet
 }
 
 // NewLinker returns a Linker whose fetch-identity and restart-identity
-// caches each hold up to capacity entries for up to ttl.
+// caches each hold up to capacity entries for up to ttl, and whose parking
+// lot uses the package's default bounds (defaultMaxParked,
+// defaultParkAgeLimit).
 func NewLinker(capacity int, ttl time.Duration, ids IDSource) *Linker {
 	return &Linker{
-		ids:      ids,
-		fetches:  newVxidCache[fetchInfo](capacity, ttl),
-		restarts: newVxidCache[restartInfo](capacity, ttl),
+		ids:       ids,
+		fetches:   newVxidCache[fetchInfo](capacity, ttl),
+		restarts:  newVxidCache[restartInfo](capacity, ttl),
+		maxParked: defaultMaxParked,
+		ageLimit:  defaultParkAgeLimit,
+		nowFunc:   time.Now,
 	}
 }
 
 // Build wraps BuildWithOutcome, then layers cross-transaction correlation
 // onto the result:
 //
-//  1. Restart continuation: if tx is a top-level Request whose own "Begin"
+//  1. Age-out housekeeping: release, degraded, every parked span set (see
+//     parkedSet's doc) that has waited longer than the Linker's ageLimit as
+//     of now. This runs FIRST, on every Build call, before this call's own
+//     group is even built — deliberately before step 2 below records this
+//     group's own fetch identities, so a long-overstayed parked vxid can
+//     never accidentally resolve against a same-numbered but unrelated
+//     fetch that merely happens to arrive in the same Build call. This is a
+//     real hazard, not a hypothetical one: Varnish mints vxids per-process
+//     starting from a small number, so two independent varnishd
+//     lifetimes/recordings routinely reuse the same vxid.
+//  2. Restart continuation: if tx is a top-level Request whose own "Begin"
 //     record marks it a restart (payload contains "restart" — the only
 //     reasons a top-level Request's Begin carries are "rxreq" and
 //     "restart", NOTES.md's restart.txt section), look up tx.VXID in the
@@ -161,20 +242,44 @@ func NewLinker(capacity int, ttl time.Duration, ids IDSource) *Linker {
 //     fully-built Request group); an OutcomeUnusable/OutcomeUnsampled
 //     empty result is a different, already-counted kind of loss and must
 //     not also inflate this counter.
-//  2. Record every fetch span just built (Name == "varnish fetch") into the
+//  3. Record every fetch span just built (Name == "varnish fetch") into the
 //     fetch-identity cache, keyed by its originating BeReq's own VXID.
-//  3. Record this tx's own "Link req <vxid> restart" record(s), if any,
+//  4. Record this tx's own "Link req <vxid> restart" record(s), if any,
 //     into the restart-identity cache, keyed by the named child vxid, so a
-//     later top-level Tx with that VXID can resolve step 1.
-//  4. Resolve this tx's own "Hit <vxid> ..." record, if any, against the
+//     later top-level Tx with that VXID can resolve step 2.
+//  5. Resolve any still-parked sets whose vxid is now cached (having just
+//     been recorded in step 3, by this call or an earlier one): attach the
+//     link + overlap-rule coalesced flag exactly as step 6 below would have
+//     at the parked set's OWN original Build call, and release it — meaning
+//     Build's returned []Span can contain spans from an EARLIER group,
+//     resolved here rather than at their own Build call. Callers that
+//     enqueue/export every returned span (cmd/tracer does) handle this
+//     transparently; callers that assume one Build call == one group's
+//     worth of spans do not exist today, but should not be added without
+//     accounting for this.
+//  6. Resolve this tx's own "Hit <vxid> ..." record, if any, against the
 //     fetch-identity cache: a hit adds a Link to its origin fetch
 //     (varnish.link="origin-fetch"), plus varnish.coalesced=true when the
 //     hit's own Start precedes the cached fetch's End (the request
-//     overlapped the still-in-flight fetch). An unresolvable vxid — the
-//     fetch was never seen or aged out — adds
-//     varnish.coalesced_unlinked=true instead, plus OnCacheMiss.
+//     overlapped the still-in-flight fetch) — same as before. An
+//     unresolvable vxid no longer degrades immediately: the whole group is
+//     PARKED (withheld from this Build call's return, keyed by the
+//     unresolved vxid, stamped with this call's now) for step 5 of a later
+//     Build call to resolve, and OnHitParked fires. A parking-lot overflow
+//     (already at maxParked) releases the single oldest parked set degraded
+//     — today's varnish.coalesced_unlinked + OnCacheMiss — before parking
+//     the new arrival, so the lot never grows unbounded and nothing is
+//     dropped silently.
+//
+// Flush releases every still-parked set degraded; callers that stop pumping
+// Build (shutdown) must call it so a parked set never seen again is still
+// exported rather than lost.
 func (l *Linker) Build(tx *vsl.Tx) ([]Span, Outcome) {
-	now := time.Now()
+	now := l.nowFunc()
+
+	var result []Span
+	result = append(result, l.releaseAgedParked(now)...)
+
 	built, outcome := BuildWithOutcome(tx, l.ids)
 	if len(built) == 0 {
 		// Purity: only OutcomeSpans means "this was a real Request group
@@ -194,7 +299,7 @@ func (l *Linker) Build(tx *vsl.Tx) ([]Span, Outcome) {
 				l.miss()
 			}
 		}
-		return built, outcome
+		return result, outcome
 	}
 
 	if l.isRestartContinuation(tx) {
@@ -211,9 +316,15 @@ func (l *Linker) Build(tx *vsl.Tx) ([]Span, Outcome) {
 		}
 	}
 	l.recordRestartLinks(tx, built[0], now)
-	l.resolveHit(tx, &built[0], now)
 
-	return built, outcome
+	result = append(result, l.resolveParked(now)...)
+
+	overflow, parked := l.resolveHit(tx, built, now)
+	result = append(result, overflow...)
+	if parked {
+		return result, outcome
+	}
+	return append(result, built...), outcome
 }
 
 // isRestartContinuation reports whether tx is a top-level Request whose own
@@ -270,30 +381,39 @@ func (l *Linker) recordRestartLinks(tx *vsl.Tx, top Span, now time.Time) {
 }
 
 // resolveHit resolves tx's own "Hit <vxid> ..." record, if any, against the
-// fetch-identity cache and annotates req (built's top request span)
-// in place. Per NOTES.md: the Hit payload's first field is always the
-// looked-up object's originating fetch vxid, whether the rest of the
-// payload has 4 fields (a complete, non-busy object) or 6 (still
-// busy/streaming at lookup time) — only the first field is needed here.
-func (l *Linker) resolveHit(tx *vsl.Tx, req *Span, now time.Time) {
+// fetch-identity cache. When it resolves, built's top request span (index 0)
+// is linked in place exactly as before and resolveHit reports parked=false.
+// When it does not (yet) resolve, the whole group is parked instead (see
+// park) and resolveHit reports parked=true, so Build withholds built from
+// its own return; overflow carries any OLDER parked set a capacity eviction
+// released degraded while making room, which Build must still return rather
+// than drop.
+func (l *Linker) resolveHit(tx *vsl.Tx, built []Span, now time.Time) (overflow []Span, parked bool) {
 	raw, ok := tx.First("Hit")
 	if !ok {
-		return
+		return nil, false
 	}
 	f := strings.Fields(raw)
 	if len(f) == 0 {
-		return
+		return nil, false
 	}
 	vxid, err := strconv.ParseUint(f[0], 10, 64)
 	if err != nil {
-		return
+		return nil, false
 	}
 	fetch, ok := l.fetches.get(vxid, now)
 	if !ok {
-		req.Attrs = append(req.Attrs, attribute.Bool("varnish.coalesced_unlinked", true))
-		l.miss()
-		return
+		return l.park(vxid, built, now), true
 	}
+	linkHit(&built[0], fetch)
+	return nil, false
+}
+
+// linkHit attaches a Link to fetch on req, plus the coalesced flag when
+// req's own Start precedes fetch's End (the request overlapped the
+// still-in-flight fetch) — the shared overlap rule used both for a hit that
+// resolves immediately and for a parked set resolved later (resolveParked).
+func linkHit(req *Span, fetch fetchInfo) {
 	req.Links = append(req.Links, Link{
 		TraceID: fetch.traceID,
 		SpanID:  fetch.spanID,
@@ -304,8 +424,98 @@ func (l *Linker) resolveHit(tx *vsl.Tx, req *Span, now time.Time) {
 	}
 }
 
+// park withholds built (a just-built top-level Request group whose own Hit
+// vxid did not resolve) from its Build call's return, keyed under vxid, so
+// a later Build call's resolveParked gets a bounded chance to resolve it.
+// Overflow — the lot already at maxParked — first releases the single
+// oldest parked set degraded (today's varnish.coalesced_unlinked +
+// OnCacheMiss), exactly like an age-out would, rather than either dropping
+// the new arrival or letting the lot grow unbounded; that released set is
+// returned so the caller (Build) can still emit it.
+func (l *Linker) park(vxid uint64, built []Span, now time.Time) []Span {
+	var overflow []Span
+	if len(l.parked) >= l.maxParked {
+		oldest := l.parked[0]
+		l.parked = l.parked[1:]
+		overflow = l.degradeRelease(oldest)
+	}
+	l.parked = append(l.parked, &parkedSet{vxid: vxid, spans: built, arrivedAt: now})
+	l.hitParked()
+	return overflow
+}
+
+// releaseAgedParked releases, degraded, every parked set that has waited
+// longer than the Linker's ageLimit as of now. See Build's doc comment for
+// why this runs before anything else in Build.
+func (l *Linker) releaseAgedParked(now time.Time) []Span {
+	var out []Span
+	var kept []*parkedSet
+	for _, p := range l.parked {
+		if now.Sub(p.arrivedAt) > l.ageLimit {
+			out = append(out, l.degradeRelease(p)...)
+		} else {
+			kept = append(kept, p)
+		}
+	}
+	l.parked = kept
+	return out
+}
+
+// resolveParked releases, linked, every remaining parked set whose vxid is
+// now present in the fetch-identity cache — the other half of resolving
+// both VSL group-emission orderings: a waiter-first hit is returned from
+// whichever LATER Build call happens to record its initiator's fetch
+// identity, carrying the same link + overlap-rule coalesced flag it would
+// have gotten had the orderings been reversed.
+func (l *Linker) resolveParked(now time.Time) []Span {
+	var out []Span
+	var kept []*parkedSet
+	for _, p := range l.parked {
+		if fetch, ok := l.fetches.get(p.vxid, now); ok {
+			linkHit(&p.spans[0], fetch)
+			out = append(out, p.spans...)
+		} else {
+			kept = append(kept, p)
+		}
+	}
+	l.parked = kept
+	return out
+}
+
+// degradeRelease applies today's degradation (varnish.coalesced_unlinked=
+// true on the top request span) to p's span set and counts it as a
+// link-cache miss — shared by age-out, parking-lot overflow eviction, and
+// Flush, the three ways a parked set can be released WITHOUT ever
+// resolving.
+func (l *Linker) degradeRelease(p *parkedSet) []Span {
+	p.spans[0].Attrs = append(p.spans[0].Attrs, attribute.Bool("varnish.coalesced_unlinked", true))
+	l.miss()
+	return p.spans
+}
+
+// Flush releases every still-parked span set, degraded, and empties the
+// parking lot. Callers that stop driving Build (graceful shutdown) must
+// call this once afterward so a parked set that never got its resolving
+// Build call is still exported instead of silently lost — cmd/tracer wires
+// this in after its supervisor's run loop returns, before waiting for the
+// export pipeline to drain.
+func (l *Linker) Flush() []Span {
+	out := make([]Span, 0, len(l.parked))
+	for _, p := range l.parked {
+		out = append(out, l.degradeRelease(p)...)
+	}
+	l.parked = nil
+	return out
+}
+
 func (l *Linker) miss() {
 	if l.OnCacheMiss != nil {
 		l.OnCacheMiss()
+	}
+}
+
+func (l *Linker) hitParked() {
+	if l.OnHitParked != nil {
+		l.OnHitParked()
 	}
 }

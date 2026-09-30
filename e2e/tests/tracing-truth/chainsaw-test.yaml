@@ -157,38 +157,54 @@ spec:
         coalesced the two requests, for reasons unrelated to whether
         coalescing actually happened.
 
-        WHY the assert can miss real coalescing (the ordering race):
-        internal/tracer/spans/linker.go's resolveHit only sets
-        varnish.coalesced=true when it resolves a request's own Hit record
-        against a fetch span it had ALREADY cached from an earlier Build
-        call, AND that request's Start precedes the cached fetch's End.
-        The Linker processes transactions in the order the live log hands
-        them to it, and `varnishlog -g request` emits one block per
-        top-level transaction root in COMPLETION order, not causal/
-        wall-clock order (NOTES.md's coalesce.txt section;
-        TestLinker_CoalescedHitLinksToOriginFetch pins the fixture's own
-        [initiator, waiter] order). Real concurrent traffic gives no such
-        guarantee: if the waiter's group happens to finish — and so get
-        logged — before the initiator's fetch group, the waiter's Hit
-        resolves against an empty fetch cache and degrades to
-        varnish.coalesced_unlinked=true instead (still a correctly linked
-        outcome per the truth-semantics spec table's coalescing row, just
-        not the flag this assert checks). Once resolveHit has run for that
-        specific pair the outcome is final — nothing arrives later to flip
-        a flag that was missed, so a longer -within on the SAME pair cannot
-        help. The only reliable fix is to retry the whole scenario — a
-        fresh concurrent pair against a cold URL — until one attempt lands
-        in the initiator-first order.
+        THE ORDERING RACE (real, and irreducible at the VSL layer):
+        `varnishlog -g request` emits one block per top-level transaction
+        root in COMPLETION order, not causal/wall-clock order (NOTES.md's
+        coalesce.txt section) — a genuine ~50/50 between the coalescing
+        initiator's group (carrying the fetch) and the waiter's group
+        (carrying the Hit). Nothing about how Varnish itself emits the log
+        can be made deterministic here; that is a fact of the log format,
+        not a Linker bug, and this retry does not try to change it.
 
-        This is a test-level workaround for live-log-processing
-        nondeterminism, not evidence the Linker needs to change. Task 5's
-        controller ruling deliberately did NOT add a pending-hits buffer
-        (queuing an unresolved Hit until a later-arriving fetch resolves
-        it) — the fixture-proven ordering never called for one, and every
-        unit fixture already exercises the flag correctly without it. That
-        ruling stands unmodified; this retry lives entirely here, working
-        around a race that only shows up under real concurrent traffic
-        against a live varnishd and never in a canned fixture.
+        WHAT THE LINKER NOW DOES ABOUT IT: internal/tracer/spans/linker.go's
+        Linker resolves BOTH orderings to varnish.coalesced=true, not only
+        initiator-first. When a request's own Hit vxid does not (yet)
+        resolve against the fetch-identity cache, the Linker PARKS the
+        built span set — withholds it, keyed by that vxid — in a small
+        bounded lot (capped by count and by a short per-entry age limit)
+        instead of degrading it on the spot. A later Build call that
+        records the matching fetch identity (the initiator's own group,
+        however many transactions later the live log happens to hand it
+        over) releases the parked set resolved, with the same link +
+        overlap rule it would have gotten in initiator-first order
+        (TestLinker_WaiterFirstHitResolvesOnLaterInitiatorBuild in
+        linker_test.go pins this both-orderings behavior; the original
+        TestLinker_CoalescedHitLinksToOriginFetch still pins the
+        initiator-first fixture order too). Only a parked hit released
+        WITHOUT ever resolving — aged out of the lot, evicted by the lot
+        overflowing, or flushed at process shutdown — still degrades to
+        varnish.coalesced_unlinked=true (a correctly linked outcome per the
+        truth-semantics spec table's coalescing row, just not the flag this
+        assert checks). This reverses Task 5's original controller ruling,
+        which deliberately omitted a pending-hits buffer because no
+        fixture at the time proved the waiter-first ordering actually
+        occurred; the CI-observed 0/3 failure and its local reproduction
+        (scratchpad/coalesce-investigation.md, PR #111) is exactly that
+        proof, gathered against the real Linker and a live varnishd.
+
+        WHY THE RETRY STAYS (belt-and-braces, not the primary fix anymore):
+        the Linker's own resolution is no longer the dominant source of
+        this assert's flakiness, but the retry is cheap insurance against
+        residual pathologies the bounded parking lot does not claim to
+        cover end-to-end under real concurrent E2E traffic — e.g. a parked
+        set that happens to age out before its resolving Build call runs,
+        under scheduling contention heavier than the lot's age limit was
+        sized for (CI's shared runners see more of this than an idle local
+        rig; see coalesce-investigation.md's "Why 0/3 in CI" section), or
+        ordinary OTLP batch-export/flush latency racing this step's own
+        -within poll window. A fresh concurrent pair against a cold URL,
+        retried up to 3 rounds, absorbs whatever of that remains without
+        this step needing to reason about it precisely.
 
         Each round uses a FRESH path (/truth/coalesce-r1, -r2, -r3) so
         every round is a cold coalescing scenario: reusing one path across
