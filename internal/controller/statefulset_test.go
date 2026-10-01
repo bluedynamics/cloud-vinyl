@@ -47,6 +47,46 @@ func TestStorageArgs_Empty(t *testing.T) {
 	assert.Nil(t, storageArgs([]v1alpha1.StorageSpec{}))
 }
 
+func TestVarnishParamArgs_Single(t *testing.T) {
+	got := varnishParamArgs(map[string]string{"thread_pool_min": "100"})
+	assert.Equal(t, []string{"-p", "thread_pool_min=100"}, got)
+}
+
+func TestVarnishParamArgs_Empty(t *testing.T) {
+	assert.Nil(t, varnishParamArgs(nil))
+	assert.Nil(t, varnishParamArgs(map[string]string{}))
+}
+
+// TestVarnishParamArgs_SortedByKey guards against reintroducing
+// non-deterministic ordering: Go map iteration order is randomized per
+// process, so if varnishParamArgs ever iterated the map directly instead of
+// sorting, this test would fail on some fraction of runs (not necessarily
+// this one). Deliberately unsorted insertion order plus enough keys (7) make
+// the odds of an unsorted implementation accidentally producing sorted
+// output on any given run astronomically small (1/7! ~= 1/5040), so a single
+// run is a reliable regression catcher.
+func TestVarnishParamArgs_SortedByKey(t *testing.T) {
+	params := map[string]string{
+		"thread_pool_timeout": "300",
+		"default_ttl":         "120",
+		"cli_timeout":         "60",
+		"timeout_idle":        "5",
+		"http_max_hdr":        "64",
+		"thread_pool_min":     "100",
+		"vsl_space":           "80m",
+	}
+	got := varnishParamArgs(params)
+	assert.Equal(t, []string{
+		"-p", "cli_timeout=60",
+		"-p", "default_ttl=120",
+		"-p", "http_max_hdr=64",
+		"-p", "thread_pool_min=100",
+		"-p", "thread_pool_timeout=300",
+		"-p", "timeout_idle=5",
+		"-p", "vsl_space=80m",
+	}, got, "params must be emitted sorted by key regardless of map iteration order")
+}
+
 func exporterBaseVC() *v1alpha1.VinylCache {
 	return &v1alpha1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
@@ -344,4 +384,69 @@ func TestReconcileStatefulSet_PreStopSleepMatchesConstant(t *testing.T) {
 		[]string{"sleep", strconv.Itoa(varnishPreStopSleepSeconds)},
 		varnish.Lifecycle.PreStop.Exec.Command,
 		"preStop sleep and the grace-period constant must not drift apart")
+}
+
+func varnishContainer(t *testing.T, ss *appsv1.StatefulSet) *corev1.Container {
+	t.Helper()
+	for i := range ss.Spec.Template.Spec.Containers {
+		if ss.Spec.Template.Spec.Containers[i].Name == "varnish" {
+			return &ss.Spec.Template.Spec.Containers[i]
+		}
+	}
+	require.Fail(t, "varnish container must be present")
+	return nil
+}
+
+func TestReconcileStatefulSet_VarnishParamsEmitPArgs(t *testing.T) {
+	vc := exporterBaseVC()
+	vc.Spec.VarnishParams = map[string]string{
+		"thread_pool_min": "100",
+		"timeout_idle":    "5",
+	}
+
+	varnish := varnishContainer(t, getStatefulSet(t, vc))
+
+	assert.Contains(t, varnish.Args, "-p")
+	// Sorted: thread_pool_min before timeout_idle.
+	assert.Subset(t, varnish.Args,
+		[]string{"-p", "thread_pool_min=100", "-p", "timeout_idle=5"})
+
+	// Assert exact sorted sub-sequence at the tail of Args.
+	n := len(varnish.Args)
+	require.GreaterOrEqual(t, n, 4)
+	assert.Equal(t, []string{"-p", "thread_pool_min=100", "-p", "timeout_idle=5"},
+		varnish.Args[n-4:], "varnishParameters must be emitted as -p key=value, sorted by key")
+}
+
+func TestReconcileStatefulSet_NoVarnishParams_NoPArgs(t *testing.T) {
+	varnish := varnishContainer(t, getStatefulSet(t, exporterBaseVC()))
+	assert.NotContains(t, varnish.Args, "-p",
+		"nil varnishParameters must not emit any -p arg")
+
+	vc := exporterBaseVC()
+	vc.Spec.VarnishParams = map[string]string{}
+	varnish = varnishContainer(t, getStatefulSet(t, vc))
+	assert.NotContains(t, varnish.Args, "-p",
+		"empty varnishParameters must not emit any -p arg")
+}
+
+func TestReconcileStatefulSet_VarnishParamsAfterFixedAndStorageArgs(t *testing.T) {
+	vc := exporterBaseVC()
+	vc.Spec.Storage = []v1alpha1.StorageSpec{
+		{Name: "mem", Type: "malloc", Size: resource.MustParse("1G")},
+	}
+	vc.Spec.VarnishParams = map[string]string{
+		"thread_pool_min": "100",
+	}
+
+	varnish := varnishContainer(t, getStatefulSet(t, vc))
+
+	assert.Equal(t, []string{
+		"-j", "none",
+		"-T", "127.0.0.1:6082",
+		"-S", varnishSecretPath,
+		"-s", "mem=malloc,1000000000",
+		"-p", "thread_pool_min=100",
+	}, varnish.Args,
+		"fixed -j/-T/-S args, then -s storage args, then -p varnishParameters args, in that order")
 }

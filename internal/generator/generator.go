@@ -224,9 +224,13 @@ func buildTemplateData(input Input) TemplateData {
 		data.HasBAN = input.Spec.Invalidation.BAN.Enabled
 	}
 
-	// ESI: check VarnishParams for explicit feature flag.
-	_, hasESI := input.Spec.VarnishParams["feature +esi"]
-	data.HasESI = hasESI
+	// ESI is a first-class field, not a varnishParameters convention: the
+	// previous approach gated this on VarnishParams["feature"] containing
+	// "+esi", but that string is rendered verbatim into varnishd's real
+	// -p feature=... argument and real varnishd has no "esi" feature bit —
+	// passing it crashes varnishd outright ("Unknown feature bit (+esi)").
+	// spec.esi.enabled carries no such risk: it never reaches varnishd argv.
+	data.HasESI = input.Spec.ESI.Enabled
 
 	data.HasTracing = input.Spec.Tracing.Enabled
 

@@ -1,0 +1,51 @@
+# ESI end-to-end fixture for issue #109's E2E test (e2e/tests/tracing-esi).
+# Own CR name (esi-cache — own StatefulSet, own "esi-cache-traffic" Service)
+# so this test's resources never collide with tracing.yaml's traced-cache or
+# truth.yaml's truth-cache, same rationale those two fixtures' own comments
+# give for not sharing a name even though chainsaw already isolates each
+# test by namespace. Tracing config matches both of theirs verbatim.
+#
+# esi.enabled: true is the first-class field that gates the generated VCL's
+# `set beresp.do_esi = true;` block (see api/v1alpha1/vinylcache_types.go's
+# ESISpec doc comment and docs/sources/reference/vinylcache-spec.md's esi
+# section for why this exists instead of a varnishParameters convention).
+#
+# varnishParameters still carries feature=+esi_disable_xml_check — the real
+# varnishd token the backend's body actually needs, since it deliberately
+# does NOT start with '<' (e2e/fixtures/backends/esi-backend.yaml mirrors
+# internal/tracer/vsl/testdata/truthbackend.py and NOTES.md's "Rig
+# deviation" scenario exactly). This combination — a first-class boolean
+# field plus a real varnishd feature token flowing through the -p plumbing
+# — proves both halves of #109 end to end: chainsaw-test.yaml's
+# assembly-proof step fails outright without +esi_disable_xml_check
+# actually reaching varnishd (verified by hand: omitting it serves the raw,
+# unexpanded "<esi:include.../>" tag instead of the assembled "FRAGMENT"
+# token).
+apiVersion: vinyl.bluedynamics.eu/v1alpha1
+kind: VinylCache
+metadata:
+  name: esi-cache
+spec:
+  replicas: 1
+  image: varnish:8.0.2
+  backends:
+    - name: esi
+      serviceRef:
+        name: esi-backend
+      port: 80
+      probe:
+        url: /frag
+        interval: 5s
+        timeout: 1s
+        threshold: 2
+        window: 5
+  tracing:
+    enabled: true
+    otlp:
+      endpoint: otlp-sink:4318
+      protocol: http/protobuf
+      insecure: true
+  esi:
+    enabled: true
+  varnishParameters:
+    feature: "+esi_disable_xml_check"

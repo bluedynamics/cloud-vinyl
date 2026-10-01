@@ -19,8 +19,10 @@ sub vcl_backend_response {
 {{- if .HasESI }}
 
     # ESI processing for backends that declare it (Surrogate-Control per
-    # W3C ESI 1.0). Only meaningful with the esi feature flag enabled
-    # (varnishd -p feature=+esi_disable_xml_check or equivalent).
+    # W3C ESI 1.0). do_esi is meaningful on its own; the varnishd param
+    # feature=+esi_disable_xml_check only matters when a response body
+    # doesn't start with '<' (otherwise varnishd logs ESI_xmlerror and
+    # serves the body unparsed).
     if (beresp.http.Surrogate-Control ~ "ESI/1.0") {
         set beresp.do_esi = true;
     }

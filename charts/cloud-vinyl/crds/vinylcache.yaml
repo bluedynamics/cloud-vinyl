@@ -332,6 +332,30 @@ spec:
                     - fallback
                     type: string
                 type: object
+              esi:
+                description: esi configures Edge Side Includes (ESI) processing.
+                properties:
+                  enabled:
+                    description: |-
+                      enabled gates the generated vcl_backend_response block that sets
+                      beresp.do_esi = true whenever a backend response carries
+                      Surrogate-Control: content="ESI/1.0". ESI is core varnishd
+                      functionality, not a VMOD and not something any "-p feature=..."
+                      flag turns on or off — an earlier convention asked for
+                      {"feature": "+esi"} in spec.varnishParameters, but "+esi" is not a
+                      real varnishd feature bit (varnishd -x parameter lists no bare
+                      "esi" token) and passing it crashes varnishd outright ("Unknown
+                      feature bit (+esi)"), atomically rejecting the whole -p feature=...
+                      value even when combined with a real token. This field replaces
+                      that convention as the only way to enable ESI.
+
+                      If response bodies don't reliably start with '<' (varnishd's ESI
+                      implementation sniffs the body to decide whether to scan it for
+                      <esi:...> tags), additionally set spec.varnishParameters'
+                      {"feature": "+esi_disable_xml_check"} — that token IS real and
+                      independent of this field.
+                    type: boolean
+                type: object
               image:
                 description: image is the container image for the Varnish pods.
                 minLength: 1
@@ -3741,9 +3765,35 @@ spec:
                 additionalProperties:
                   type: string
                 description: |-
-                  varnishParameters are runtime parameters passed to varnishd via -p flags.
-                  Certain security-sensitive parameters are blocked by the admission webhook.
+                  varnishParameters are runtime parameters passed to varnishd via -p flags,
+                  one flag per map entry: the key must be a bare varnishd parameter name
+                  (lowercase letters, digits, and underscores, starting with a letter —
+                  the admission webhook rejects anything else, including padding
+                  whitespace or uppercase) and the value is passed through unchanged,
+                  e.g. {"thread_pool_min": "100"} becomes "-p thread_pool_min=100".
+                  Entries are sorted by key before being rendered as args, so the pod
+                  template does not churn between reconciles.
+
+                  ESI processing is NOT controlled through this map — see spec.esi.
+                  varnishd's "feature" parameter is still useful alongside it: if ESI
+                  response bodies don't reliably start with '<', also set
+                  {"feature": "+esi_disable_xml_check"} (a real varnishd feature bit;
+                  see spec.esi's doc comment for why there is no "+esi" equivalent).
+
+                  Certain security-sensitive parameters (vcc_allow_inline_c, cc_command)
+                  are blocked by the admission webhook.
+
+                  The key shape is also enforced here via CEL, independently of the
+                  admission webhook: the webhook's failurePolicy=fail only protects
+                  against the webhook being down, not against it never having been
+                  installed (e.g. a cluster running these CRDs without the operator's
+                  webhook configuration applied), and varnishParamArgs renders these
+                  keys straight into varnishd's argv.
                 type: object
+                x-kubernetes-validations:
+                - message: varnishParameters keys must be bare varnishd parameter
+                    names (lowercase letters, digits, underscore)
+                  rule: self.all(k, k.matches('^[a-z][a-z0-9_]*$'))
               vcl:
                 description: |-
                   vcl configures VCL generation: snippets injected into generated VCL subroutines,
