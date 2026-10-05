@@ -108,6 +108,56 @@ var _ = Describe("VinylCache Webhook", func() {
 				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, vc))).To(Succeed())
 			})
 		})
+
+		// The CRD carries a CEL x-kubernetes-validations rule on
+		// spec.varnishParameters (api/v1alpha1/vinylcache_types.go) as a
+		// backstop independent of the admission webhook: the webhook's
+		// failurePolicy=fail only protects against the webhook being down,
+		// not against it never having been installed. This test proves the
+		// CEL rule actually fires on its own, not merely that *some* layer
+		// rejects the key (both layers reject it here, since this envtest
+		// suite runs with the webhook installed too).
+		//
+		// It distinguishes the layers by error shape, confirmed empirically
+		// against this suite's real envtest output before writing these
+		// assertions (not assumed from Kubernetes docs): CRD schema/CEL
+		// validation runs inside the API server's object-validation step,
+		// which executes before the validating admission webhook chain is
+		// even invoked. So for a key that only a CEL violation (not the
+		// webhook's blocklist) would catch, the observed rejection carries
+		// the CEL rule's own `message:` text and never reaches
+		// ValidateVinylCache at all — the error string contains no
+		// "admission webhook ... denied the request" wrapper, which is the
+		// distinct phrasing controller-runtime/the API server adds only for
+		// webhook denials (see the sibling test below, which triggers an
+		// actual webhook denial for contrast).
+		It("rejects a shape-invalid varnishParameters key via the CRD's CEL rule, without reaching the webhook", func() {
+			vc := minimalAdmissibleVC("cel-key-shape-invalid")
+			vc.Spec.VarnishParams = map[string]string{"THREAD_POOL_MIN": "100"}
+			err := k8sClient.Create(ctx, vc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(
+				"varnishParameters keys must be bare varnishd parameter names (lowercase letters, digits, underscore)"),
+				"must carry the CEL rule's own message")
+			Expect(err.Error()).NotTo(ContainSubstring("admission webhook"),
+				"must not carry the webhook-denial wrapper: the CEL rule at the CRD "+
+					"schema layer must reject this before ValidateVinylCache ever runs")
+		})
+
+		// Contrast case for the test above: a key that is CEL-shape-valid
+		// (lowercase, no padding) but on the webhook's blocklist. This one
+		// can only be caught by ValidateVinylCache, so its rejection is
+		// expected to carry the webhook-denial wrapper — proving the two
+		// layers are independent, not that the CEL rule now does everything.
+		It("still rejects a shape-valid but blocklisted key via the webhook", func() {
+			vc := minimalAdmissibleVC("webhook-blocklist")
+			vc.Spec.VarnishParams = map[string]string{"cc_command": "gcc"}
+			err := k8sClient.Create(ctx, vc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("admission webhook"),
+				"a blocklisted-but-shape-valid key can only be caught by the webhook")
+			Expect(err.Error()).To(ContainSubstring(`varnishParameters key "cc_command" is not allowed`))
+		})
 	})
 
 })

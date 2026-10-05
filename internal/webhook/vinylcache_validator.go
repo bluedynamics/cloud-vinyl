@@ -116,7 +116,8 @@ func pathConflictsWithReserved(p string) bool {
 // expressible as CRD schema constraints. It is called by both ValidateCreate and ValidateUpdate.
 //
 // Checks performed:
-//   - varnishParameters blocklist (security-sensitive parameters)
+//   - varnishParameters key shape (bare varnishd parameter names) and blocklist
+//     (security-sensitive parameters)
 //   - storage type blocklist
 //   - backend name VCL identifier conformance
 //   - allowedSources CIDR syntax for purge, BAN, and xkey invalidation
@@ -124,8 +125,25 @@ func pathConflictsWithReserved(p string) bool {
 func ValidateVinylCache(vc *vinylv1alpha1.VinylCache) (admission.Warnings, error) {
 	var errs []string
 
-	// Validate varnishParameters blocklist.
+	// Validate varnishParameters key shape and blocklist.
+	//
+	// The shape check runs unconditionally, not just when a key happens to
+	// collide with forbiddenVarnishParams: varnishParamArgs (controller-side)
+	// renders the raw map key straight into the varnish container's argv, so
+	// a key like "  cc_command", "cc_command " or "CC_COMMAND" would slip
+	// past a bare forbiddenVarnishParams[k] lookup while varnishd still
+	// treats it as (or close enough to) the blocked parameter. Rejecting
+	// anything that isn't a plain lowercase varnishd parameter name closes
+	// that off in one rule instead of trying to enumerate every
+	// normalization that could be used to dodge the blocklist.
 	for k := range vc.Spec.VarnishParams {
+		if !isValidVarnishParamKey(k) {
+			errs = append(errs, fmt.Sprintf(
+				"varnishParameters key %q is not a valid varnishd parameter name "+
+					"(must start with a lowercase letter and contain only lowercase letters, digits, and underscores)",
+				k,
+			))
+		}
 		if forbiddenVarnishParams[k] {
 			errs = append(errs, fmt.Sprintf("varnishParameters key %q is not allowed", k))
 		}
@@ -265,6 +283,34 @@ func isValidVCLIdentifier(name string) bool {
 	}
 	for _, r := range runes[1:] {
 		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidVarnishParamKey reports whether key is a bare varnishd parameter
+// name: starts with a lowercase ASCII letter, followed by lowercase ASCII
+// letters, digits, or underscores. Equivalent to the pattern
+// ^[a-z][a-z0-9_]*$.
+//
+// This is intentionally an allowlist shape check, not just "absent from
+// forbiddenVarnishParams": varnishd parameter names are lowercase, so
+// anything outside this shape (whitespace padding, uppercase, punctuation)
+// is either not a real parameter name or a disguised variant of one, and
+// either way has no legitimate reason to reach varnishArgs.
+func isValidVarnishParamKey(key string) bool {
+	if len(key) == 0 {
+		return false
+	}
+	runes := []rune(key)
+	if runes[0] < 'a' || runes[0] > 'z' {
+		return false
+	}
+	for _, r := range runes[1:] {
+		isLower := r >= 'a' && r <= 'z'
+		isDigit := r >= '0' && r <= '9'
+		if !isLower && !isDigit && r != '_' {
 			return false
 		}
 	}
