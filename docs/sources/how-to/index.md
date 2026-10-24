@@ -8,6 +8,7 @@ Step-by-step guides for common tasks with cloud-vinyl.
 install
 create-cache
 ssd-backed-storage
+size-memory
 per-backend-directors
 purge-ban
 setup-monitoring

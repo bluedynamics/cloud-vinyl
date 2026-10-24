@@ -22,6 +22,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -157,6 +158,26 @@ var _ = Describe("VinylCache Webhook", func() {
 			Expect(err.Error()).To(ContainSubstring("admission webhook"),
 				"a blocklisted-but-shape-valid key can only be caught by the webhook")
 			Expect(err.Error()).To(ContainSubstring(`varnishParameters key "cc_command" is not allowed`))
+		})
+
+		// spec.pod.env carries the same kind of CEL backstop for the reserved
+		// VARNISH_HTTP_PORT, so it must fire before the webhook does.
+		It("rejects a reserved spec.pod.env name via the CRD's CEL rule, without reaching the webhook", func() {
+			vc := minimalAdmissibleVC("cel-env-reserved")
+			vc.Spec.Pod.Env = []corev1.EnvVar{{Name: "VARNISH_HTTP_PORT", Value: "80"}}
+			err := k8sClient.Create(ctx, vc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("env VARNISH_HTTP_PORT is reserved by the operator"))
+			Expect(err.Error()).NotTo(ContainSubstring("admission webhook"))
+		})
+
+		It("admits a MALLOC_CONF override in spec.pod.env", func() {
+			vc := minimalAdmissibleVC("env-malloc-conf")
+			vc.Spec.Pod.Env = []corev1.EnvVar{{Name: "MALLOC_CONF", Value: ""}}
+			Expect(k8sClient.Create(ctx, vc)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, vc))).To(Succeed())
+			})
 		})
 	})
 

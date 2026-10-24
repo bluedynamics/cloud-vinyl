@@ -667,3 +667,36 @@ func TestValidate_StoragePath_UnderUserMount_Accepted(t *testing.T) {
 	_, err := webhook.ValidateVinylCache(vc)
 	require.NoError(t, err)
 }
+
+// --- spec.pod.env (issue #114) ---
+
+func TestValidate_PodEnv_Allowed(t *testing.T) {
+	vc := validBaseVinylCache()
+	vc.Spec.Pod.Env = []corev1.EnvVar{
+		{Name: "MALLOC_CONF", Value: ""},
+		{Name: "TZ", Value: "UTC"},
+	}
+	_, err := webhook.ValidateVinylCache(vc)
+	assert.NoError(t, err)
+}
+
+func TestValidate_PodEnv_ReservedIsRejected(t *testing.T) {
+	vc := validBaseVinylCache()
+	vc.Spec.Pod.Env = []corev1.EnvVar{{Name: "VARNISH_HTTP_PORT", Value: "80"}}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "VARNISH_HTTP_PORT")
+	assert.Contains(t, err.Error(), "reserved")
+}
+
+func TestValidate_PodEnv_DuplicateIsRejected(t *testing.T) {
+	vc := validBaseVinylCache()
+	vc.Spec.Pod.Env = []corev1.EnvVar{
+		{Name: "MALLOC_CONF", Value: "narenas:2"},
+		{Name: "MALLOC_CONF", Value: "narenas:4"},
+	}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MALLOC_CONF")
+	assert.Contains(t, err.Error(), "duplicate")
+}

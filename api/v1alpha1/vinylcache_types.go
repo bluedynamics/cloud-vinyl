@@ -615,6 +615,20 @@ type PodSpec struct {
 	// are rejected by the admission webhook.
 	// +optional
 	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+
+	// env sets environment variables on the varnish container. An entry
+	// whose name matches an operator default replaces that default; all
+	// others are appended. The operator sets MALLOC_CONF to tune varnishd's
+	// jemalloc heap for a container (see the memory sizing how-to); setting
+	// MALLOC_CONF here replaces the whole value, and an empty value restores
+	// jemalloc's own defaults. VARNISH_HTTP_PORT is reserved, because the
+	// containerPort and the Services depend on it.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:XValidation:rule="self.all(e, e.name != 'VARNISH_HTTP_PORT')",message="env VARNISH_HTTP_PORT is reserved by the operator"
+	Env []corev1.EnvVar `json:"env,omitempty"`
 }
 
 // MonitoringSpec configures Prometheus monitoring for the Varnish cluster.

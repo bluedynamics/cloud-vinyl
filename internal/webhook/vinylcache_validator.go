@@ -25,6 +25,7 @@ import (
 	"strings"
 	"unicode"
 
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
@@ -60,6 +61,12 @@ var reservedVolumeNames = map[string]bool{
 	"varnish-workdir": true,
 	"varnish-tmp":     true,
 	"bootstrap-vcl":   true,
+}
+
+// reservedEnvNames are set by the operator on the varnish container and
+// cannot be overridden through spec.pod.env.
+var reservedEnvNames = map[string]bool{
+	"VARNISH_HTTP_PORT": true,
 }
 
 // reservedMountPaths are owned by the operator. spec.pod.volumeMounts
@@ -121,6 +128,7 @@ func pathConflictsWithReserved(p string) bool {
 //   - storage type blocklist
 //   - backend name VCL identifier conformance
 //   - allowedSources CIDR syntax for purge, BAN, and xkey invalidation
+//   - spec.pod.env reserved and duplicate names
 //   - tracing.otlp.endpoint required and host:port formatted when tracing is enabled
 func ValidateVinylCache(vc *vinylv1alpha1.VinylCache) (admission.Warnings, error) {
 	var errs []string
@@ -224,6 +232,8 @@ func ValidateVinylCache(vc *vinylv1alpha1.VinylCache) (admission.Warnings, error
 		}
 	}
 
+	errs = append(errs, validatePodEnv(vc.Spec.Pod.Env)...)
+
 	// Validate spec.storage[].path does not write into a reserved mount.
 	for _, s := range vc.Spec.Storage {
 		if s.Type == "file" && pathIsReserved(s.Path) {
@@ -248,6 +258,28 @@ func ValidateVinylCache(vc *vinylv1alpha1.VinylCache) (admission.Warnings, error
 		return nil, fmt.Errorf("%s", strings.Join(errs, "; "))
 	}
 	return nil, nil
+}
+
+// validatePodEnv checks spec.pod.env: VARNISH_HTTP_PORT is owned by the
+// operator, and a duplicate name would leave it to the kubelet which value
+// wins.
+func validatePodEnv(env []corev1.EnvVar) []string {
+	var errs []string
+	seen := make(map[string]bool, len(env))
+	for _, e := range env {
+		if reservedEnvNames[e.Name] {
+			errs = append(errs, fmt.Sprintf(
+				"spec.pod.env[%q]: name is reserved by the operator", e.Name))
+			continue
+		}
+		if seen[e.Name] {
+			errs = append(errs, fmt.Sprintf(
+				"spec.pod.env[%q]: duplicate env name", e.Name))
+			continue
+		}
+		seen[e.Name] = true
+	}
+	return errs
 }
 
 func purgeAllowedSources(vc *vinylv1alpha1.VinylCache) []string {

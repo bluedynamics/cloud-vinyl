@@ -29,6 +29,7 @@
 | `pod.labels` | object | no | Extra labels on Vinyl Cache pods. |
 | `pod.volumes` | list | no | Additional pod volumes appended to operator-managed defaults. Reserved names rejected by webhook. See [SSD-backed storage how-to](../how-to/ssd-backed-storage.md). |
 | `pod.volumeMounts` | list | no | Additional mounts on the varnish container. Each `name` must reference a `spec.pod.volumes` entry or a `spec.volumeClaimTemplates` claim name. Reserved mount paths rejected by webhook. |
+| `pod.env` | list | no | Environment variables on the varnish container (`value` or `valueFrom`). An entry named like an operator default replaces it; `MALLOC_CONF` replaces the operator's jemalloc tuning, an empty value restores jemalloc's defaults. `VARNISH_HTTP_PORT` is reserved. See [Size memory for malloc storage](../how-to/size-memory.md). |
 | `volumeClaimTemplates` | list | no | StatefulSet-native per-replica PVC templates. Reference the claim `name` from `spec.pod.volumeMounts`. |
 
 ### backends
