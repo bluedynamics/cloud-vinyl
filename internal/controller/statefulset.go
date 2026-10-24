@@ -129,11 +129,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 			Name:  "varnish",
 			Image: vc.Spec.Image,
 			Args:  varnishArgs,
-			Env: []corev1.EnvVar{
-				// Override the stock varnish image default port (80) to match
-				// the containerPort and Service definitions.
-				{Name: "VARNISH_HTTP_PORT", Value: fmt.Sprintf("%d", varnishPort)},
-			},
+			Env:   varnishEnv(vc),
 			Ports: []corev1.ContainerPort{
 				{Name: portNameCacheHTTP, ContainerPort: varnishPort, Protocol: corev1.ProtocolTCP},
 			},
@@ -441,6 +437,75 @@ func storageArgs(storage []v1alpha1.StorageSpec) []string {
 		args = append(args, "-s", spec)
 	}
 	return args
+}
+
+const (
+	// envVarnishHTTPPort overrides the stock varnish image's default port (80)
+	// to match the containerPort and Service definitions. Reserved: users
+	// cannot set it through spec.pod.env.
+	envVarnishHTTPPort = "VARNISH_HTTP_PORT"
+	// envMallocConf is read by jemalloc, which varnishd links in the stock
+	// image. Other allocators ignore it.
+	envMallocConf = "MALLOC_CONF"
+	// jemallocBaseConf keeps varnishd's malloc storage heap close to the
+	// storage size under eviction churn (issue #114). With jemalloc's
+	// defaults the heap fragmented to more than twice the storage size:
+	//   - thp:never stops transparent huge pages from backing sparsely used
+	//     extents with 2 MiB pages; it uses MADV_NOHUGEPAGE, so it also
+	//     holds when the host has THP "always".
+	//   - background_thread:true purges unused pages asynchronously instead
+	//     of only when an arena happens to see allocation activity.
+	//   - dirty_decay_ms:5000 and muzzy_decay_ms:0 return freed pages to the
+	//     kernel after 5s (default 10s) and skip the lazily-reclaimed muzzy
+	//     state, so freed memory leaves RSS instead of lingering.
+	jemallocBaseConf = "thp:never,background_thread:true,dirty_decay_ms:5000,muzzy_decay_ms:0"
+	// jemallocArenasPerCPU mirrors jemalloc's own default of 4 arenas per CPU.
+	jemallocArenasPerCPU = 4
+)
+
+// defaultMallocConf returns the operator's MALLOC_CONF for the varnish
+// container. jemalloc sizes its arena count from the CPUs it can see, which in
+// a container are the node's, not the cgroup limit: a pod limited to 0.5 CPU on
+// a 20-core node got 80 arenas, each holding its own free memory. With a CPU
+// limit, narenas is derived from the limit instead (rounded up to whole CPUs).
+// Without one, the pod can really use the node's CPUs, so jemalloc's default
+// stands.
+func defaultMallocConf(res corev1.ResourceRequirements) string {
+	cpu, ok := res.Limits[corev1.ResourceCPU]
+	if !ok || cpu.Sign() <= 0 {
+		return jemallocBaseConf
+	}
+	cpus := (cpu.MilliValue() + 999) / 1000
+	return fmt.Sprintf("%s,narenas:%d", jemallocBaseConf, jemallocArenasPerCPU*cpus)
+}
+
+// varnishEnv builds the varnish container's environment: the operator defaults
+// followed by spec.pod.env. A user entry named like a default replaces it in
+// place, which keeps the order stable across reconciles. VARNISH_HTTP_PORT is
+// rejected by the webhook and by CEL; skipping it here is belt and braces.
+func varnishEnv(vc *v1alpha1.VinylCache) []corev1.EnvVar {
+	env := []corev1.EnvVar{
+		{Name: envVarnishHTTPPort, Value: fmt.Sprintf("%d", varnishPort)},
+		{Name: envMallocConf, Value: defaultMallocConf(vc.Spec.Resources)},
+	}
+	defaults := len(env)
+	for _, e := range vc.Spec.Pod.Env {
+		if e.Name == envVarnishHTTPPort {
+			continue
+		}
+		replaced := false
+		for i := range defaults {
+			if env[i].Name == e.Name {
+				env[i] = e
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			env = append(env, e)
+		}
+	}
+	return env
 }
 
 // varnishParamArgs turns spec.varnishParameters into "-p key=value" args for

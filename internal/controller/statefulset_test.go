@@ -450,3 +450,99 @@ func TestReconcileStatefulSet_VarnishParamsAfterFixedAndStorageArgs(t *testing.T
 	}, varnish.Args,
 		"fixed -j/-T/-S args, then -s storage args, then -p varnishParameters args, in that order")
 }
+
+// --- varnish container env: MALLOC_CONF default and spec.pod.env (issue #114) ---
+
+func envValue(t *testing.T, c *corev1.Container, name string) (corev1.EnvVar, bool) {
+	t.Helper()
+	for _, e := range c.Env {
+		if e.Name == name {
+			return e, true
+		}
+	}
+	return corev1.EnvVar{}, false
+}
+
+func TestDefaultMallocConf(t *testing.T) {
+	cases := []struct {
+		name   string
+		limits corev1.ResourceList
+		want   string
+	}{
+		{"no limits", nil, jemallocBaseConf},
+		{"memory limit only", corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("3Gi")}, jemallocBaseConf},
+		{"half a CPU rounds up", corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}, jemallocBaseConf + ",narenas:4"},
+		{"whole CPUs", corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}, jemallocBaseConf + ",narenas:8"},
+		{"fractional above one", corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1500m")}, jemallocBaseConf + ",narenas:8"},
+		{"zero limit ignored", corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("0")}, jemallocBaseConf},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, defaultMallocConf(corev1.ResourceRequirements{Limits: tc.limits}))
+		})
+	}
+}
+
+func TestReconcileStatefulSet_DefaultEnv(t *testing.T) {
+	vc := exporterBaseVC()
+	vc.Spec.Resources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")},
+	}
+	varnish := varnishContainer(t, getStatefulSet(t, vc))
+
+	require.Len(t, varnish.Env, 2)
+	assert.Equal(t, corev1.EnvVar{Name: "VARNISH_HTTP_PORT", Value: strconv.Itoa(int(varnishPort))}, varnish.Env[0])
+	assert.Equal(t, corev1.EnvVar{
+		Name:  "MALLOC_CONF",
+		Value: "thp:never,background_thread:true,dirty_decay_ms:5000,muzzy_decay_ms:0,narenas:4",
+	}, varnish.Env[1], "narenas follows the CPU limit, not the request")
+}
+
+func TestReconcileStatefulSet_PodEnvAppended(t *testing.T) {
+	vc := exporterBaseVC()
+	vc.Spec.Pod.Env = []corev1.EnvVar{
+		{Name: "TZ", Value: "Europe/Vienna"},
+		{Name: "FROM_SECRET", ValueFrom: &corev1.EnvVarSource{
+			SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "s"},
+				Key:                  "k",
+			},
+		}},
+	}
+	varnish := varnishContainer(t, getStatefulSet(t, vc))
+
+	names := make([]string, 0, len(varnish.Env))
+	for _, e := range varnish.Env {
+		names = append(names, e.Name)
+	}
+	assert.Equal(t, []string{"VARNISH_HTTP_PORT", "MALLOC_CONF", "TZ", "FROM_SECRET"}, names)
+	fromSecret, _ := envValue(t, varnish, "FROM_SECRET")
+	require.NotNil(t, fromSecret.ValueFrom)
+	assert.Equal(t, "k", fromSecret.ValueFrom.SecretKeyRef.Key)
+}
+
+func TestReconcileStatefulSet_PodEnvOverridesMallocConf(t *testing.T) {
+	for _, value := range []string{"narenas:2", ""} {
+		t.Run(value, func(t *testing.T) {
+			vc := exporterBaseVC()
+			vc.Spec.Pod.Env = []corev1.EnvVar{{Name: "MALLOC_CONF", Value: value}}
+			varnish := varnishContainer(t, getStatefulSet(t, vc))
+
+			require.Len(t, varnish.Env, 2, "an override replaces the default instead of adding a second entry")
+			assert.Equal(t, corev1.EnvVar{Name: "MALLOC_CONF", Value: value}, varnish.Env[1],
+				"the user value replaces the whole default, in place")
+		})
+	}
+}
+
+func TestReconcileStatefulSet_PodEnvCannotOverrideHTTPPort(t *testing.T) {
+	vc := exporterBaseVC()
+	vc.Spec.Pod.Env = []corev1.EnvVar{{Name: "VARNISH_HTTP_PORT", Value: "80"}}
+	varnish := varnishContainer(t, getStatefulSet(t, vc))
+
+	port, ok := envValue(t, varnish, "VARNISH_HTTP_PORT")
+	require.True(t, ok)
+	assert.Equal(t, strconv.Itoa(int(varnishPort)), port.Value)
+	assert.Len(t, varnish.Env, 2)
+}
