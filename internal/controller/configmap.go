@@ -28,6 +28,9 @@ import (
 	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 )
 
+// bootstrapVCL sets the body with resp.body, not synthetic(): Varnish 9.1
+// removed synthetic(), and varnishd exits at startup when the -f VCL fails to
+// compile. resp.body works on every supported version (7.6 through 9.1).
 const bootstrapVCL = `vcl 4.1;
 
 backend bootstrap_placeholder {
@@ -42,7 +45,7 @@ sub vcl_recv {
 sub vcl_synth {
     set resp.http.Content-Type = "text/plain; charset=utf-8";
     set resp.http.Retry-After = "5";
-    synthetic(resp.reason);
+    set resp.body = resp.reason;
     return (deliver);
 }
 `
