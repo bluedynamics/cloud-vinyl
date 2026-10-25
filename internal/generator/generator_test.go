@@ -607,18 +607,134 @@ func TestGenerate_CustomVCLBackendErrorSnippet(t *testing.T) {
 		"the snippet must land inside sub vcl_backend_error")
 }
 
-// TestGenerate_VCLBackendError_FallsThroughToBuiltin: without a snippet the
-// generated sub must not return, or it would replace the builtin
-// vcl_backend_error and its default error page.
+// TestGenerate_VCLBackendError_FallsThroughToBuiltin: with retries disabled
+// and no snippet the generated sub must not return, or it would replace the
+// builtin vcl_backend_error and its default error page.
 func TestGenerate_VCLBackendError_FallsThroughToBuiltin(t *testing.T) {
 	g := newGenerator(t)
-	r, err := g.Generate(makeMinimalInput())
+	input := makeMinimalInput()
+	input.Spec.Backends[0].Retry = &vinylv1alpha1.FetchRetrySpec{MaxRetries: new(int32(0))}
+	r, err := g.Generate(input)
 	require.NoError(t, err)
 	body := subBody(t, r.VCL, "vcl_backend_error")
 	for _, stmt := range []string{"return(", "return ("} {
 		assert.NotContains(t, body, stmt,
 			"an empty vcl_backend_error must fall through to the builtin")
 	}
+}
+
+// --- retry on another backend after a connection error (#117) ---
+
+func TestGenerate_FetchRetry_ShardDefault(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Endpoints["app_backend"] = []generator.Endpoint{{IP: "10.0.1.1", Port: 8080}, {IP: "10.0.1.2", Port: 8080}}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+
+	errBody := subBody(t, r.VCL, "vcl_backend_error")
+	assert.Contains(t, errBody, `if (bereq.method ~ "^(GET|HEAD)$" && now - bereq.time < bereq.first_byte_timeout) {`,
+		"only idempotent fetches that did not run into first_byte_timeout are retried")
+	assert.Contains(t, errBody,
+		"if (bereq.retries < 1 && (bereq.backend == app_backend_0 || bereq.backend == app_backend_1)) {\n            return (retry);",
+		"one retry by default, for backends of this group")
+
+	fetchBody := subBody(t, r.VCL, "vcl_backend_fetch")
+	assert.Contains(t, fetchBody,
+		"if (bereq.backend == app_backend_0 || bereq.backend == app_backend_1) {\n"+
+			"            set bereq.backend = app_backend.backend(by=URL, alt=bereq.retries, healthy=ALL);",
+		"a shard retry must ask for the alt-th alternative of the same key")
+}
+
+func TestGenerate_FetchRetry_MaxRetriesAndFirstByteTimeout(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Backends[0].Retry = &vinylv1alpha1.FetchRetrySpec{MaxRetries: new(int32(2))}
+	input.Spec.Backends[0].ConnectionParameters = &vinylv1alpha1.ConnectionParameters{
+		FirstByteTimeout: metav1.Duration{Duration: 1500 * time.Millisecond},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, subBody(t, r.VCL, "vcl_backend_error"),
+		"if (bereq.retries < 2 && (bereq.backend == app_backend_0) && now - bereq.time < 1.5s) {",
+		"the group's own first_byte_timeout bounds the retry, exactly (not rounded like fmtDuration)")
+}
+
+func TestGenerate_FetchRetry_Disabled(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Backends[0].Retry = &vinylv1alpha1.FetchRetrySpec{MaxRetries: new(int32(0))}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.NotContains(t, r.VCL, "bereq.retries", "maxRetries 0 must not generate any retry VCL")
+}
+
+func TestGenerate_FetchRetry_RoundRobinAndRandom(t *testing.T) {
+	for _, typ := range []string{"round_robin", "random"} {
+		t.Run(typ, func(t *testing.T) {
+			g := newGenerator(t)
+			input := makeMinimalInput()
+			input.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{Type: typ}
+			r, err := g.Generate(input)
+			require.NoError(t, err)
+			assert.Contains(t, subBody(t, r.VCL, "vcl_backend_error"),
+				"(bereq.backend == app_backend_0 || bereq.backend == app_backend.backend())",
+				"bereq.backend holds the director itself when the hint was its .backend()")
+			assert.Contains(t, subBody(t, r.VCL, "vcl_backend_fetch"),
+				"set bereq.backend = app_backend.backend();")
+		})
+	}
+}
+
+func TestGenerate_FetchRetry_NotForHashOrFallback(t *testing.T) {
+	for _, typ := range []string{"hash", "fallback"} {
+		t.Run(typ, func(t *testing.T) {
+			g := newGenerator(t)
+			input := makeMinimalInput()
+			input.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{Type: typ}
+			r, err := g.Generate(input)
+			require.NoError(t, err)
+			assert.NotContains(t, r.VCL, "bereq.retries",
+				"hash and fallback would pick the same backend again")
+		})
+	}
+}
+
+func TestGenerate_FetchRetry_PeerHop(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Peers = []generator.PeerBackend{
+		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
+		{Name: "my_cache_1", IP: "10.0.2.2", Port: 8080},
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.Contains(t, subBody(t, r.VCL, "vcl_backend_error"),
+		"if (bereq.retries < 1 && (bereq.backend == my_cache_0 || bereq.backend == my_cache_1)) {")
+	assert.Contains(t, subBody(t, r.VCL, "vcl_backend_fetch"),
+		"set bereq.backend = director_my_cache.backend(by=URL, alt=bereq.retries, healthy=ALL);")
+
+	input.Spec.Cluster.Retry = &vinylv1alpha1.FetchRetrySpec{MaxRetries: new(int32(0))}
+	r, err = g.Generate(input)
+	require.NoError(t, err)
+	assert.NotContains(t, r.VCL, "bereq.backend == my_cache_0",
+		"spec.cluster.retry.maxRetries 0 disables the peer retry")
+}
+
+func TestGenerate_FetchRetry_BeforeSnippets(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.VCL.Snippets.VCLBackendError = "# custom error"
+	input.Spec.VCL.Snippets.VCLBackendFetch = "# custom fetch"
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	errBody := subBody(t, r.VCL, "vcl_backend_error")
+	assert.Less(t, strings.Index(errBody, "return (retry)"), strings.Index(errBody, "# custom error"),
+		"a custom error page must only be built once the retries are used up")
+	fetchBody := subBody(t, r.VCL, "vcl_backend_fetch")
+	assert.Less(t, strings.Index(fetchBody, "alt=bereq.retries"), strings.Index(fetchBody, "# custom fetch"),
+		"a snippet that sets bereq.backend must win over the re-selection")
 }
 
 func TestGenerate_CustomVCLFiniSnippet(t *testing.T) {
@@ -984,7 +1100,9 @@ func TestGenerate_ClusterShardBy_DefaultsToURL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, r.VCL, ".backend(by=URL)",
 		"cluster-peer director must default to by=URL when spec.director.shard.by is unset")
-	assert.NotContains(t, r.VCL, "healthy=",
+	// Only the request-time routing call in vcl_recv: the retry re-selection
+	// in vcl_backend_fetch passes healthy=ALL on purpose (#117).
+	assert.NotContains(t, subBody(t, r.VCL, "vcl_recv"), "healthy=",
 		"no healthy= argument when spec.director.shard.healthy is unset")
 }
 

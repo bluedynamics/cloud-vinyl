@@ -50,6 +50,7 @@ Each entry in `spec.backends` defines an upstream service:
 | `healthCheck.timeout` | duration | no | Health probe timeout (default: `1s`). |
 | `healthCheck.threshold` | integer | no | Consecutive successes required to mark healthy. |
 | `healthCheck.window` | integer | no | Rolling window for health evaluation. |
+| `retry.maxRetries` | integer | no | Retries of a `GET`/`HEAD` fetch on another backend when no response arrived (default: `1`, `0` disables, maximum `3`). Not allowed above `0` for `hash` and `fallback` directors. See [Per-backend directors](../how-to/per-backend-directors.md). |
 
 ### `backends[].director`
 
@@ -89,6 +90,7 @@ See the [per-backend directors how-to](../how-to/per-backend-directors.md) for w
 |-------|------|---------|-------------|
 | `enabled` | boolean | `false` | Enable cluster peer routing between pods. |
 | `peerRouting.type` | string | `shard` | Director type for peer-to-peer routing. |
+| `retry.maxRetries` | integer | `1` | Retries on another Varnish peer when the peer sent no response; `0` disables, maximum `3`. |
 
 ### varnishParameters
 

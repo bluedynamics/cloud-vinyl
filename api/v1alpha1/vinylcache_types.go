@@ -175,6 +175,7 @@ type ESISpec struct {
 }
 
 // BackendSpec describes an upstream Kubernetes service used as a Varnish backend.
+// +kubebuilder:validation:XValidation:rule="!(has(self.retry) && has(self.retry.maxRetries) && self.retry.maxRetries > 0 && has(self.director) && has(self.director.type) && self.director.type in ['hash', 'fallback'])",message="retry.maxRetries must be 0 for hash and fallback directors: they would pick the same backend again"
 type BackendSpec struct {
 	// name is the VCL identifier for this backend. Must match ^[a-zA-Z][a-zA-Z0-9_]*$.
 	// +kubebuilder:validation:Pattern=`^[a-zA-Z][a-zA-Z0-9_]*$`
@@ -208,6 +209,27 @@ type BackendSpec struct {
 	// consistent hashing is undesirable (e.g. stateless backends).
 	// +optional
 	Director *DirectorSpec `json:"director,omitempty"`
+
+	// retry configures retrying a fetch on another backend of this group
+	// when the backend sent no response. Defaults to one retry for shard,
+	// round_robin and random directors; hash and fallback directors never
+	// retry, since they would pick the same backend again.
+	// +optional
+	Retry *FetchRetrySpec `json:"retry,omitempty"`
+}
+
+// FetchRetrySpec configures retrying a failed backend fetch on another backend.
+// Only GET and HEAD requests are retried, and only when no response arrived:
+// connection refused, a connection closed before the response, or a connect
+// timeout. A fetch that ran into first_byte_timeout is not retried, because
+// that would double the wait and the load on a backend that is already slow.
+type FetchRetrySpec struct {
+	// maxRetries is the number of retries per fetch. 0 disables retrying.
+	// Default: 1.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=3
+	MaxRetries *int32 `json:"maxRetries,omitempty"`
 }
 
 // ServiceRef references a Kubernetes Service by name in the same namespace.
@@ -341,6 +363,13 @@ type ClusterSpec struct {
 	// peerRouting configures how requests are routed between Varnish peers.
 	// +optional
 	PeerRouting PeerRoutingSpec `json:"peerRouting,omitempty"`
+
+	// retry configures retrying a request on another Varnish peer when the
+	// peer sent no response, e.g. because its pod was OOMKilled. The peer
+	// that receives the retry serves it from its own cache or backend.
+	// Default: one retry.
+	// +optional
+	Retry *FetchRetrySpec `json:"retry,omitempty"`
 }
 
 // PeerRoutingSpec configures peer-to-peer request routing in a Varnish cluster.

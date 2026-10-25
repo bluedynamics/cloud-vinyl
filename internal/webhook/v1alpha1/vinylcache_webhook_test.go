@@ -171,6 +171,27 @@ var _ = Describe("VinylCache Webhook", func() {
 			Expect(err.Error()).NotTo(ContainSubstring("admission webhook"))
 		})
 
+		// A retry on a hash or fallback director would pick the same backend
+		// again, so the CRD rejects an explicit maxRetries > 0 for them (#117).
+		It("rejects retry.maxRetries > 0 for a fallback director via CEL", func() {
+			vc := minimalAdmissibleVC("cel-retry-fallback")
+			vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{Type: "fallback"}
+			vc.Spec.Backends[0].Retry = &vinylv1alpha1.FetchRetrySpec{MaxRetries: new(int32(1))}
+			err := k8sClient.Create(ctx, vc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("retry.maxRetries must be 0 for hash and fallback directors"))
+		})
+
+		It("admits retry.maxRetries 0 for a hash director", func() {
+			vc := minimalAdmissibleVC("retry-hash-off")
+			vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{Type: "hash"}
+			vc.Spec.Backends[0].Retry = &vinylv1alpha1.FetchRetrySpec{MaxRetries: new(int32(0))}
+			Expect(k8sClient.Create(ctx, vc)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, vc))).To(Succeed())
+			})
+		})
+
 		It("admits a MALLOC_CONF override in spec.pod.env", func() {
 			vc := minimalAdmissibleVC("env-malloc-conf")
 			vc.Spec.Pod.Env = []corev1.EnvVar{{Name: "MALLOC_CONF", Value: ""}}

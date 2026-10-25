@@ -212,6 +212,22 @@ spec:
                           minimum: 1
                           type: integer
                       type: object
+                    retry:
+                      description: |-
+                        retry configures retrying a fetch on another backend of this group
+                        when the backend sent no response. Defaults to one retry for shard,
+                        round_robin and random directors; hash and fallback directors never
+                        retry, since they would pick the same backend again.
+                      properties:
+                        maxRetries:
+                          description: |-
+                            maxRetries is the number of retries per fetch. 0 disables retrying.
+                            Default: 1.
+                          format: int32
+                          maximum: 3
+                          minimum: 0
+                          type: integer
+                      type: object
                     serviceRef:
                       description: serviceRef references the Kubernetes Service in
                         the same namespace.
@@ -233,6 +249,12 @@ spec:
                   - name
                   - serviceRef
                   type: object
+                  x-kubernetes-validations:
+                  - message: 'retry.maxRetries must be 0 for hash and fallback directors:
+                      they would pick the same backend again'
+                    rule: '!(has(self.retry) && has(self.retry.maxRetries) && self.retry.maxRetries
+                      > 0 && has(self.director) && has(self.director.type) && self.director.type
+                      in [''hash'', ''fallback''])'
                 minItems: 1
                 type: array
               cluster:
@@ -252,6 +274,22 @@ spec:
                         enum:
                         - shard
                         type: string
+                    type: object
+                  retry:
+                    description: |-
+                      retry configures retrying a request on another Varnish peer when the
+                      peer sent no response, e.g. because its pod was OOMKilled. The peer
+                      that receives the retry serves it from its own cache or backend.
+                      Default: one retry.
+                    properties:
+                      maxRetries:
+                        description: |-
+                          maxRetries is the number of retries per fetch. 0 disables retrying.
+                          Default: 1.
+                        format: int32
+                        maximum: 3
+                        minimum: 0
+                        type: integer
                     type: object
                 type: object
               debounce:
