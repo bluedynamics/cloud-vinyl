@@ -31,7 +31,6 @@ spec:
       soft: true
     xkey:
       enabled: true
-      softPurge: true
   debounce:
     duration: 2s
   retry:

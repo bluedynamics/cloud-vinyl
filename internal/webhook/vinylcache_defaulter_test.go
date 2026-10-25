@@ -74,29 +74,9 @@ func TestDefault_SoftPurge_AlreadyTrue_NotChanged(t *testing.T) {
 	assert.True(t, *vc.Spec.Invalidation.Purge.Soft)
 }
 
-// --- Xkey.SoftPurge default ---
+// --- Xkey default ---
 
-func TestDefault_XkeySoftPurge_UnsetStaysNil_WhenXkeySet(t *testing.T) {
-	vc := emptyVC()
-	vc.Spec.Invalidation.Xkey = &vinylv1alpha1.XkeySpec{Enabled: true}
-	webhook.DefaultVinylCache(vc)
-
-	assert.Nil(t, vc.Spec.Invalidation.Xkey.SoftPurge,
-		"Xkey.SoftPurge must stay nil; defaulting to true happens at the CRD level")
-}
-
-func TestDefault_XkeySoftPurge_NotOverwrittenIfFalseIsExplicitlyMeant(t *testing.T) {
-	vc := emptyVC()
-	vc.Spec.Invalidation.Xkey = &vinylv1alpha1.XkeySpec{Enabled: true, SoftPurge: new(false)}
-	webhook.DefaultVinylCache(vc)
-
-	require.NotNil(t, vc.Spec.Invalidation.Xkey.SoftPurge,
-		"an explicit softPurge:false must not be nilled out by the webhook")
-	assert.False(t, *vc.Spec.Invalidation.Xkey.SoftPurge,
-		"an explicit softPurge:false must survive the webhook unchanged, not be forced to true")
-}
-
-func TestDefault_XkeySoftPurge_NotApplied_WhenXkeyNil(t *testing.T) {
+func TestDefault_Xkey_NotCreated_WhenNil(t *testing.T) {
 	vc := emptyVC()
 	vc.Spec.Invalidation.Xkey = nil
 	webhook.DefaultVinylCache(vc)

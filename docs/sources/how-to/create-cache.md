@@ -72,7 +72,7 @@ spec:
     purge:
       soft: true
     xkey:
-      softPurge: true
+      enabled: true
 ```
 
 ## Check status

@@ -452,11 +452,9 @@ spec:
                           type: string
                         type: array
                       enabled:
-                        description: enabled activates xkey-based invalidation.
-                        type: boolean
-                      softPurge:
-                        default: true
-                        description: softPurge enables soft purging via xkey.
+                        description: |-
+                          enabled activates xkey-based invalidation. The operator's invalidation
+                          API purges xkey keys hard, removing the tagged objects.
                         type: boolean
                     type: object
                 type: object
