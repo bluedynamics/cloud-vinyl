@@ -39,7 +39,7 @@ spec:
     recorded triggering ESI_xmlerror against a vanilla varnishd. This
     fixture's varnishParameters therefore carries
     feature=+esi_disable_xml_check — a real varnishd feature bit, unlike
-    the removed "+esi" — verified by hand against a varnish:8.0.2 container
+    the removed "+esi" — verified by hand against a varnish:9.1.0 container
     (omitting it serves the raw, unexpanded tag instead of the assembled
     "FRAGMENT" token). Combined with esi.enabled: true, this is the first
     fixture in the repo exercising both the new first-class field AND the

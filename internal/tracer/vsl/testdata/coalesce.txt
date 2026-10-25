@@ -1,9 +1,9 @@
 *   << Request  >> 2         
 -   Begin          req 1 rxreq
--   Timestamp      Start: 1790771711.115364 0.000000 0.000000
--   Timestamp      Req: 1790771711.115364 0.000000 0.000000
+-   Timestamp      Start: 1792935922.152416 0.000000 0.000000
+-   Timestamp      Req: 1792935922.152416 0.000000 0.000000
 -   VCL_use        boot
--   ReqStart       10.200.5.4 52798 http
+-   ReqStart       10.200.10.4 60856 http http
 -   ReqMethod      GET
 -   ReqURL         /slow
 -   ReqProtocol    HTTP/1.1
@@ -11,8 +11,8 @@
 -   ReqHeader      Host: vslp3-varnish
 -   ReqHeader      User-Agent: Python-urllib/3.12
 -   ReqHeader      Connection: close
--   ReqHeader      X-Forwarded-For: 10.200.5.4
--   ReqHeader      Via: 1.1 677e62200a02 (Varnish/8.0)
+-   ReqHeader      X-Forwarded-For: 10.200.10.4
+-   ReqHeader      Via: 1.1 a8c1337823a8 (Varnish/9.1)
 -   VCL_call       RECV
 -   VCL_return     hash
 -   ReqUnset       Accept-Encoding: identity
@@ -21,72 +21,72 @@
 -   VCL_call       MISS
 -   VCL_return     fetch
 -   Link           bereq 3 fetch
--   Timestamp      Fetch: 1790771713.116716 2.001351 2.001351
+-   Timestamp      Fetch: 1792935924.154101 2.001684 2.001684
 -   RespProtocol   HTTP/1.1
 -   RespStatus     200
 -   RespReason     OK
 -   RespHeader     Server: BaseHTTP/0.6 Python/3.12.14
--   RespHeader     Date: Wed, 30 Sep 2026 12:35:13 GMT
+-   RespHeader     Date: Sun, 25 Oct 2026 13:45:24 GMT
 -   RespHeader     Content-Length: 5
 -   RespHeader     X-Varnish: 2
 -   RespHeader     Age: 0
--   RespHeader     Via: 1.1 677e62200a02 (Varnish/8.0)
+-   RespHeader     Via: 1.1 a8c1337823a8 (Varnish/9.1)
 -   RespHeader     Accept-Ranges: bytes
 -   VCL_call       DELIVER
 -   VCL_return     deliver
--   Timestamp      Process: 1790771713.116737 2.001373 0.000021
+-   Timestamp      Process: 1792935924.154149 2.001733 0.000048
 -   Filters        
 -   RespHeader     Connection: close
--   Timestamp      Resp: 1790771713.116803 2.001438 0.000065
+-   Timestamp      Resp: 1792935924.154286 2.001870 0.000137
 -   ReqAcct        121 0 121 212 5 217
 -   End            
 **  << BeReq    >> 3         
 --  Begin          bereq 2 fetch
 --  VCL_use        boot
---  Timestamp      Start: 1790771711.115469 0.000000 0.000000
+--  Timestamp      Start: 1792935922.152521 0.000000 0.000000
 --  BereqMethod    GET
 --  BereqURL       /slow
 --  BereqProtocol  HTTP/1.1
 --  BereqHeader    Host: vslp3-varnish
 --  BereqHeader    User-Agent: Python-urllib/3.12
---  BereqHeader    X-Forwarded-For: 10.200.5.4
---  BereqHeader    Via: 1.1 677e62200a02 (Varnish/8.0)
+--  BereqHeader    X-Forwarded-For: 10.200.10.4
+--  BereqHeader    Via: 1.1 a8c1337823a8 (Varnish/9.1)
 --  BereqHeader    Accept-Encoding: gzip
 --  BereqHeader    X-Varnish: 3
 --  VCL_call       BACKEND_FETCH
---  BereqHeader    traceparent: 00-84880075c2414ee4b2e02eb6cdf2f9fa-151a9e1aea9f4c00-01
+--  BereqHeader    traceparent: 00-9d5a201429804b38addbdb41a08a924e-f3da99184e2a4480-01
 --  VCL_return     fetch
---  Timestamp      Fetch: 1790771711.115607 0.000138 0.000138
---  Timestamp      Connected: 1790771711.115799 0.000329 0.000191
---  BackendOpen    30 default 10.200.5.2 8000 10.200.5.3 34162 connect
---  Timestamp      Bereq: 1790771711.115854 0.000385 0.000055
+--  Timestamp      Fetch: 1792935922.152643 0.000122 0.000122
+--  Timestamp      Connected: 1792935922.152806 0.000285 0.000162
+--  BackendOpen    30 default 10.200.10.2 8000 10.200.10.3 34202 connect
+--  Timestamp      Bereq: 1792935922.152855 0.000333 0.000048
 --  BerespProtocol HTTP/1.1
 --  BerespStatus   200
 --  BerespReason   OK
 --  BerespHeader   Server: BaseHTTP/0.6 Python/3.12.14
---  BerespHeader   Date: Wed, 30 Sep 2026 12:35:13 GMT
+--  BerespHeader   Date: Sun, 25 Oct 2026 13:45:24 GMT
 --  BerespHeader   Content-Length: 5
---  Timestamp      Beresp: 1790771713.116572 2.001103 2.000718
---  TTL            RFC 120 10 0 1790771713 1790771713 1790771713 0 0 cacheable
+--  Timestamp      Beresp: 1792935924.153810 2.001288 2.000954
+--  TTL            RFC 120 10 0 1792935924 1792935924 1792935924 0 0 cacheable
 --  VCL_call       BACKEND_RESPONSE
---  TTL            VCL 120 3600 0 1790771713 cacheable
+--  TTL            VCL 120 3600 0 1792935924 cacheable
 --  VCL_return     deliver
---  Timestamp      Process: 1790771713.116606 2.001136 0.000033
+--  Timestamp      Process: 1792935924.153859 2.001338 0.000049
 --  Filters        
 --  Storage        malloc s0
 --  Fetch_Body     3 length stream
 --  BackendClose   30 default recycle
---  Timestamp      BerespBody: 1790771713.116735 2.001266 0.000129
+--  Timestamp      BerespBody: 1792935924.154119 2.001598 0.000260
 --  Length         5
---  BereqAcct      248 0 248 112 5 117
+--  BereqAcct      249 0 249 112 5 117
 --  End            
 
 *   << Request  >> 32770     
 -   Begin          req 32769 rxreq
--   Timestamp      Start: 1790771711.146241 0.000000 0.000000
--   Timestamp      Req: 1790771711.146241 0.000000 0.000000
+-   Timestamp      Start: 1792935922.158308 0.000000 0.000000
+-   Timestamp      Req: 1792935922.158308 0.000000 0.000000
 -   VCL_use        boot
--   ReqStart       10.200.5.5 42478 http
+-   ReqStart       10.200.10.5 45662 http http
 -   ReqMethod      GET
 -   ReqURL         /slow
 -   ReqProtocol    HTTP/1.1
@@ -94,33 +94,33 @@
 -   ReqHeader      Host: vslp3-varnish
 -   ReqHeader      User-Agent: Python-urllib/3.12
 -   ReqHeader      Connection: close
--   ReqHeader      X-Forwarded-For: 10.200.5.5
--   ReqHeader      Via: 1.1 677e62200a02 (Varnish/8.0)
+-   ReqHeader      X-Forwarded-For: 10.200.10.5
+-   ReqHeader      Via: 1.1 a8c1337823a8 (Varnish/9.1)
 -   VCL_call       RECV
 -   VCL_return     hash
 -   ReqUnset       Accept-Encoding: identity
 -   VCL_call       HASH
 -   VCL_return     lookup
--   Hit            3 121.970332 3600.000000 0.000000 5 5
--   Timestamp      Waitinglist: 1790771713.116727 1.970485 1.970485
+-   Hit            3 121.995502 3600.000000 0.000000
+-   Timestamp      Waitinglist: 1792935924.154160 1.995851 1.995851
 -   VCL_call       HIT
 -   VCL_return     deliver
 -   RespProtocol   HTTP/1.1
 -   RespStatus     200
 -   RespReason     OK
 -   RespHeader     Server: BaseHTTP/0.6 Python/3.12.14
--   RespHeader     Date: Wed, 30 Sep 2026 12:35:13 GMT
+-   RespHeader     Date: Sun, 25 Oct 2026 13:45:24 GMT
 -   RespHeader     Content-Length: 5
 -   RespHeader     X-Varnish: 32770 3
 -   RespHeader     Age: 0
--   RespHeader     Via: 1.1 677e62200a02 (Varnish/8.0)
+-   RespHeader     Via: 1.1 a8c1337823a8 (Varnish/9.1)
 -   RespHeader     Accept-Ranges: bytes
 -   VCL_call       DELIVER
 -   VCL_return     deliver
--   Timestamp      Process: 1790771713.116737 1.970496 0.000010
+-   Timestamp      Process: 1792935924.154176 1.995867 0.000015
 -   Filters        
 -   RespHeader     Connection: close
--   Timestamp      Resp: 1790771713.116803 1.970562 0.000065
+-   Timestamp      Resp: 1792935924.154312 1.996003 0.000136
 -   ReqAcct        121 0 121 218 5 223
 -   End            
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Records golden VSL fixtures for the vinyl-tracer parser tests from a real
-# varnish:8.0.2. Re-run when bumping the varnish baseline; commit the diff.
+# varnish:9.1.0. Re-run when bumping the varnish baseline; commit the diff.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -28,7 +28,7 @@ docker run -d --name vsl-backend --network "$NET" \
     python:3.12-slim python -m http.server 8000 >/dev/null
 docker run -d --name vsl-varnish --network "$NET" \
     -v "$PWD/default.vcl:/etc/varnish/default.vcl:ro" \
-    varnish:8.0.2 >/dev/null
+    varnish:9.1.0 >/dev/null
 sleep 2
 
 req() { # req <path> [extra header]

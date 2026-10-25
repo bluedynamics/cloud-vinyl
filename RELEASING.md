@@ -92,6 +92,8 @@ filters key on the type rather than the scope. Worth a skim after a release.
 
 **The exporter image is released separately.** `ghcr.io/bluedynamics/varnish-exporter`
 has its own workflow, [`release-exporter.yml`](.github/workflows/release-exporter.yml),
-triggered manually or by changes to `Dockerfile.exporter`. It is versioned by
-`EXPORTER_VERSION` in that workflow, not by the repo tag, because the image is
-essentially static.
+triggered manually or by changes to `Dockerfile.exporter`. It is not versioned by the
+repo tag, because the image is essentially static. Its tag is the upstream exporter
+version plus the bundled Varnish, e.g. `1.6.1-varnish9.1.0`: `EXPORTER_VERSION` from the
+workflow and `VARNISH_IMAGE` from `Dockerfile.exporter`. A Varnish bump therefore
+publishes a new tag, and the operator's default exporter image has to follow it.

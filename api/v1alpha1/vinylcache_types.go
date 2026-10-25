@@ -538,6 +538,7 @@ type ProxyProtocolSpec struct {
 // StorageSpec configures a Varnish storage backend.
 type StorageSpec struct {
 	// name is the internal storage identifier used in varnishd -s arguments.
+	// "synth" is reserved: varnishd 9.1 defines a storage of that name.
 	Name string `json:"name"`
 
 	// type is the storage backend type. Only "malloc" and "file" are permitted.
@@ -724,7 +725,7 @@ type ExporterSpec struct {
 	Enabled bool `json:"enabled,omitempty"`
 
 	// image overrides the exporter image. Defaults to
-	// ghcr.io/bluedynamics/varnish-exporter:1.6.1.
+	// ghcr.io/bluedynamics/varnish-exporter:1.6.1-varnish9.1.0.
 	// +optional
 	Image ExporterImageSpec `json:"image,omitempty"`
 

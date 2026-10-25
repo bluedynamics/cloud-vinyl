@@ -1,9 +1,10 @@
 name: Release Exporter Image
 
-# Builds and publishes ghcr.io/bluedynamics/varnish-exporter:<EXPORTER_VERSION>,
-# the varnish-exporter sidecar used by spec.monitoring.exporter. This image is
-# essentially static (pinned upstream exporter + pinned varnish base), so it is
-# built on demand rather than on every cloud-vinyl release.
+# Builds and publishes ghcr.io/bluedynamics/varnish-exporter:<tag>, the
+# varnish-exporter sidecar used by spec.monitoring.exporter. The tag is
+# <EXPORTER_VERSION>-<VARNISH_IMAGE without the colon>, e.g. 1.6.1-varnish9.1.0.
+# This image is essentially static (pinned upstream exporter + pinned varnish
+# base), so it is built on demand rather than on every cloud-vinyl release.
 
 on:
   workflow_dispatch:
@@ -24,12 +25,13 @@ permissions:
 
 env:
   IMAGE: ghcr.io/bluedynamics/varnish-exporter
-  # EXPORTER_VERSION lives here because it also names the published tag, so the
-  # workflow needs the value regardless. VARNISH_IMAGE deliberately does NOT:
-  # it only selects which varnishstat gets bundled, and that must match the
-  # varnishd the sidecar reads the VSM from. Keeping a second copy here means
-  # two files that must agree, and a silent mismatch produces an exporter that
-  # cannot read the VSM at all. Dockerfile.exporter owns it. See #69.
+  # EXPORTER_VERSION is the upstream exporter release (it is also the git
+  # branch the Dockerfile clones). VARNISH_IMAGE deliberately does NOT live
+  # here: it selects which varnishstat gets bundled, and that must match the
+  # varnishd the sidecar reads the VSM from. A second copy would be two files
+  # that must agree, and a silent mismatch produces an exporter that cannot
+  # read the VSM at all. Dockerfile.exporter owns it (#69); the tag job reads
+  # it from there.
   EXPORTER_VERSION: "1.6.1"
 
 jobs:
@@ -39,13 +41,35 @@ jobs:
   # imagePullPolicy, Kubernetes defaults to IfNotPresent for a non-latest tag,
   # and which build a pod gets became a per-node cache lottery (#91).
   #
-  # Any change to VARNISH_IMAGE in Dockerfile.exporter therefore requires an
-  # EXPORTER_VERSION bump here. This job enforces that.
+  # The tag therefore carries the bundled varnish version, so a VARNISH_IMAGE
+  # bump yields a new tag by itself. EXPORTER_VERSION cannot carry that bump:
+  # it is also the upstream git branch, and upstream has no newer release.
+  # This job still refuses to overwrite a tag that exists, e.g. when
+  # Dockerfile.exporter changes without a varnish bump.
   guard-tag:
     name: Refuse to overwrite a published tag
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
+      - uses: actions/checkout@v7
+
+      - name: Derive the tag from Dockerfile.exporter
+        id: tag
+        run: |
+          set -euo pipefail
+          varnish_image=$(sed -n 's/^ARG VARNISH_IMAGE=//p' Dockerfile.exporter)
+          if [ -z "$varnish_image" ]; then
+            echo "::error::no 'ARG VARNISH_IMAGE=' default found in Dockerfile.exporter"
+            exit 1
+          fi
+          tag="${EXPORTER_VERSION}-${varnish_image//:/}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Publishing ${IMAGE}:${tag}"
+
       - name: Check whether the tag already exists in GHCR
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
           if [ "${{ github.event.inputs.overwrite_tag }}" = "true" ]; then
@@ -60,15 +84,15 @@ jobs:
           code=$(curl -sS -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer $token" \
             -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
-            "https://ghcr.io/v2/bluedynamics/varnish-exporter/manifests/${EXPORTER_VERSION}")
+            "https://ghcr.io/v2/bluedynamics/varnish-exporter/manifests/${TAG}")
 
           if [ "$code" = "200" ]; then
-            echo "::error::${IMAGE}:${EXPORTER_VERSION} already exists."
+            echo "::error::${IMAGE}:${TAG} already exists."
             echo "Publishing over it would change what a pinned tag means, which is what #91 is about."
-            echo "Bump EXPORTER_VERSION in this workflow, or re-run with overwrite_tag if you are certain."
+            echo "Bump VARNISH_IMAGE in Dockerfile.exporter or EXPORTER_VERSION here, or re-run with overwrite_tag if you are certain."
             exit 1
           fi
-          echo "${IMAGE}:${EXPORTER_VERSION} is free (HTTP $code), proceeding."
+          echo "${IMAGE}:${TAG} is free (HTTP $code), proceeding."
 
   docker-build:
     needs: guard-tag
@@ -108,10 +132,10 @@ jobs:
           provenance: false
           build-args: |
             EXPORTER_VERSION=${{ env.EXPORTER_VERSION }}
-          tags: ${{ env.IMAGE }}:${{ env.EXPORTER_VERSION }}-${{ steps.meta.outputs.platform_tag }}
+          tags: ${{ env.IMAGE }}:${{ needs.guard-tag.outputs.tag }}-${{ steps.meta.outputs.platform_tag }}
 
   docker-manifest:
-    needs: docker-build
+    needs: [guard-tag, docker-build]
     runs-on: ubuntu-latest
     steps:
       - name: Log in to GHCR
@@ -122,8 +146,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create and push multi-arch manifest
+        env:
+          TAG: ${{ needs.guard-tag.outputs.tag }}
         run: |
-          docker manifest create "${IMAGE}:${EXPORTER_VERSION}" \
-            "${IMAGE}:${EXPORTER_VERSION}-linux-amd64" \
-            "${IMAGE}:${EXPORTER_VERSION}-linux-arm64"
-          docker manifest push "${IMAGE}:${EXPORTER_VERSION}"
+          docker manifest create "${IMAGE}:${TAG}" \
+            "${IMAGE}:${TAG}-linux-amd64" \
+            "${IMAGE}:${TAG}-linux-arm64"
+          docker manifest push "${IMAGE}:${TAG}"

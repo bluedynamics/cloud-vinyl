@@ -42,7 +42,7 @@ func minimalAdmissibleVC(name string) *vinylv1alpha1.VinylCache {
 		},
 		Spec: vinylv1alpha1.VinylCacheSpec{
 			Replicas: 1,
-			Image:    "ghcr.io/bluedynamics/cloud-vinyl-varnish:8.0.2",
+			Image:    "ghcr.io/bluedynamics/cloud-vinyl-varnish:9.1.0",
 			Backends: []vinylv1alpha1.BackendSpec{
 				{
 					Name:       "app",

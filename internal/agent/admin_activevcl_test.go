@@ -64,7 +64,8 @@ func fakeVarnishCLI(t *testing.T, cmdBody string) string {
 // ActiveVCL must return the VCL *name*, not some other column of vcl.list.
 //
 // The fixtures are verbatim varnishadm output captured from running varnishd
-// 7.6.5 and 8.0.2 containers.
+// 7.6.5 and 8.0.2 containers. 9.1.0 prints every one of them byte for byte
+// the same.
 func TestActiveVCLReturnsName(t *testing.T) {
 	tests := []struct {
 		name string
@@ -170,6 +171,7 @@ func TestHealthGatesOnBootstrapVCL(t *testing.T) {
 //
 //	varnish 6.0.18:  active      auto/warm          0 boot
 //	varnish 8.0.2:   active   auto   warm   0   boot
+//	varnish 9.1.0:   active   auto   warm   0   boot
 //
 // Returning "" there is the worst possible answer. Health compares the name
 // against "boot", so an empty string reads as "operator VCL is live" and the

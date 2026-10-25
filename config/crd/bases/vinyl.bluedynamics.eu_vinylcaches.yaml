@@ -479,7 +479,7 @@ spec:
                       image:
                         description: |-
                           image overrides the exporter image. Defaults to
-                          ghcr.io/bluedynamics/varnish-exporter:1.6.1.
+                          ghcr.io/bluedynamics/varnish-exporter:1.6.1-varnish9.1.0.
                         properties:
                           repository:
                             type: string
@@ -3851,8 +3851,9 @@ spec:
                   description: StorageSpec configures a Varnish storage backend.
                   properties:
                     name:
-                      description: name is the internal storage identifier used in
-                        varnishd -s arguments.
+                      description: |-
+                        name is the internal storage identifier used in varnishd -s arguments.
+                        "synth" is reserved: varnishd 9.1 defines a storage of that name.
                       type: string
                     path:
                       description: path is the filesystem path for file-type storage.

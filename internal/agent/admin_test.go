@@ -34,7 +34,7 @@ func varnishImage() string {
 	if img := os.Getenv("VINYL_TEST_VARNISH_IMAGE"); img != "" {
 		return img
 	}
-	return "varnish:8.0.2"
+	return "varnish:9.1.0"
 }
 
 const testSecret = "cloud-vinyl-integration-test-secret"

@@ -35,7 +35,7 @@ func minimalValidVC() *vinylv1alpha1.VinylCache {
 	return &vinylv1alpha1.VinylCache{
 		Spec: vinylv1alpha1.VinylCacheSpec{
 			Replicas: 1,
-			Image:    "ghcr.io/bluedynamics/cloud-vinyl-varnish:8.0.2",
+			Image:    "ghcr.io/bluedynamics/cloud-vinyl-varnish:9.1.0",
 			Backends: []vinylv1alpha1.BackendSpec{
 				{
 					Name:       "app",
@@ -239,6 +239,18 @@ func TestValidate_StorageType_Blocklist(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidate_StorageName_Reserved(t *testing.T) {
+	vc := minimalValidVC()
+	vc.Spec.Storage = []vinylv1alpha1.StorageSpec{{Name: "synth", Type: "malloc"}}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `storage name "synth" is reserved`)
+
+	vc.Spec.Storage = []vinylv1alpha1.StorageSpec{{Name: "synthetic", Type: "malloc"}}
+	_, err = webhook.ValidateVinylCache(vc)
+	assert.NoError(t, err, "only the exact name collides with varnishd's synth storage")
 }
 
 func TestValidate_StorageType_NoStorage(t *testing.T) {
@@ -506,7 +518,7 @@ func validBaseVinylCache() *vinylv1alpha1.VinylCache {
 		ObjectMeta: metav1.ObjectMeta{Name: "vc", Namespace: "ns"},
 		Spec: vinylv1alpha1.VinylCacheSpec{
 			Replicas: 1,
-			Image:    "varnish:8.0.2",
+			Image:    "varnish:9.1.0",
 			Backends: []vinylv1alpha1.BackendSpec{
 				{Name: "app", ServiceRef: vinylv1alpha1.ServiceRef{Name: "svc"}},
 			},

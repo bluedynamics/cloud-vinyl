@@ -1,10 +1,13 @@
 # vinyl-tracer: reads the VSL via a varnishlog copied from the SAME varnish
 # image the cache runs (the VSL shm layout is not a stable ABI), and exports
-# OTLP spans. Keep VARNISH_IMAGE in sync with the cache image.
+# OTLP spans. Keep VARNISH_IMAGE in sync with the cache image. Unlike
+# varnishstat, varnishlog does not read across versions: 9.1.0 against an
+# 8.0.2 varnishd (or the reverse) prints nothing and reports no error, so a
+# mismatch shows up only as missing spans.
 #
 # Published as ghcr.io/bluedynamics/cloud-vinyl-tracer:<version>.
 
-ARG VARNISH_IMAGE=varnish:8.0.2
+ARG VARNISH_IMAGE=varnish:9.1.0
 
 FROM golang:1.26 AS build
 WORKDIR /workspace
@@ -22,7 +25,7 @@ RUN test -e /usr/lib/libvarnishapi.so.3 || { \
         ls -1 /usr/lib/libvarnishapi.so.* >&2; \
         exit 1; }
 
-# Must match the Debian release of VARNISH_IMAGE (varnish:8.0.2 = Debian 13)
+# Must match the Debian release of VARNISH_IMAGE (varnish:9.1.0 = Debian 13)
 # so varnishlog finds a compatible glibc.
 FROM gcr.io/distroless/base-debian13:nonroot
 LABEL org.opencontainers.image.title="vinyl-tracer" \

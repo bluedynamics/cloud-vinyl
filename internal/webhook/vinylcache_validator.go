@@ -52,6 +52,13 @@ var forbiddenStorageTypes = map[string]bool{
 	"default":    true,
 }
 
+// reservedStorageNames are storage names varnishd defines itself. Varnish 9.1
+// added a built-in "synth" storage, and a user storage of that name makes the
+// VCL compiler abort with an assertion at startup, so the pod crash-loops.
+var reservedStorageNames = map[string]bool{
+	"synth": true,
+}
+
 // reservedVolumeNames collide with operator-managed volumes on every pod.
 // Users cannot reuse these names in spec.pod.volumes or
 // spec.volumeClaimTemplates.
@@ -125,7 +132,7 @@ func pathConflictsWithReserved(p string) bool {
 // Checks performed:
 //   - varnishParameters key shape (bare varnishd parameter names) and blocklist
 //     (security-sensitive parameters)
-//   - storage type blocklist
+//   - storage type blocklist and reserved storage names
 //   - backend name VCL identifier conformance
 //   - allowedSources CIDR syntax for purge, BAN, and xkey invalidation
 //   - spec.pod.env reserved and duplicate names
@@ -157,10 +164,13 @@ func ValidateVinylCache(vc *vinylv1alpha1.VinylCache) (admission.Warnings, error
 		}
 	}
 
-	// Validate storage type blocklist.
+	// Validate storage type blocklist and reserved storage names.
 	for _, s := range vc.Spec.Storage {
 		if forbiddenStorageTypes[s.Type] {
 			errs = append(errs, fmt.Sprintf("storage type %q is not allowed (use malloc or file)", s.Type))
+		}
+		if reservedStorageNames[s.Name] {
+			errs = append(errs, fmt.Sprintf("storage name %q is reserved by varnishd", s.Name))
 		}
 	}
 

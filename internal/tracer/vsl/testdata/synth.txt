@@ -1,9 +1,9 @@
 *   << Request  >> 2         
 -   Begin          req 1 rxreq
--   Timestamp      Start: 1790771796.768726 0.000000 0.000000
--   Timestamp      Req: 1790771796.768726 0.000000 0.000000
+-   Timestamp      Start: 1792935953.798401 0.000000 0.000000
+-   Timestamp      Req: 1792935953.798401 0.000000 0.000000
 -   VCL_use        boot
--   ReqStart       10.200.5.4 56252 http
+-   ReqStart       10.200.10.4 35196 http http
 -   ReqMethod      GET
 -   ReqURL         /synth
 -   ReqProtocol    HTTP/1.1
@@ -11,8 +11,8 @@
 -   ReqHeader      Host: vslp3-varnish
 -   ReqHeader      User-Agent: Python-urllib/3.12
 -   ReqHeader      Connection: close
--   ReqHeader      X-Forwarded-For: 10.200.5.4
--   ReqHeader      Via: 1.1 677e62200a02 (Varnish/8.0)
+-   ReqHeader      X-Forwarded-For: 10.200.10.4
+-   ReqHeader      Via: 1.1 a8c1337823a8 (Varnish/9.1)
 -   VCL_call       RECV
 -   VCL_return     synth
 -   ReqUnset       Accept-Encoding: identity
@@ -21,19 +21,19 @@
 -   RespProtocol   HTTP/1.1
 -   RespStatus     410
 -   RespReason     gone
--   RespHeader     Date: Wed, 30 Sep 2026 12:36:36 GMT
+-   RespHeader     Date: Sun, 25 Oct 2026 13:45:53 GMT
 -   RespHeader     Server: Varnish
 -   RespHeader     X-Varnish: 2
 -   VCL_call       SYNTH
 -   RespHeader     Content-Type: text/html; charset=utf-8
 -   RespHeader     Retry-After: 5
+-   Storage        synth Synth
 -   VCL_return     deliver
--   Timestamp      Process: 1790771796.768825 0.000099 0.000099
--   RespHeader     Content-Length: 230
--   Storage        malloc Transient
+-   Timestamp      Process: 1792935953.798526 0.000125 0.000125
 -   Filters        
+-   RespHeader     Content-Length: 230
 -   RespHeader     Connection: close
--   Timestamp      Resp: 1790771796.768902 0.000176 0.000077
+-   Timestamp      Resp: 1792935953.798563 0.000162 0.000036
 -   ReqAcct        122 0 122 185 230 415
 -   End            
 

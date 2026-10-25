@@ -1,6 +1,6 @@
 # VSL golden fixtures
 
-Raw `varnishlog -g request` output recorded from varnish:8.0.2 by
+Raw `varnishlog -g request` output recorded from varnish:9.1.0 by
 `record-fixtures.sh`. Parser and span-builder tests assert against these
 files. Never hand-edit a fixture; re-run the script (requires Docker) and
 commit the diff together with whatever parser change made it necessary.
@@ -11,7 +11,7 @@ generator templates' tracing blocks — keep them in sync.
 
 `record-fixtures-truth.sh` records the P3 truth fixtures — `coalesce.txt`,
 `grace_bgfetch.txt`, `esi.txt`, `restart.txt`, `retry.txt`, `pipe.txt`,
-`synth.txt` — against varnish:8.0.2 driven through `truthbackend.py`, a
+`synth.txt` — against varnish:9.1.0 driven through `truthbackend.py`, a
 stdlib-only traffic-shaping backend (delay, short TTL, ESI markup, a
 flaky-then-ok endpoint, and a teapot restart trigger) run in its own
 container. Its embedded VCL keeps the same P2 tracing blocks verbatim, plus
