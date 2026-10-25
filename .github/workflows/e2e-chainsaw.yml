@@ -52,7 +52,12 @@ jobs:
     name: >-
       Chainsaw E2E
       (${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'e2e-full')) && 'full' || 'fast' }})
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: ubuntu-26.04 ships Docker 29 with the
+    # containerd image store, and `kind load docker-image` then fails on
+    # multi-arch images (varnish:8.0.2) with "ctr: content digest ... not
+    # found", because only the host platform's blobs were pulled. Move on
+    # once the pre-pull step loads images in a way that works with it.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       SUITE: >-
