@@ -357,8 +357,10 @@ func buildExporterContainer(exp *v1alpha1.ExporterSpec) corev1.Container {
 	return corev1.Container{
 		Name:  "vinyl-exporter",
 		Image: image,
-		// -n is handed to varnishstat; see varnishWorkdir.
-		Args: []string{"-n", varnishWorkdir},
+		// -n is handed to varnishstat; see varnishWorkdir. The listen
+		// address follows spec.monitoring.exporter.port, which the
+		// containerPort and the exporter NetworkPolicy already use.
+		Args: []string{"-n", varnishWorkdir, "-web.listen-address", fmt.Sprintf(":%d", port)},
 		Ports: []corev1.ContainerPort{
 			{Name: "exporter", ContainerPort: port, Protocol: corev1.ProtocolTCP},
 		},

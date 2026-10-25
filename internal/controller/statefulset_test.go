@@ -124,7 +124,7 @@ func TestReconcileStatefulSet_ExporterSidecarWhenEnabled(t *testing.T) {
 	}
 	require.NotNil(t, exporter, "exporter sidecar must be present when enabled")
 	assert.Equal(t, "ghcr.io/bluedynamics/varnish-exporter:1.6.1-varnish9.1.0", exporter.Image)
-	assert.Equal(t, []string{"-n", "/var/lib/varnish/varnishd"}, exporter.Args,
+	assert.Equal(t, []string{"-n", "/var/lib/varnish/varnishd", "-web.listen-address", ":9131"}, exporter.Args,
 		"varnishstat must read varnishd's explicit -n, not its build default")
 
 	var mount *corev1.VolumeMount
@@ -136,6 +136,24 @@ func TestReconcileStatefulSet_ExporterSidecarWhenEnabled(t *testing.T) {
 	require.NotNil(t, mount, "exporter must mount /var/lib/varnish")
 	assert.True(t, mount.ReadOnly, "exporter VSM mount must be read-only")
 	assert.Equal(t, "varnish-workdir", mount.Name)
+}
+
+// spec.monitoring.exporter.port used to change only the containerPort and the
+// NetworkPolicy, while the exporter kept listening on 9131.
+func TestReconcileStatefulSet_ExporterListensOnConfiguredPort(t *testing.T) {
+	vc := exporterBaseVC()
+	vc.Spec.Monitoring.Exporter = &v1alpha1.ExporterSpec{Enabled: true, Port: 9200}
+	ss := getStatefulSet(t, vc)
+	for _, c := range ss.Spec.Template.Spec.Containers {
+		if c.Name != "vinyl-exporter" {
+			continue
+		}
+		assert.Equal(t, []string{"-n", "/var/lib/varnish/varnishd", "-web.listen-address", ":9200"}, c.Args)
+		require.Len(t, c.Ports, 1)
+		assert.Equal(t, int32(9200), c.Ports[0].ContainerPort)
+		return
+	}
+	require.Fail(t, "exporter sidecar must be present when enabled")
 }
 
 func TestReconcileStatefulSet_NoExporterByDefault(t *testing.T) {
