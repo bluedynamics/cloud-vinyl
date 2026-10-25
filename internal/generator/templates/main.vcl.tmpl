@@ -39,6 +39,8 @@ import uuid;
 
 {{- template "vcl_backend_response.vcl.tmpl" . }}
 
+{{- template "vcl_backend_error.vcl.tmpl" . }}
+
 {{- template "vcl_deliver.vcl.tmpl" . }}
 
 {{- template "vcl_purge.vcl.tmpl" . }}

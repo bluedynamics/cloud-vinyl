@@ -1,0 +1,11 @@
+
+sub vcl_backend_error {
+    # No return here on purpose: falling through keeps varnishd's builtin
+    # vcl_backend_error, which builds the default error page. A snippet
+    # ending in retry, abandon, or deliver after synthetic() replaces it.
+{{- if .Spec.VCL.Snippets.VCLBackendError }}
+    # --- custom vcl_backend_error snippet ---
+    {{ .Spec.VCL.Snippets.VCLBackendError }}
+    # --- end custom vcl_backend_error snippet ---
+{{- end }}
+}

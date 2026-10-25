@@ -582,6 +582,45 @@ func TestGenerate_CustomVCLSynthSnippet(t *testing.T) {
 	assert.Contains(t, r.VCL, "# custom synth")
 }
 
+// subBody returns the body of "sub <name> { ... }" in vcl, up to the first
+// closing brace at column 0.
+func subBody(t *testing.T, vcl, name string) string {
+	t.Helper()
+	start := strings.Index(vcl, "sub "+name+" {")
+	require.GreaterOrEqual(t, start, 0, "sub %s must be generated", name)
+	end := strings.Index(vcl[start:], "\n}")
+	require.GreaterOrEqual(t, end, 0, "sub %s must be closed", name)
+	return vcl[start : start+end]
+}
+
+// TestGenerate_CustomVCLBackendErrorSnippet guards #116: the CRD accepted
+// vclBackendError but no template rendered it, so the snippet was dropped
+// silently.
+func TestGenerate_CustomVCLBackendErrorSnippet(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.VCL.Snippets.VCLBackendError = "return (retry);"
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	body := subBody(t, r.VCL, "vcl_backend_error")
+	assert.Contains(t, body, "return (retry);",
+		"the snippet must land inside sub vcl_backend_error")
+}
+
+// TestGenerate_VCLBackendError_FallsThroughToBuiltin: without a snippet the
+// generated sub must not return, or it would replace the builtin
+// vcl_backend_error and its default error page.
+func TestGenerate_VCLBackendError_FallsThroughToBuiltin(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(makeMinimalInput())
+	require.NoError(t, err)
+	body := subBody(t, r.VCL, "vcl_backend_error")
+	for _, stmt := range []string{"return(", "return ("} {
+		assert.NotContains(t, body, stmt,
+			"an empty vcl_backend_error must fall through to the builtin")
+	}
+}
+
 func TestGenerate_CustomVCLFiniSnippet(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
