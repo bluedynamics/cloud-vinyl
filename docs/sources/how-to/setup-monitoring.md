@@ -77,6 +77,26 @@ sum(rate(varnish_main_cache_hit[5m])) by (namespace)
      + sum(rate(varnish_main_cache_miss[5m])) by (namespace))
 ```
 
+## Watch fetch retries
+
+Varnish has no counter for retries made in VCL. `varnish_main_backend_retry`
+counts something else (the internal retry on a reused connection) and stays
+at 0. A fetch that is retried on another backend increments
+`varnish_main_backend_fail` and `varnish_main_fetch_failed` even though the
+client gets a normal response. So a rise in those counters without a matching
+rise in 5xx responses at your ingress means the retries are absorbing backend
+failures:
+
+```promql
+sum(rate(varnish_main_backend_fail[5m])) by (namespace, pod)
+```
+
+To see individual retries, run `varnishlog` in the varnish container:
+
+```bash
+kubectl exec <pod> -c varnish -- varnishlog -g request -q 'VCL_return eq "retry"'
+```
+
 ## Verify
 
 ```console

@@ -1,4 +1,24 @@
 sub vcl_backend_fetch {
+{{- if .HasFetchRetry }}
+    # On a retry, move to another backend of the same group (#117). Without
+    # this, a shard director resolved on the client side sends the retry to
+    # the backend that just failed. Runs before the custom snippet, so a
+    # snippet that sets bereq.backend still wins.
+    if (bereq.retries > 0) {
+{{- range .BackendGroups }}
+{{- if .Retries }}
+        if ({{ .RetryMatch }}) {
+            set bereq.backend = {{ .RetryReselect }};
+        }
+{{- end }}
+{{- end }}
+{{- if .PeerRetries }}
+        if ({{ .PeerRetryMatch }}) {
+            set bereq.backend = {{ .PeerRetryReselect }};
+        }
+{{- end }}
+    }
+{{- end }}
 {{ if .Spec.VCL.Snippets.VCLBackendFetch }}
     # --- custom vcl_backend_fetch snippet ---
     {{ .Spec.VCL.Snippets.VCLBackendFetch }}

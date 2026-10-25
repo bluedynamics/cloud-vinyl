@@ -112,6 +112,51 @@ sub vcl_recv {
 }
 ```
 
+## Retry on another backend
+
+When a backend pod disappears without draining (OOMKill, crash, node
+failure), Varnish keeps sending it requests until the health probe marks it
+sick or the operator pushes a VCL without it. To bridge that gap, the
+generated VCL retries a fetch once on another backend of the same group:
+
+- only `GET` and `HEAD` requests,
+- only when no response arrived: connection refused, connection closed
+  before the response, or a connect timeout,
+- not after a `first_byte_timeout`, which would double the wait and the load
+  on a backend that is already slow.
+
+`shard` directors ask for the next alternative backend of the same key, so
+the retry never lands on the backend that just failed. `round_robin` and
+`random` ask the director again, which usually picks another backend. `hash`
+and `fallback` directors would pick the same backend, so they never retry.
+
+Set the number of retries per backend, or disable them with `0`:
+
+```yaml
+spec:
+  backends:
+    - name: plone
+      serviceRef:
+        name: plone-service
+      retry:
+        maxRetries: 2   # default 1, maximum 3
+```
+
+`spec.cluster.retry.maxRetries` does the same for the hop between Varnish
+pods, so a request is passed to another peer when the responsible one is
+gone.
+
+```{note}
+The retry moves to another backend in `vcl_backend_fetch`, before your
+`vclBackendFetch` snippet. A snippet that sets `bereq.backend`
+unconditionally sends the retry back to the same backend. Likewise, a
+`shard` hint resolved with `resolve=LAZY` in `vcl_recv` is not recognised
+and gets no retry; the default `plone.backend()` is.
+```
+
+See "Watch fetch retries" in [Set up monitoring](setup-monitoring.md) for how
+retries show up in the metrics.
+
 ## Debounce
 
 Backend pod churn (scale events, rolling updates) triggers reconciles.

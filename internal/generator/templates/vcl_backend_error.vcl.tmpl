@@ -1,9 +1,35 @@
 
 sub vcl_backend_error {
-    # No return here on purpose: falling through keeps varnishd's builtin
-    # vcl_backend_error, which builds the default error page. A snippet
-    # ending in retry, abandon, or deliver after synthetic() replaces it.
+    # No unconditional return here on purpose: falling through keeps
+    # varnishd's builtin vcl_backend_error, which builds the default error
+    # page. A snippet ending in retry, abandon, or deliver after synthetic()
+    # replaces it.
+{{- if .HasFetchRetry }}
+
+    # Retry GET/HEAD fetches that got no response (#117): connection
+    # refused, connection closed before the response, connect timeout.
+    # vcl_backend_fetch moves the retry to another backend. A
+    # first_byte_timeout looks the same here, only the elapsed time tells it
+    # apart, so a fetch that already waited that long is not retried.
+    # bereq.first_byte_timeout does not reflect a backend's own
+    # .first_byte_timeout, hence the per-group bound.
+    if (bereq.method ~ "^(GET|HEAD)$" && now - bereq.time < bereq.first_byte_timeout) {
+{{- range .BackendGroups }}
+{{- if .Retries }}
+        if (bereq.retries < {{ .Retries }} && ({{ .RetryMatch }}){{ if .RetryFirstByteTimeout }} && now - bereq.time < {{ .RetryFirstByteTimeout }}{{ end }}) {
+            return (retry);
+        }
+{{- end }}
+{{- end }}
+{{- if .PeerRetries }}
+        if (bereq.retries < {{ .PeerRetries }} && ({{ .PeerRetryMatch }})) {
+            return (retry);
+        }
+{{- end }}
+    }
+{{- end }}
 {{- if .Spec.VCL.Snippets.VCLBackendError }}
+
     # --- custom vcl_backend_error snippet ---
     {{ .Spec.VCL.Snippets.VCLBackendError }}
     # --- end custom vcl_backend_error snippet ---

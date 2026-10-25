@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -85,6 +86,19 @@ type TemplateData struct {
 	// evaluates at request time. Empty means "Varnish default" — template
 	// omits the healthy= argument. Overridable via spec.director.shard.healthy.
 	ClusterShardHealthy string
+
+	// HasFetchRetry gates the retry VCL in vcl_backend_error and
+	// vcl_backend_fetch (#117): true if any backend group or the peer hop
+	// retries.
+	HasFetchRetry bool
+	// PeerRetries is spec.cluster.retry.maxRetries resolved to its default;
+	// 0 when clustering is off.
+	PeerRetries int32
+	// PeerRetryMatch is a VCL condition that is true when bereq.backend is
+	// one of the peer backends.
+	PeerRetryMatch string
+	// PeerRetryReselect is the VCL expression that picks another peer.
+	PeerRetryReselect string
 }
 
 // BackendDef is a single backend definition for VCL.
@@ -111,6 +125,22 @@ type BackendGroup struct {
 	Name     string       // VCL identifier: sanitizeName(BackendSpec.Name).
 	Director DirectorInfo // Director algorithm + params for this group.
 	Backends []BackendDef // One per resolved Endpoint; Name is "<Group.Name>_<idx>".
+
+	// Retries is spec.backends[i].retry.maxRetries resolved to its default,
+	// 0 for directors that cannot pick a different backend (hash, fallback)
+	// and for groups without endpoints.
+	Retries int32
+	// RetryMatch is a VCL condition that is true when bereq.backend belongs
+	// to this group.
+	RetryMatch string
+	// RetryReselect is the VCL expression that picks another backend of
+	// this group on a retry.
+	RetryReselect string
+	// RetryFirstByteTimeout is the group's configured first_byte_timeout as
+	// an exact VCL duration, empty if unset. bereq.first_byte_timeout does
+	// not reflect a backend definition's .first_byte_timeout, so the retry
+	// guard needs it separately.
+	RetryFirstByteTimeout string
 }
 
 // DirectorInfo captures the resolved director config for a backend group.
@@ -234,7 +264,7 @@ func buildTemplateData(input Input) TemplateData {
 
 	data.HasTracing = input.Spec.Tracing.Enabled
 
-	data.UseShardDirector = input.Spec.Director.Type == "shard" || input.Spec.Director.Type == ""
+	data.UseShardDirector = input.Spec.Director.Type == directorShard || input.Spec.Director.Type == ""
 
 	// Cluster-peer shard director parameters (request-time).
 	// Fall back to "URL" for by (preserves pre-#36 behaviour) and to empty
@@ -314,6 +344,8 @@ func buildTemplateData(input Input) TemplateData {
 			}
 			group.Backends = append(group.Backends, def)
 		}
+		setGroupRetry(&group, b)
+		data.HasFetchRetry = data.HasFetchRetry || group.Retries > 0
 		data.BackendGroups = append(data.BackendGroups, group)
 	}
 
@@ -325,8 +357,87 @@ func buildTemplateData(input Input) TemplateData {
 			Port: p.Port,
 		})
 	}
+	if data.HasCluster {
+		data.PeerRetries = resolveMaxRetries(input.Spec.Cluster.Retry)
+		if data.PeerRetries > 0 {
+			names := make([]string, 0, len(data.PeerDefs))
+			for _, p := range data.PeerDefs {
+				names = append(names, p.Name)
+			}
+			data.PeerRetryMatch = backendMatch(names)
+			data.PeerRetryReselect = fmt.Sprintf("%s.backend(by=%s, alt=bereq.retries, healthy=ALL)",
+				data.DirectorName, data.ClusterShardBy)
+			data.HasFetchRetry = true
+		}
+	}
 
 	return data
+}
+
+// directorShard is the shard director type, also the default.
+const directorShard = "shard"
+
+// defaultFetchRetries is the retry count when spec.backends[].retry or
+// spec.cluster.retry leaves maxRetries unset.
+const defaultFetchRetries = 1
+
+func resolveMaxRetries(r *vinylv1alpha1.FetchRetrySpec) int32 {
+	if r == nil || r.MaxRetries == nil {
+		return defaultFetchRetries
+	}
+	return *r.MaxRetries
+}
+
+// setGroupRetry fills the retry fields of a backend group (#117).
+//
+// A retry only helps if it lands on a different backend:
+//   - shard: the client side resolves .backend() immediately (resolve=NOW is
+//     the default outside vcl_init), so bereq.backend holds the concrete
+//     backend and a bare retry would reuse it. The re-selection asks for the
+//     alt-th alternative of the same key: by=URL hashes bereq.url, which is
+//     what the default by=HASH hashes on the client side (req.url).
+//     healthy=ALL counts only healthy backends, so an already-sick primary
+//     does not make alt=1 return the backend that just failed.
+//   - round_robin, random: .backend() returns the director itself, which
+//     resolves anew on every attempt and usually picks another backend.
+//   - hash, fallback: deterministic, they would pick the same backend, so
+//     they never retry.
+func setGroupRetry(g *BackendGroup, b vinylv1alpha1.BackendSpec) {
+	// Generate already refuses groups without endpoints; nothing to match.
+	if len(g.Backends) == 0 {
+		return
+	}
+	names := make([]string, 0, len(g.Backends)+1)
+	for _, def := range g.Backends {
+		names = append(names, def.Name)
+	}
+	switch g.Director.Type {
+	case directorShard:
+		g.RetryReselect = g.Name + ".backend(by=URL, alt=bereq.retries, healthy=ALL)"
+	case "round_robin", "random":
+		names = append(names, g.Name+".backend()")
+		g.RetryReselect = g.Name + ".backend()"
+	default:
+		return
+	}
+	g.Retries = resolveMaxRetries(b.Retry)
+	if g.Retries == 0 {
+		return
+	}
+	g.RetryMatch = backendMatch(names)
+	if cp := b.ConnectionParameters; cp != nil && cp.FirstByteTimeout.Duration > 0 {
+		g.RetryFirstByteTimeout = strconv.FormatFloat(cp.FirstByteTimeout.Seconds(), 'f', -1, 64) + "s"
+	}
+}
+
+// backendMatch renders a VCL condition that is true when bereq.backend is
+// one of the given backends.
+func backendMatch(backends []string) string {
+	parts := make([]string, len(backends))
+	for i, b := range backends {
+		parts[i] = "bereq.backend == " + b
+	}
+	return strings.Join(parts, " || ")
 }
 
 // fmtDuration formats a time.Duration into a Varnish-compatible duration string.
@@ -343,7 +454,7 @@ func fmtDuration(d time.Duration) string {
 // resolveDirectorInfo collapses a nullable per-backend DirectorSpec into a template-ready
 // DirectorInfo with defaults (shard / HASH / empty warmup/rampup).
 func resolveDirectorInfo(ds *vinylv1alpha1.DirectorSpec) DirectorInfo {
-	out := DirectorInfo{Type: "shard"}
+	out := DirectorInfo{Type: directorShard}
 	if ds == nil {
 		return out
 	}
