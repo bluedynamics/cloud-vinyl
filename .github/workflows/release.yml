@@ -38,12 +38,12 @@ jobs:
             image: ghcr.io/bluedynamics/cloud-vinyl-tracer
             platform: linux/amd64
             runner: ubuntu-latest
-            build-args: VARNISH_IMAGE=varnish:8.0.2
+            build-args: VARNISH_IMAGE=varnish:9.1.0
           - dockerfile: Dockerfile.tracer
             image: ghcr.io/bluedynamics/cloud-vinyl-tracer
             platform: linux/arm64
             runner: ubuntu-24.04-arm
-            build-args: VARNISH_IMAGE=varnish:8.0.2
+            build-args: VARNISH_IMAGE=varnish:9.1.0
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7

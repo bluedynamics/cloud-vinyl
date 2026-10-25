@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Records P2 VSL fixtures: varnish 8.0.2 WITH the tracing VCL active, so
+# Records P2 VSL fixtures: varnish 9.1.0 WITH the tracing VCL active, so
 # BereqHeader carries a VCL-minted traceparent. The vcl below mirrors the
 # tracing blocks of internal/generator/templates/{vcl_recv,vcl_backend_fetch}
 # .vcl.tmpl — keep them in sync when the templates change.
@@ -54,7 +54,7 @@ docker run -d --name vslp2-backend --network "$NET" \
     python:3.12-slim python -m http.server 8000 >/dev/null
 docker run -d --name vslp2-varnish --network "$NET" \
     -v "$PWD/default.vcl:/etc/varnish/default.vcl:ro" \
-    varnish:8.0.2 >/dev/null
+    varnish:9.1.0 >/dev/null
 sleep 2
 
 req() { # req <path> [traceparent]

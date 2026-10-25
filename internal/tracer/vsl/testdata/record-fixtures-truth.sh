@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Records P3 truth fixtures: varnish 8.0.2 driven through a traffic-shaping
+# Records P3 truth fixtures: varnish 9.1.0 driven through a traffic-shaping
 # backend (truthbackend.py) under coalescing, grace/bgfetch, ESI, restart,
 # retry, pipe, and synth conditions. The vcl_recv traceparent-validation
 # block and the vcl_backend_fetch minting block below are the P2 script's
@@ -73,7 +73,7 @@ docker run -d --name vslp3-backend --network "$NET" \
     python:3.12-slim python /b.py >/dev/null
 docker run -d --name vslp3-varnish --network "$NET" \
     -v "$PWD/default.vcl:/etc/varnish/default.vcl:ro" \
-    varnish:8.0.2 -p feature=+esi_disable_xml_check >/dev/null
+    varnish:9.1.0 -p feature=+esi_disable_xml_check >/dev/null
 sleep 2
 
 req() { # req <path> [traceparent]

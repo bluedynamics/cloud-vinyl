@@ -725,7 +725,7 @@ type ExporterSpec struct {
 	Enabled bool `json:"enabled,omitempty"`
 
 	// image overrides the exporter image. Defaults to
-	// ghcr.io/bluedynamics/varnish-exporter:1.6.1.
+	// ghcr.io/bluedynamics/varnish-exporter:1.6.1-varnish9.1.0.
 	// +optional
 	Image ExporterImageSpec `json:"image,omitempty"`
 

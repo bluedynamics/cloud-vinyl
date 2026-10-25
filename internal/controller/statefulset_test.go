@@ -92,7 +92,7 @@ func exporterBaseVC() *v1alpha1.VinylCache {
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
 		Spec: v1alpha1.VinylCacheSpec{
 			Replicas: 1,
-			Image:    "varnish:8.0.2",
+			Image:    "varnish:9.1.0",
 			Backends: []v1alpha1.BackendSpec{{Name: "app", ServiceRef: v1alpha1.ServiceRef{Name: "svc"}}},
 		},
 	}
@@ -123,7 +123,7 @@ func TestReconcileStatefulSet_ExporterSidecarWhenEnabled(t *testing.T) {
 		}
 	}
 	require.NotNil(t, exporter, "exporter sidecar must be present when enabled")
-	assert.Equal(t, "ghcr.io/bluedynamics/varnish-exporter:1.6.1", exporter.Image)
+	assert.Equal(t, "ghcr.io/bluedynamics/varnish-exporter:1.6.1-varnish9.1.0", exporter.Image)
 
 	var mount *corev1.VolumeMount
 	for i := range exporter.VolumeMounts {
@@ -206,7 +206,7 @@ func TestReconcileStatefulSet_UserVolumesAndMountsAppended(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
 		Spec: v1alpha1.VinylCacheSpec{
 			Replicas: 1,
-			Image:    "varnish:8.0.2",
+			Image:    "varnish:9.1.0",
 			Backends: []v1alpha1.BackendSpec{{
 				Name: "app", ServiceRef: v1alpha1.ServiceRef{Name: "svc"},
 			}},
@@ -284,7 +284,7 @@ func TestReconcileStatefulSet_VolumeClaimTemplatesPassthrough(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
 		Spec: v1alpha1.VinylCacheSpec{
 			Replicas: 2,
-			Image:    "varnish:8.0.2",
+			Image:    "varnish:9.1.0",
 			Backends: []v1alpha1.BackendSpec{{
 				Name: "app", ServiceRef: v1alpha1.ServiceRef{Name: "svc"},
 			}},
@@ -329,7 +329,7 @@ func TestReconcileStatefulSet_NoUserVolumes_DefaultsUnchanged(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
 		Spec: v1alpha1.VinylCacheSpec{
 			Replicas: 1,
-			Image:    "varnish:8.0.2",
+			Image:    "varnish:9.1.0",
 			Backends: []v1alpha1.BackendSpec{{
 				Name: "app", ServiceRef: v1alpha1.ServiceRef{Name: "svc"},
 			}},

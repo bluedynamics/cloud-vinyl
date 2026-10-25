@@ -1,9 +1,9 @@
 *   << Request  >> 2         
 -   Begin          req 1 rxreq
--   Timestamp      Start: 1790075698.816080 0.000000 0.000000
--   Timestamp      Req: 1790075698.816080 0.000000 0.000000
+-   Timestamp      Start: 1792935898.048353 0.000000 0.000000
+-   Timestamp      Req: 1792935898.048353 0.000000 0.000000
 -   VCL_use        boot
--   ReqStart       10.200.5.4 50866 http
+-   ReqStart       10.200.10.4 44804 http http
 -   ReqMethod      GET
 -   ReqURL         /garbage
 -   ReqProtocol    HTTP/1.1
@@ -12,8 +12,8 @@
 -   ReqHeader      User-Agent: Python-urllib/3.12
 -   ReqHeader      Traceparent: not-a-traceparent
 -   ReqHeader      Connection: close
--   ReqHeader      X-Forwarded-For: 10.200.5.4
--   ReqHeader      Via: 1.1 e6fa9ef170f9 (Varnish/8.0)
+-   ReqHeader      X-Forwarded-For: 10.200.10.4
+-   ReqHeader      Via: 1.1 65c6d33d541f (Varnish/9.1)
 -   VCL_call       RECV
 -   VCL_return     hash
 -   ReqUnset       Accept-Encoding: identity
@@ -22,65 +22,65 @@
 -   VCL_call       MISS
 -   VCL_return     fetch
 -   Link           bereq 3 fetch
--   Timestamp      Fetch: 1790075698.817166 0.001086 0.001086
+-   Timestamp      Fetch: 1792935898.049265 0.000912 0.000912
 -   RespProtocol   HTTP/1.0
 -   RespStatus     404
 -   RespReason     File not found
 -   RespHeader     Server: SimpleHTTP/0.6 Python/3.12.14
--   RespHeader     Date: Tue, 22 Sep 2026 11:14:58 GMT
+-   RespHeader     Date: Sun, 25 Oct 2026 13:44:58 GMT
 -   RespHeader     Content-Type: text/html;charset=utf-8
 -   RespHeader     Content-Length: 335
 -   RespProtocol   HTTP/1.1
 -   RespHeader     X-Varnish: 2
 -   RespHeader     Age: 0
--   RespHeader     Via: 1.1 e6fa9ef170f9 (Varnish/8.0)
+-   RespHeader     Via: 1.1 65c6d33d541f (Varnish/9.1)
 -   VCL_call       DELIVER
 -   VCL_return     deliver
--   Timestamp      Process: 1790075698.817187 0.001106 0.000020
+-   Timestamp      Process: 1792935898.049282 0.000929 0.000017
 -   Filters        
 -   RespHeader     Connection: close
--   Timestamp      Resp: 1790075698.817232 0.001152 0.000045
+-   Timestamp      Resp: 1792935898.049347 0.000994 0.000064
 -   ReqAcct        154 0 154 245 335 580
 -   End            
 **  << BeReq    >> 3         
 --  Begin          bereq 2 fetch
 --  VCL_use        boot
---  Timestamp      Start: 1790075698.816313 0.000000 0.000000
+--  Timestamp      Start: 1792935898.048483 0.000000 0.000000
 --  BereqMethod    GET
 --  BereqURL       /garbage
 --  BereqProtocol  HTTP/1.1
 --  BereqHeader    Host: vsl-varnish
 --  BereqHeader    User-Agent: Python-urllib/3.12
 --  BereqHeader    Traceparent: not-a-traceparent
---  BereqHeader    X-Forwarded-For: 10.200.5.4
---  BereqHeader    Via: 1.1 e6fa9ef170f9 (Varnish/8.0)
+--  BereqHeader    X-Forwarded-For: 10.200.10.4
+--  BereqHeader    Via: 1.1 65c6d33d541f (Varnish/9.1)
 --  BereqHeader    Accept-Encoding: gzip
 --  BereqHeader    X-Varnish: 3
 --  VCL_call       BACKEND_FETCH
 --  VCL_return     fetch
---  Timestamp      Fetch: 1790075698.816332 0.000019 0.000019
---  Timestamp      Connected: 1790075698.816542 0.000229 0.000210
---  BackendOpen    30 default 10.200.5.2 8000 10.200.5.3 55544 connect
---  Timestamp      Bereq: 1790075698.816590 0.000277 0.000047
+--  Timestamp      Fetch: 1792935898.048497 0.000014 0.000014
+--  Timestamp      Connected: 1792935898.048628 0.000145 0.000131
+--  BackendOpen    30 default 10.200.10.2 8000 10.200.10.3 60488 connect
+--  Timestamp      Bereq: 1792935898.048661 0.000178 0.000032
 --  BerespProtocol HTTP/1.0
 --  BerespStatus   404
 --  BerespReason   File not found
 --  BerespHeader   Server: SimpleHTTP/0.6 Python/3.12.14
---  BerespHeader   Date: Tue, 22 Sep 2026 11:14:58 GMT
+--  BerespHeader   Date: Sun, 25 Oct 2026 13:44:58 GMT
 --  BerespHeader   Connection: close
 --  BerespHeader   Content-Type: text/html;charset=utf-8
 --  BerespHeader   Content-Length: 335
---  Timestamp      Beresp: 1790075698.817081 0.000768 0.000491
---  TTL            RFC 120 10 0 1790075699 1790075699 1790075698 0 0 cacheable
+--  Timestamp      Beresp: 1792935898.049156 0.000672 0.000494
+--  TTL            RFC 120 10 0 1792935898 1792935898 1792935898 0 0 cacheable
 --  VCL_call       BACKEND_RESPONSE
 --  VCL_return     deliver
---  Timestamp      Process: 1790075698.817116 0.000803 0.000035
+--  Timestamp      Process: 1792935898.049199 0.000716 0.000043
 --  Filters        
 --  Storage        malloc s0
 --  Fetch_Body     3 length stream
 --  BackendClose   30 default close RESP_CLOSE
---  Timestamp      BerespBody: 1790075698.817198 0.000885 0.000081
+--  Timestamp      BerespBody: 1792935898.049305 0.000821 0.000105
 --  Length         335
---  BereqAcct      211 0 211 186 335 521
+--  BereqAcct      212 0 212 186 335 521
 --  End            
 

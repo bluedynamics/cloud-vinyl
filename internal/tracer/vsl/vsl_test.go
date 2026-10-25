@@ -140,14 +140,15 @@ func TestHeader_LastMatchWinsOnRewrittenHeader(t *testing.T) {
 // one Tx, is three same-tag "TTL" records as beresp.ttl/beresp.grace are
 // mutated by VCL (restart.txt lines 66, 68, 69):
 //
-//	--  TTL            RFC -1 10 0 1790771757 1790771757 1790771756 0 0 cacheable
-//	--  TTL            VCL 60 10 0 1790771757 cacheable
-//	--  TTL            VCL 60 3600 0 1790771757 cacheable
+//	--  TTL            RFC -1 10 0 1792935941 1792935941 1792935940 0 0 cacheable
+//	--  TTL            VCL 60 10 0 1792935941 cacheable
+//	--  TTL            VCL 60 3600 0 1792935941 cacheable
 //
 // First("TTL") returns the natural RFC-computed line; Last("TTL") returns
 // the final, VCL-mutated line that actually governs the cached object —
 // exactly the "rewritten during processing, last record is the delivered
-// truth" contract Last exists for.
+// truth" contract Last exists for. The epoch fields are the recording time,
+// so the assertions match them by shape and survive a re-record.
 func TestLast_TTLReflectsFinalMutation(t *testing.T) {
 	txs := parseAll(t, "restart.txt")
 	require.NotEmpty(t, txs)
@@ -161,8 +162,8 @@ func TestLast_TTLReflectsFinalMutation(t *testing.T) {
 	require.True(t, ok)
 
 	assert.NotEqual(t, first, last, "VCL's beresp.ttl/beresp.grace mutation must rewrite the delivered TTL")
-	assert.Equal(t, "RFC -1 10 0 1790771757 1790771757 1790771756 0 0 cacheable", first)
-	assert.Equal(t, "VCL 60 3600 0 1790771757 cacheable", last)
+	assert.Regexp(t, `^RFC -1 10 0 \d+ \d+ \d+ 0 0 cacheable$`, first)
+	assert.Regexp(t, `^VCL 60 3600 0 \d+ cacheable$`, last)
 
 	// Corroboration: prove there are genuinely three same-tag records, not
 	// two, so Last is discriminating the true final one, not just the

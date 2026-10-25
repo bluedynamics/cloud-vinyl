@@ -269,6 +269,7 @@ func (c *varnishAdminClient) ActiveVCL(ctx context.Context) (string, error) {
 	//
 	//	varnish 6.0.18:  active      auto/warm          0 boot
 	//	varnish 8.0.2:   active   auto   warm   0   boot
+	//	varnish 9.1.0:   active   auto   warm   0   boot
 	//
 	// Failing here turns an unreadable varnishd into a 503 and a log line
 	// instead of a pod that lies about being ready.

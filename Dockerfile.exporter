@@ -6,7 +6,7 @@
 #
 # Published as ghcr.io/bluedynamics/varnish-exporter:<EXPORTER_VERSION>.
 
-ARG VARNISH_IMAGE=varnish:8.0.2
+ARG VARNISH_IMAGE=varnish:9.1.0
 ARG EXPORTER_VERSION=1.6.1
 
 # Build the exporter from source. Upstream ships no arm64 binary for 1.6.1, and
@@ -33,13 +33,13 @@ RUN test -e /usr/lib/libvarnishapi.so.3 || { \
         echo "varnish 6.0 LTS ships .so.1 and is unsupported. See #91." >&2; \
         exit 1; }
 
-# Must match the Debian release of VARNISH_IMAGE (varnish:8.0.2 = Debian 13/trixie,
+# Must match the Debian release of VARNISH_IMAGE (varnish:9.1.0 = Debian 13/trixie,
 # glibc 2.41) so the copied varnishstat/libvarnishapi find a compatible glibc.
 FROM gcr.io/distroless/base-debian13:nonroot
 # varnishstat and the libraries it needs that distroless/base does not provide.
 # (libc, libm and the loader come from distroless/base.)
 COPY --from=varnish /usr/bin/varnishstat /usr/bin/varnishstat
-# libvarnishapi's soname is pinned deliberately. Varnish 7.6 through 9.0 all
+# libvarnishapi's soname is pinned deliberately. Varnish 7.6 through 9.1 all
 # ship .so.3 and their varnishstat/varnishd combinations interoperate; varnish
 # 6.0 LTS ships .so.1 and is not supported. Without the guard below, building
 # against 6.0 succeeds while the glob matches nothing, and the image only fails

@@ -54,7 +54,7 @@ jobs:
       (${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'e2e-full')) && 'full' || 'fast' }})
     # Pinned, not ubuntu-latest: ubuntu-26.04 ships Docker 29 with the
     # containerd image store, and `kind load docker-image` then fails on
-    # multi-arch images (varnish:8.0.2) with "ctr: content digest ... not
+    # multi-arch images (varnish:9.1.0) with "ctr: content digest ... not
     # found", because only the host platform's blobs were pulled. Move on
     # once the pre-pull step loads images in a way that works with it.
     runs-on: ubuntu-24.04
@@ -87,8 +87,8 @@ jobs:
 
       - name: Pre-pull images into Kind
         run: |
-          docker pull varnish:8.0.2
-          kind load docker-image varnish:8.0.2 --name cloud-vinyl-e2e
+          docker pull varnish:9.1.0
+          kind load docker-image varnish:9.1.0 --name cloud-vinyl-e2e
           for img in \
             quay.io/calico/cni:v3.31.1 \
             quay.io/calico/node:v3.31.1 \
@@ -124,7 +124,7 @@ jobs:
       - name: Build tracer image
         run: |
           docker build -f Dockerfile.tracer \
-            --build-arg VARNISH_IMAGE=varnish:8.0.2 \
+            --build-arg VARNISH_IMAGE=varnish:9.1.0 \
             -t ghcr.io/bluedynamics/cloud-vinyl-tracer:dev .
           kind load docker-image ghcr.io/bluedynamics/cloud-vinyl-tracer:dev \
             --name cloud-vinyl-e2e

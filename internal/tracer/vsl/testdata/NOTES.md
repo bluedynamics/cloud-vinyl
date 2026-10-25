@@ -7,6 +7,23 @@ fixture is a clean VSL. This file is the authoritative source later tasks
 this plan's code sketches**; where a sketch disagrees with what's quoted
 below, the code changes, not the fixture.
 
+**Re-recorded 2026-10-25 against `varnish:9.1.0`.** The quotes below are
+from the 8.0.2 recording and were checked against the new files. Every line
+number cited below still points at the same record, and the tag sequence of
+every fixture is unchanged except `synth.txt`. Values differ where they are
+per-run (IPs, ports, timestamps, minted traceparents, `Via: ... (Varnish/9.1)`).
+What 9.1.0 changed in shape:
+
+- `synth.txt`: the synthetic body is stored in the new built-in synth storage
+  (`Storage synth Synth`, was `Storage malloc Transient`), and that record
+  now precedes the last `RespHeader`.
+- `coalesce.txt` line 104: the waiter's `Hit` carries no optional trailing
+  fields (`3 121.995502 3600.000000 0.000000`). The Linker reads only the
+  vxid, so this is cosmetic.
+- `BackendOpen ... reuse` appends the connection age and reuse count, and
+  `ReqStart` appends the protocol scheme (`http`/`https`). The tracer reads
+  only the backend name from `BackendOpen` and nothing from `ReqStart`.
+
 All group-header line numbers below are 1-based into the fixture file named
 in the section heading. `varnishlog -g request -d` groups the whole
 transaction tree reachable from a top-level request/session into one
