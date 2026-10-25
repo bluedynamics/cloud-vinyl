@@ -538,6 +538,7 @@ type ProxyProtocolSpec struct {
 // StorageSpec configures a Varnish storage backend.
 type StorageSpec struct {
 	// name is the internal storage identifier used in varnishd -s arguments.
+	// "synth" is reserved: varnishd 9.1 defines a storage of that name.
 	Name string `json:"name"`
 
 	// type is the storage backend type. Only "malloc" and "file" are permitted.

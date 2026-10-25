@@ -241,6 +241,18 @@ func TestValidate_StorageType_Blocklist(t *testing.T) {
 	}
 }
 
+func TestValidate_StorageName_Reserved(t *testing.T) {
+	vc := minimalValidVC()
+	vc.Spec.Storage = []vinylv1alpha1.StorageSpec{{Name: "synth", Type: "malloc"}}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `storage name "synth" is reserved`)
+
+	vc.Spec.Storage = []vinylv1alpha1.StorageSpec{{Name: "synthetic", Type: "malloc"}}
+	_, err = webhook.ValidateVinylCache(vc)
+	assert.NoError(t, err, "only the exact name collides with varnishd's synth storage")
+}
+
 func TestValidate_StorageType_NoStorage(t *testing.T) {
 	vc := minimalValidVC()
 	vc.Spec.Storage = nil
