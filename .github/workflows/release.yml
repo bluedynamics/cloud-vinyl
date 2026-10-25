@@ -105,6 +105,11 @@ jobs:
             "${IMAGE}:${VERSION}-linux-amd64" \
             "${IMAGE}:${VERSION}-linux-arm64"
           docker manifest push "${IMAGE}:${VERSION}"
+          # A SemVer pre-release (v1.0.0-rc.1) must not move :latest, or
+          # every unpinned pull would get the release candidate (#123).
+          case "${VERSION}" in
+            *-*) echo "${VERSION} is a pre-release, leaving :latest alone"; exit 0 ;;
+          esac
           docker manifest create "${IMAGE}:latest" \
             "${IMAGE}:${VERSION}-linux-amd64" \
             "${IMAGE}:${VERSION}-linux-arm64"
@@ -120,6 +125,19 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      # goreleaser builds the notes from the previous tag. For a final
+      # release that is the last release candidate, so v1.0.0 would list
+      # only the changes since v1.0.0-rc.N. Point it at the previous final
+      # release instead. A pre-release keeps the default, the tag before it.
+      - name: Previous release for the changelog
+        run: |
+          case "${GITHUB_REF_NAME}" in
+            *-*) exit 0 ;;
+          esac
+          if prev=$(git describe --tags --abbrev=0 --exclude '*-*' "${GITHUB_REF_NAME}^" 2>/dev/null); then
+            echo "GORELEASER_PREVIOUS_TAG=${prev}" >> "$GITHUB_ENV"
+            echo "Changelog since ${prev}"
+          fi
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: latest
