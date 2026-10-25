@@ -124,6 +124,8 @@ func TestReconcileStatefulSet_ExporterSidecarWhenEnabled(t *testing.T) {
 	}
 	require.NotNil(t, exporter, "exporter sidecar must be present when enabled")
 	assert.Equal(t, "ghcr.io/bluedynamics/varnish-exporter:1.6.1-varnish9.1.0", exporter.Image)
+	assert.Equal(t, []string{"-n", "/var/lib/varnish/varnishd"}, exporter.Args,
+		"varnishstat must read varnishd's explicit -n, not its build default")
 
 	var mount *corev1.VolumeMount
 	for i := range exporter.VolumeMounts {
@@ -174,6 +176,8 @@ func TestReconcileStatefulSet_TracerSidecarWhenEnabled(t *testing.T) {
 	assert.Equal(t, "grpc", env["OTLP_PROTOCOL"], "protocol defaults to grpc")
 	assert.Equal(t, "true", env["OTLP_INSECURE"])
 	assert.Equal(t, "traced", env["TRACER_SERVICE_NAME"], "serviceName defaults to CR name")
+	assert.Equal(t, "/var/lib/varnish/varnishd", env["VARNISH_WORKDIR"],
+		"varnishlog must read varnishd's explicit -n; with -t off a wrong one waits silently")
 
 	require.Len(t, tracer.VolumeMounts, 1)
 	assert.Equal(t, "/var/lib/varnish", tracer.VolumeMounts[0].MountPath)
@@ -418,16 +422,35 @@ func TestReconcileStatefulSet_VarnishParamsEmitPArgs(t *testing.T) {
 		varnish.Args[n-4:], "varnishParameters must be emitted as -p key=value, sorted by key")
 }
 
-func TestReconcileStatefulSet_NoVarnishParams_NoPArgs(t *testing.T) {
+// pArgs returns the values of all -p args in order.
+func pArgs(args []string) []string {
+	var values []string
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-p" {
+			values = append(values, args[i+1])
+		}
+	}
+	return values
+}
+
+func TestReconcileStatefulSet_NoVarnishParams_OnlyHTTP2(t *testing.T) {
 	varnish := varnishContainer(t, getStatefulSet(t, exporterBaseVC()))
-	assert.NotContains(t, varnish.Args, "-p",
-		"nil varnishParameters must not emit any -p arg")
+	assert.Equal(t, []string{"feature=+http2"}, pArgs(varnish.Args),
+		"nil varnishParameters must emit no -p beyond the operator's own")
 
 	vc := exporterBaseVC()
 	vc.Spec.VarnishParams = map[string]string{}
 	varnish = varnishContainer(t, getStatefulSet(t, vc))
-	assert.NotContains(t, varnish.Args, "-p",
-		"empty varnishParameters must not emit any -p arg")
+	assert.Equal(t, []string{"feature=+http2"}, pArgs(varnish.Args),
+		"empty varnishParameters must emit no -p beyond the operator's own")
+}
+
+func TestReconcileStatefulSet_UserFeatureComesAfterHTTP2(t *testing.T) {
+	vc := exporterBaseVC()
+	vc.Spec.VarnishParams = map[string]string{"feature": "-http2"}
+	varnish := varnishContainer(t, getStatefulSet(t, vc))
+	assert.Equal(t, []string{"feature=+http2", "feature=-http2"}, pArgs(varnish.Args),
+		"-p feature values accumulate, so the user's must come last to override")
 }
 
 func TestReconcileStatefulSet_VarnishParamsAfterFixedAndStorageArgs(t *testing.T) {
@@ -441,14 +464,79 @@ func TestReconcileStatefulSet_VarnishParamsAfterFixedAndStorageArgs(t *testing.T
 
 	varnish := varnishContainer(t, getStatefulSet(t, vc))
 
+	assert.Equal(t, []string{"varnishd"}, varnish.Command,
+		"the operator runs varnishd itself, not the image entrypoint")
 	assert.Equal(t, []string{
+		"-F",
+		"-f", "/etc/varnish/default.vcl",
+		"-n", "/var/lib/varnish/varnishd",
+		"-a", "http=:8080,HTTP",
 		"-j", "none",
 		"-T", "127.0.0.1:6082",
 		"-S", varnishSecretPath,
+		"-p", "feature=+http2",
 		"-s", "mem=malloc,1000000000",
 		"-p", "thread_pool_min=100",
 	}, varnish.Args,
-		"fixed -j/-T/-S args, then -s storage args, then -p varnishParameters args, in that order")
+		"fixed args, then -s storage args, then -p varnishParameters args, in that order")
+}
+
+// With spec.storage set, those are the only cache storages. The entrypoint
+// used to add a hidden -s malloc,$VARNISH_SIZE next to them (#113).
+func TestReconcileStatefulSet_StorageOnlyFromSpec(t *testing.T) {
+	vc := exporterBaseVC()
+	vc.Spec.Storage = []v1alpha1.StorageSpec{
+		{Name: "cache", Type: "malloc", Size: resource.MustParse("3G")},
+	}
+	varnish := varnishContainer(t, getStatefulSet(t, vc))
+	var storages []string
+	for i := 0; i+1 < len(varnish.Args); i++ {
+		if varnish.Args[i] == "-s" {
+			storages = append(storages, varnish.Args[i+1])
+		}
+	}
+	assert.Equal(t, []string{"cache=malloc,3000000000"}, storages)
+
+	vc.Spec.Storage = nil
+	varnish = varnishContainer(t, getStatefulSet(t, vc))
+	assert.NotContains(t, varnish.Args, "-s",
+		"without spec.storage, varnishd creates its own default storage")
+}
+
+func TestReconcileStatefulSet_ProxyListenerOnlyWhenEnabled(t *testing.T) {
+	listeners := func(args []string) []string {
+		var a []string
+		for i := 0; i+1 < len(args); i++ {
+			if args[i] == "-a" {
+				a = append(a, args[i+1])
+			}
+		}
+		return a
+	}
+
+	vc := exporterBaseVC()
+	varnish := varnishContainer(t, getStatefulSet(t, vc))
+	assert.Equal(t, []string{"http=:8080,HTTP"}, listeners(varnish.Args),
+		"no PROXY listener unless spec.proxyProtocol is enabled")
+	for _, p := range varnish.Ports {
+		assert.NotEqual(t, "proxy", p.Name)
+	}
+
+	vc.Spec.ProxyProtocol = v1alpha1.ProxyProtocolSpec{Enabled: true}
+	varnish = varnishContainer(t, getStatefulSet(t, vc))
+	assert.Equal(t, []string{"http=:8080,HTTP", "proxy=:8081,PROXY"}, listeners(varnish.Args))
+
+	vc.Spec.ProxyProtocol.Port = 9443
+	varnish = varnishContainer(t, getStatefulSet(t, vc))
+	assert.Equal(t, []string{"http=:8080,HTTP", "proxy=:9443,PROXY"}, listeners(varnish.Args),
+		"the listener must sit on the port the container declares")
+	var declared int32
+	for _, p := range varnish.Ports {
+		if p.Name == "proxy" {
+			declared = p.ContainerPort
+		}
+	}
+	assert.Equal(t, int32(9443), declared)
 }
 
 // --- varnish container env: MALLOC_CONF default and spec.pod.env (issue #114) ---
@@ -491,12 +579,11 @@ func TestReconcileStatefulSet_DefaultEnv(t *testing.T) {
 	}
 	varnish := varnishContainer(t, getStatefulSet(t, vc))
 
-	require.Len(t, varnish.Env, 2)
-	assert.Equal(t, corev1.EnvVar{Name: "VARNISH_HTTP_PORT", Value: strconv.Itoa(int(varnishPort))}, varnish.Env[0])
+	require.Len(t, varnish.Env, 1)
 	assert.Equal(t, corev1.EnvVar{
 		Name:  "MALLOC_CONF",
 		Value: "thp:never,background_thread:true,dirty_decay_ms:5000,muzzy_decay_ms:0,narenas:4",
-	}, varnish.Env[1], "narenas follows the CPU limit, not the request")
+	}, varnish.Env[0], "narenas follows the CPU limit, not the request")
 }
 
 func TestReconcileStatefulSet_PodEnvAppended(t *testing.T) {
@@ -516,7 +603,7 @@ func TestReconcileStatefulSet_PodEnvAppended(t *testing.T) {
 	for _, e := range varnish.Env {
 		names = append(names, e.Name)
 	}
-	assert.Equal(t, []string{"VARNISH_HTTP_PORT", "MALLOC_CONF", "TZ", "FROM_SECRET"}, names)
+	assert.Equal(t, []string{"MALLOC_CONF", "TZ", "FROM_SECRET"}, names)
 	fromSecret, _ := envValue(t, varnish, "FROM_SECRET")
 	require.NotNil(t, fromSecret.ValueFrom)
 	assert.Equal(t, "k", fromSecret.ValueFrom.SecretKeyRef.Key)
@@ -529,20 +616,9 @@ func TestReconcileStatefulSet_PodEnvOverridesMallocConf(t *testing.T) {
 			vc.Spec.Pod.Env = []corev1.EnvVar{{Name: "MALLOC_CONF", Value: value}}
 			varnish := varnishContainer(t, getStatefulSet(t, vc))
 
-			require.Len(t, varnish.Env, 2, "an override replaces the default instead of adding a second entry")
-			assert.Equal(t, corev1.EnvVar{Name: "MALLOC_CONF", Value: value}, varnish.Env[1],
+			require.Len(t, varnish.Env, 1, "an override replaces the default instead of adding a second entry")
+			assert.Equal(t, corev1.EnvVar{Name: "MALLOC_CONF", Value: value}, varnish.Env[0],
 				"the user value replaces the whole default, in place")
 		})
 	}
-}
-
-func TestReconcileStatefulSet_PodEnvCannotOverrideHTTPPort(t *testing.T) {
-	vc := exporterBaseVC()
-	vc.Spec.Pod.Env = []corev1.EnvVar{{Name: "VARNISH_HTTP_PORT", Value: "80"}}
-	varnish := varnishContainer(t, getStatefulSet(t, vc))
-
-	port, ok := envValue(t, varnish, "VARNISH_HTTP_PORT")
-	require.True(t, ok)
-	assert.Equal(t, strconv.Itoa(int(varnishPort)), port.Value)
-	assert.Len(t, varnish.Env, 2)
 }

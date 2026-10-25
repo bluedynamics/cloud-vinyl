@@ -9,7 +9,8 @@ which counters show that a cache is too small.
 
 Plan the container memory limit as the sum of:
 
-- the `malloc` storage sizes from `spec.storage`,
+- the `malloc` storage sizes from `spec.storage` (100 MB for the default
+  storage when `spec.storage` is empty),
 - the `Transient` storage, which holds uncacheable and short-lived objects
   and is unbounded by default,
 - per-thread workspaces (`thread_pool_max` threads, each with its own

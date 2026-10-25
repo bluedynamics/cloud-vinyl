@@ -91,6 +91,8 @@ type VinylCacheSpec struct {
 	VarnishParams map[string]string `json:"varnishParameters,omitempty"`
 
 	// storage configures one or more Varnish storage backends (malloc or file).
+	// When set, these are the only cache storages. When empty, varnishd
+	// creates its default storage s0 (malloc, 100 MB).
 	// +optional
 	Storage []StorageSpec `json:"storage,omitempty"`
 
@@ -651,13 +653,11 @@ type PodSpec struct {
 	// others are appended. The operator sets MALLOC_CONF to tune varnishd's
 	// jemalloc heap for a container (see the memory sizing how-to); setting
 	// MALLOC_CONF here replaces the whole value, and an empty value restores
-	// jemalloc's own defaults. VARNISH_HTTP_PORT is reserved, because the
-	// containerPort and the Services depend on it.
+	// jemalloc's own defaults.
 	// +optional
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=64
-	// +kubebuilder:validation:XValidation:rule="self.all(e, e.name != 'VARNISH_HTTP_PORT')",message="env VARNISH_HTTP_PORT is reserved by the operator"
 	Env []corev1.EnvVar `json:"env,omitempty"`
 }
 

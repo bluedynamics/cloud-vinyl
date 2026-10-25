@@ -100,6 +100,7 @@ func main() {
 	linker.OnHitParked = hitsParked.Inc
 	s := &supervisor{
 		binary:  envOrDefault("VARNISHLOG_PATH", "varnishlog"),
+		workdir: os.Getenv("VARNISH_WORKDIR"),
 		backoff: time.Second,
 		handle: func(tx *vsl.Tx) {
 			// P3: spans.BuildWithOutcome (wrapped here by linker.Build)

@@ -1510,8 +1510,7 @@ spec:
                       others are appended. The operator sets MALLOC_CONF to tune varnishd's
                       jemalloc heap for a container (see the memory sizing how-to); setting
                       MALLOC_CONF here replaces the whole value, and an empty value restores
-                      jemalloc's own defaults. VARNISH_HTTP_PORT is reserved, because the
-                      containerPort and the Services depend on it.
+                      jemalloc's own defaults.
                     items:
                       description: EnvVar represents an environment variable present
                         in a Container.
@@ -1672,9 +1671,6 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
-                    x-kubernetes-validations:
-                    - message: env VARNISH_HTTP_PORT is reserved by the operator
-                      rule: self.all(e, e.name != 'VARNISH_HTTP_PORT')
                   labels:
                     additionalProperties:
                       type: string
@@ -3845,8 +3841,10 @@ spec:
                     type: string
                 type: object
               storage:
-                description: storage configures one or more Varnish storage backends
-                  (malloc or file).
+                description: |-
+                  storage configures one or more Varnish storage backends (malloc or file).
+                  When set, these are the only cache storages. When empty, varnishd
+                  creates its default storage s0 (malloc, 100 MB).
                 items:
                   description: StorageSpec configures a Varnish storage backend.
                   properties:

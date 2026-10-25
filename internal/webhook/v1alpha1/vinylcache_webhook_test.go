@@ -160,17 +160,6 @@ var _ = Describe("VinylCache Webhook", func() {
 			Expect(err.Error()).To(ContainSubstring(`varnishParameters key "cc_command" is not allowed`))
 		})
 
-		// spec.pod.env carries the same kind of CEL backstop for the reserved
-		// VARNISH_HTTP_PORT, so it must fire before the webhook does.
-		It("rejects a reserved spec.pod.env name via the CRD's CEL rule, without reaching the webhook", func() {
-			vc := minimalAdmissibleVC("cel-env-reserved")
-			vc.Spec.Pod.Env = []corev1.EnvVar{{Name: "VARNISH_HTTP_PORT", Value: "80"}}
-			err := k8sClient.Create(ctx, vc)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("env VARNISH_HTTP_PORT is reserved by the operator"))
-			Expect(err.Error()).NotTo(ContainSubstring("admission webhook"))
-		})
-
 		// A retry on a hash or fallback director would pick the same backend
 		// again, so the CRD rejects an explicit maxRetries > 0 for them (#117).
 		It("rejects retry.maxRetries > 0 for a fallback director via CEL", func() {

@@ -692,13 +692,13 @@ func TestValidate_PodEnv_Allowed(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestValidate_PodEnv_ReservedIsRejected(t *testing.T) {
+// VARNISH_HTTP_PORT was reserved while the image entrypoint read it. The
+// operator now runs varnishd itself, so the variable has no effect.
+func TestValidate_PodEnv_EntrypointVariablesAllowed(t *testing.T) {
 	vc := validBaseVinylCache()
 	vc.Spec.Pod.Env = []corev1.EnvVar{{Name: "VARNISH_HTTP_PORT", Value: "80"}}
 	_, err := webhook.ValidateVinylCache(vc)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "VARNISH_HTTP_PORT")
-	assert.Contains(t, err.Error(), "reserved")
+	assert.NoError(t, err)
 }
 
 func TestValidate_PodEnv_DuplicateIsRejected(t *testing.T) {
@@ -711,4 +711,26 @@ func TestValidate_PodEnv_DuplicateIsRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "MALLOC_CONF")
 	assert.Contains(t, err.Error(), "duplicate")
+}
+
+func TestValidate_ProxyProtocolPort(t *testing.T) {
+	vc := validBaseVinylCache()
+	vc.Spec.ProxyProtocol = vinylv1alpha1.ProxyProtocolSpec{Enabled: true, Port: 8080}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "spec.proxyProtocol.port 8080 is taken by the varnish HTTP listener")
+
+	vc.Spec.ProxyProtocol.Port = 8081
+	_, err = webhook.ValidateVinylCache(vc)
+	assert.NoError(t, err)
+
+	vc.Spec.Monitoring.Exporter = &vinylv1alpha1.ExporterSpec{Enabled: true, Port: 8081}
+	_, err = webhook.ValidateVinylCache(vc)
+	require.Error(t, err, "a moved exporter port counts too")
+	assert.Contains(t, err.Error(), "spec.proxyProtocol.port 8081 is taken by the metrics exporter")
+	vc.Spec.Monitoring.Exporter = nil
+
+	vc.Spec.ProxyProtocol = vinylv1alpha1.ProxyProtocolSpec{Enabled: false, Port: 8080}
+	_, err = webhook.ValidateVinylCache(vc)
+	assert.NoError(t, err, "a disabled PROXY listener binds nothing")
 }
