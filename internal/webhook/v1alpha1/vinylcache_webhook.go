@@ -73,9 +73,9 @@ func (v *VinylCacheCustomValidator) ValidateCreate(_ context.Context, obj *vinyl
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type VinylCache.
-func (v *VinylCacheCustomValidator) ValidateUpdate(_ context.Context, _, newObj *vinylv1alpha1.VinylCache) (admission.Warnings, error) {
+func (v *VinylCacheCustomValidator) ValidateUpdate(_ context.Context, oldObj, newObj *vinylv1alpha1.VinylCache) (admission.Warnings, error) {
 	vinylcachelog.Info("Validation for VinylCache upon update", "name", newObj.GetName())
-	return internalwebhook.ValidateVinylCache(newObj)
+	return internalwebhook.ValidateVinylCacheUpdate(oldObj, newObj)
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type VinylCache.

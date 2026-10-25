@@ -734,3 +734,58 @@ func TestValidate_ProxyProtocolPort(t *testing.T) {
 	_, err = webhook.ValidateVinylCache(vc)
 	assert.NoError(t, err, "a disabled PROXY listener binds nothing")
 }
+
+// --- spec.volumeClaimTemplates immutability on update (#46) ---
+
+func claim(name, size string) corev1.PersistentVolumeClaim {
+	return corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse(size)},
+			},
+		},
+	}
+}
+
+func TestValidateUpdate_VolumeClaimTemplates(t *testing.T) {
+	cases := []struct {
+		name    string
+		old     []corev1.PersistentVolumeClaim
+		new     []corev1.PersistentVolumeClaim
+		wantErr bool
+	}{
+		{"unchanged", []corev1.PersistentVolumeClaim{claim("ssd", "10Gi")}, []corev1.PersistentVolumeClaim{claim("ssd", "10Gi")}, false},
+		{"same size, other notation", []corev1.PersistentVolumeClaim{claim("ssd", "1Gi")}, []corev1.PersistentVolumeClaim{claim("ssd", "1024Mi")}, false},
+		{"none before and after", nil, []corev1.PersistentVolumeClaim{}, false},
+		{"size changed", []corev1.PersistentVolumeClaim{claim("ssd", "10Gi")}, []corev1.PersistentVolumeClaim{claim("ssd", "20Gi")}, true},
+		{"template added", nil, []corev1.PersistentVolumeClaim{claim("ssd", "10Gi")}, true},
+		{"template removed", []corev1.PersistentVolumeClaim{claim("ssd", "10Gi")}, nil, true},
+		{"template renamed", []corev1.PersistentVolumeClaim{claim("ssd", "10Gi")}, []corev1.PersistentVolumeClaim{claim("nvme", "10Gi")}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			oldVC := validBaseVinylCache()
+			oldVC.Spec.VolumeClaimTemplates = tc.old
+			newVC := validBaseVinylCache()
+			newVC.Spec.VolumeClaimTemplates = tc.new
+			_, err := webhook.ValidateVinylCacheUpdate(oldVC, newVC)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "spec.volumeClaimTemplates is immutable")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateUpdate_StillRunsTheCommonChecks(t *testing.T) {
+	oldVC := validBaseVinylCache()
+	newVC := validBaseVinylCache()
+	newVC.Spec.VarnishParams = map[string]string{"cc_command": "gcc"}
+	_, err := webhook.ValidateVinylCacheUpdate(oldVC, newVC)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `varnishParameters key "cc_command" is not allowed`)
+}

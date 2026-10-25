@@ -26,6 +26,7 @@ import (
 	"unicode"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
@@ -276,6 +277,29 @@ func ValidateVinylCache(vc *vinylv1alpha1.VinylCache) (admission.Warnings, error
 		return nil, fmt.Errorf("%s", strings.Join(errs, "; "))
 	}
 	return nil, nil
+}
+
+// ValidateVinylCacheUpdate validates an update: everything ValidateVinylCache
+// checks on the new object, plus the rules that need the old one.
+func ValidateVinylCacheUpdate(old, vc *vinylv1alpha1.VinylCache) (admission.Warnings, error) {
+	warnings, err := ValidateVinylCache(vc)
+	var errs []string
+	if err != nil {
+		errs = append(errs, err.Error())
+	}
+	// A StatefulSet's volumeClaimTemplates cannot change after creation, so
+	// an edit here would fail every later reconcile (#46). Semantic
+	// equality treats 1Gi and 1024Mi, and nil and empty, as the same.
+	if !equality.Semantic.DeepEqual(old.Spec.VolumeClaimTemplates, vc.Spec.VolumeClaimTemplates) {
+		errs = append(errs, "spec.volumeClaimTemplates is immutable after creation, as on a StatefulSet. "+
+			"Existing PVCs outlive the VinylCache and are reused when it is recreated, so to change "+
+			"their size resize the PVCs directly (if the StorageClass allows expansion), or delete "+
+			"the VinylCache and its PVCs and create it again")
+	}
+	if len(errs) > 0 {
+		return warnings, fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return warnings, nil
 }
 
 // validateProxyProtocolPort rejects a PROXY listener on a port the operator

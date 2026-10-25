@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -90,6 +91,35 @@ var _ = Describe("VinylCache Webhook", func() {
 	})
 
 	Context("When creating or updating VinylCache under Validating Webhook", func() {
+		// The StatefulSet's volumeClaimTemplates are immutable, so the webhook
+		// has to compare against the stored object (#46). Only a real update
+		// proves that ValidateUpdate gets the old object at all.
+		It("rejects an edit to spec.volumeClaimTemplates but admits other updates", func() {
+			vc := minimalAdmissibleVC("vct-immutable")
+			vc.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{{
+				ObjectMeta: metav1.ObjectMeta{Name: "cache-ssd"},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("10Gi")},
+					},
+				},
+			}}
+			Expect(k8sClient.Create(ctx, vc)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, vc))).To(Succeed())
+			})
+
+			vc.Spec.Replicas = 2
+			Expect(k8sClient.Update(ctx, vc)).To(Succeed(), "an update that leaves the templates alone is fine")
+
+			vc.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("20Gi")
+			err := k8sClient.Update(ctx, vc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("admission webhook"))
+			Expect(err.Error()).To(ContainSubstring("spec.volumeClaimTemplates is immutable"))
+		})
+
 		It("denies tracing enabled without an OTLP endpoint", func() {
 			vc := minimalAdmissibleVC("traced-invalid")
 			vc.Spec.Tracing = vinylv1alpha1.TracingSpec{Enabled: true}
