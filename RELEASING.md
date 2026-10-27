@@ -14,9 +14,12 @@ The project follows semantic versioning, derived from the conventional commit ty
 since the previous tag:
 
 ```bash
-git log --format="%s" $(git describe --tags --abbrev=0)..main --no-merges \
+git log --format="%s" $(git describe --tags --abbrev=0 --exclude '*-*')..main --no-merges \
   | grep -oE "^[a-z]+" | sort | uniq -c | sort -rn
 ```
+
+`--exclude '*-*'` skips release candidates, so the comparison is against the last final
+release.
 
 A `feat` means a minor bump, `fix` alone means a patch bump. Breaking changes are a
 major bump, but note that goreleaser's changelog does not detect `!` or
@@ -37,6 +40,30 @@ git tag v0.6.0
 git push origin v0.6.0
 ```
 
+## Release candidates
+
+A release candidate is a tag with a SemVer pre-release suffix: `v1.0.0-rc.1`, then
+`v1.0.0-rc.2` and so on. Use exactly that form. `v1.0.0rc1` is not SemVer, and the Helm
+chart could not be packaged with it.
+
+The workflow treats such a tag differently in three places:
+
+- The images get `:1.0.0-rc.1`, but `:latest` stays on the last final release.
+- goreleaser publishes a GitHub *pre-release*, so the rc does not become the latest
+  release.
+- The chart is pushed as `1.0.0-rc.1`. Helm ignores pre-release versions unless asked, so
+  install the rc with `--version 1.0.0-rc.1` (or `--devel`).
+
+The final `v1.0.0` then gets release notes against the previous final release, not
+against the last rc. The workflow sets `GORELEASER_PREVIOUS_TAG` for that.
+
+```bash
+git tag v1.0.0-rc.1
+git push origin v1.0.0-rc.1
+
+helm install cloud-vinyl oci://ghcr.io/bluedynamics/charts/cloud-vinyl --version 1.0.0-rc.1
+```
+
 ## What the workflow does
 
 Five jobs, in this order:
@@ -46,7 +73,7 @@ Five jobs, in this order:
    `linux/amd64` and `linux/arm64`, four jobs in a matrix, pushing per-arch tags like
    `:0.6.0-linux-amd64`. The arm64 jobs run on `ubuntu-24.04-arm`, not under emulation.
 3. **`docker-manifest`** joins the per-arch tags into multi-arch manifests and publishes
-   both `:0.6.0` and `:latest`.
+   both `:0.6.0` and `:latest`, or only the version for a release candidate.
 4. **`release`** runs goreleaser, which builds the binaries, generates the changelog and
    creates the GitHub release.
 5. **`helm-chart`** rewrites `version` and `appVersion` in `Chart.yaml` from the tag,
