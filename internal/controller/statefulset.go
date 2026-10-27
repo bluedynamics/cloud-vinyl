@@ -54,6 +54,19 @@ const (
 	// on the varnish container itself (read-write, for the VSM/VSL) and on
 	// the exporter and tracer sidecars (read-only).
 	varnishWorkdirMountPath = "/var/lib/varnish"
+	// varnishWorkdir is varnishd's instance directory (-n). It is passed to
+	// varnishd and to both sidecars explicitly instead of relying on the
+	// compiled-in default, which differs between builds (Vinyl Cache uses
+	// /var/lib/vinyl-cache/vinyld).
+	varnishWorkdir = varnishWorkdirMountPath + "/varnishd"
+	// bootstrapVCLPath is where the bootstrap VCL ConfigMap is mounted and
+	// what varnishd loads with -f at startup.
+	bootstrapVCLPath = "/etc/varnish/default.vcl"
+	// varnishAdminAddr is the -T admin CLI listener the agent connects to.
+	varnishAdminAddr = "127.0.0.1:6082"
+	// defaultProxyProtocolPort is the PROXY listener's port when
+	// spec.proxyProtocol is enabled without a port.
+	defaultProxyProtocolPort = int32(8081)
 )
 
 const (
@@ -112,24 +125,14 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 		// Merge user-defined pod labels.
 		maps.Copy(podLabels, vc.Spec.Pod.Labels)
 
-		// Build Varnish container.
-		// The stock varnish image entrypoint passes extra args to varnishd.
-		// We need -T (admin CLI) and -S (shared secret) for the agent sidecar.
-		varnishArgs := []string{
-			"-j", "none",
-			"-T", "127.0.0.1:6082",
-			"-S", varnishSecretPath,
-		}
-		// Append -s args for each spec.storage entry (after the fixed args).
-		varnishArgs = append(varnishArgs, storageArgs(vc.Spec.Storage)...)
-		// Append -p args for each spec.varnishParameters entry (after storage args).
-		varnishArgs = append(varnishArgs, varnishParamArgs(vc.Spec.VarnishParams)...)
-
+		// Build Varnish container. The operator runs varnishd itself rather
+		// than the image entrypoint; see varnishdArgs.
 		varnishContainer := corev1.Container{
-			Name:  "varnish",
-			Image: vc.Spec.Image,
-			Args:  varnishArgs,
-			Env:   varnishEnv(vc),
+			Name:    "varnish",
+			Image:   vc.Spec.Image,
+			Command: []string{"varnishd"},
+			Args:    varnishdArgs(vc),
+			Env:     varnishEnv(vc),
 			Ports: []corev1.ContainerPort{
 				{Name: portNameCacheHTTP, ContainerPort: varnishPort, Protocol: corev1.ProtocolTCP},
 			},
@@ -155,7 +158,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 				},
 				{
 					Name:      "bootstrap-vcl",
-					MountPath: "/etc/varnish/default.vcl",
+					MountPath: bootstrapVCLPath,
 					SubPath:   "default.vcl",
 					ReadOnly:  true,
 				},
@@ -182,13 +185,9 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 
 		// Add proxy protocol port if enabled.
 		if vc.Spec.ProxyProtocol.Enabled {
-			ppPort := int32(8081)
-			if vc.Spec.ProxyProtocol.Port != 0 {
-				ppPort = vc.Spec.ProxyProtocol.Port
-			}
 			varnishContainer.Ports = append(varnishContainer.Ports, corev1.ContainerPort{
 				Name:          "proxy",
-				ContainerPort: ppPort,
+				ContainerPort: proxyProtocolPort(vc),
 				Protocol:      corev1.ProtocolTCP,
 			})
 		}
@@ -358,6 +357,10 @@ func buildExporterContainer(exp *v1alpha1.ExporterSpec) corev1.Container {
 	return corev1.Container{
 		Name:  "vinyl-exporter",
 		Image: image,
+		// -n is handed to varnishstat; see varnishWorkdir. The listen
+		// address follows spec.monitoring.exporter.port, which the
+		// containerPort and the exporter NetworkPolicy already use.
+		Args: []string{"-n", varnishWorkdir, "-web.listen-address", fmt.Sprintf(":%d", port)},
 		Ports: []corev1.ContainerPort{
 			{Name: "exporter", ContainerPort: port, Protocol: corev1.ProtocolTCP},
 		},
@@ -398,6 +401,7 @@ func buildTracerContainer(vc *v1alpha1.VinylCache) corev1.Container {
 			{Name: "OTLP_PROTOCOL", Value: protocol},
 			{Name: "OTLP_INSECURE", Value: strconv.FormatBool(tr.OTLP.Insecure)},
 			{Name: "TRACER_SERVICE_NAME", Value: service},
+			{Name: "VARNISH_WORKDIR", Value: varnishWorkdir},
 		},
 		Ports: []corev1.ContainerPort{
 			{Name: "tracer-metrics", ContainerPort: tracerMetricsPort, Protocol: corev1.ProtocolTCP},
@@ -412,6 +416,55 @@ func buildTracerContainer(vc *v1alpha1.VinylCache) corev1.Container {
 		},
 		Resources: tr.Resources,
 	}
+}
+
+// varnishdArgs returns varnishd's full argument list. The operator sets the
+// container command to varnishd instead of running the image entrypoint,
+// because the docker-library entrypoint added arguments the operator did not
+// control:
+//   - its own -s malloc,$VARNISH_SIZE, a hidden 100 MB storage s0 that took
+//     most allocations next to spec.storage (#113) and collided with a
+//     storage named s0 (#44);
+//   - its listeners, independent of spec.proxyProtocol.
+//
+// Other images have no such entrypoint at all. The image only needs varnishd
+// on its PATH.
+//
+// Without spec.storage, no -s is passed and varnishd creates its default
+// storage s0 (malloc, 100 MB), the same size the entrypoint used.
+func varnishdArgs(vc *v1alpha1.VinylCache) []string {
+	args := []string{
+		"-F",
+		"-f", bootstrapVCLPath,
+		"-n", varnishWorkdir,
+		"-a", fmt.Sprintf("http=:%d,HTTP", varnishPort),
+	}
+	if vc.Spec.ProxyProtocol.Enabled {
+		args = append(args, "-a", fmt.Sprintf("proxy=:%d,PROXY", proxyProtocolPort(vc)))
+	}
+	args = append(args,
+		// The pods run as UID 65532; the default jail needs root.
+		"-j", "none",
+		// Admin CLI and shared secret for the agent sidecar.
+		"-T", varnishAdminAddr,
+		"-S", varnishSecretPath,
+		// The entrypoint enabled HTTP/2, so caches keep it. -p feature
+		// values accumulate and spec.varnishParameters comes later, so
+		// {feature: "-http2"} there turns it off again.
+		"-p", "feature=+http2",
+	)
+	args = append(args, storageArgs(vc.Spec.Storage)...)
+	args = append(args, varnishParamArgs(vc.Spec.VarnishParams)...)
+	return args
+}
+
+// proxyProtocolPort is the PROXY listener's port: spec.proxyProtocol.port,
+// or defaultProxyProtocolPort when unset.
+func proxyProtocolPort(vc *v1alpha1.VinylCache) int32 {
+	if vc.Spec.ProxyProtocol.Port != 0 {
+		return vc.Spec.ProxyProtocol.Port
+	}
+	return defaultProxyProtocolPort
 }
 
 // storageArgs renders spec.storage entries as varnishd "-s <name>=<type>,..."
@@ -440,10 +493,6 @@ func storageArgs(storage []v1alpha1.StorageSpec) []string {
 }
 
 const (
-	// envVarnishHTTPPort overrides the stock varnish image's default port (80)
-	// to match the containerPort and Service definitions. Reserved: users
-	// cannot set it through spec.pod.env.
-	envVarnishHTTPPort = "VARNISH_HTTP_PORT"
 	// envMallocConf is read by jemalloc, which varnishd links in the stock
 	// image. Other allocators ignore it.
 	envMallocConf = "MALLOC_CONF"
@@ -481,18 +530,13 @@ func defaultMallocConf(res corev1.ResourceRequirements) string {
 
 // varnishEnv builds the varnish container's environment: the operator defaults
 // followed by spec.pod.env. A user entry named like a default replaces it in
-// place, which keeps the order stable across reconciles. VARNISH_HTTP_PORT is
-// rejected by the webhook and by CEL; skipping it here is belt and braces.
+// place, which keeps the order stable across reconciles.
 func varnishEnv(vc *v1alpha1.VinylCache) []corev1.EnvVar {
 	env := []corev1.EnvVar{
-		{Name: envVarnishHTTPPort, Value: fmt.Sprintf("%d", varnishPort)},
 		{Name: envMallocConf, Value: defaultMallocConf(vc.Spec.Resources)},
 	}
 	defaults := len(env)
 	for _, e := range vc.Spec.Pod.Env {
-		if e.Name == envVarnishHTTPPort {
-			continue
-		}
 		replaced := false
 		for i := range defaults {
 			if env[i].Name == e.Name {

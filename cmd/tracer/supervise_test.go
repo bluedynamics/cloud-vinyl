@@ -45,3 +45,9 @@ func TestSupervise_ParsesOutputAndRestartsOnExit(t *testing.T) {
 	s.run(ctx)
 	assert.GreaterOrEqual(t, groups, 2, "fixture has two request groups")
 }
+
+func TestVarnishlogArgs(t *testing.T) {
+	assert.Equal(t, []string{"-g", "request", "-t", "off"}, varnishlogArgs(""))
+	assert.Equal(t, []string{"-g", "request", "-t", "off", "-n", "/var/lib/varnish/varnishd"},
+		varnishlogArgs("/var/lib/varnish/varnishd"))
+}

@@ -49,8 +49,10 @@ func stderrOf(err error) string {
 	return ""
 }
 
-// startVarnishd boots varnishd with the exact arguments the operator generates
-// and returns the host address of its admin CLI.
+// startVarnishd boots varnishd the way the operator does, with varnishd as the
+// command instead of the image entrypoint, and returns the host address of its
+// admin CLI. -T listens on all addresses, unlike in the pod, so the test can
+// publish it.
 func startVarnishd(t *testing.T) string {
 	t.Helper()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -80,8 +82,10 @@ func startVarnishd(t *testing.T) string {
 		"-p", "127.0.0.1::6082",
 		"-v", secretPath+":/etc/varnish/secret:ro",
 		"-v", vclPath+":/etc/varnish/default.vcl:ro",
-		"-e", "VARNISH_HTTP_PORT=8080",
+		"--entrypoint", "varnishd",
 		varnishImage(),
+		"-F", "-f", "/etc/varnish/default.vcl",
+		"-a", "http=:8080,HTTP",
 		"-n", "vinyl", "-j", "none",
 		"-T", "0.0.0.0:6082", "-S", "/etc/varnish/secret",
 		"-s", "default=malloc,104857600",

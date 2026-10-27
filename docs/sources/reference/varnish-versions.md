@@ -90,7 +90,12 @@ release build bundles `varnishlog` 9.1.0. With `spec.tracing` enabled, run a
 
 | Requirement | Reason |
 |-------------|--------|
+| `varnishd` on `PATH` | The operator sets the container command to `varnishd` and passes every flag itself, including `-F`, `-f`, `-a`, `-n` and `-s`. The image's entrypoint does not run, so its environment variables (`VARNISH_HTTP_PORT`, `VARNISH_SIZE` and so on) have no effect. |
 | `vcl 4.1` | The generated VCL and the bootstrap VCL both declare `vcl 4.1`. |
 | `-j none` | The pods run as UID 65532. The default jail requires root for chroot setup. |
 
-Both are satisfied by every version in the support matrix above.
+All three are satisfied by every version in the support matrix above.
+
+varnishd's instance directory is `/var/lib/varnish/varnishd`, passed as `-n`
+to varnishd and to both sidecars. HTTP/2 is enabled with `-p feature=+http2`;
+`varnishParameters: {feature: "-http2"}` turns it off.

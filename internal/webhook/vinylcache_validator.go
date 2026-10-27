@@ -70,10 +70,15 @@ var reservedVolumeNames = map[string]bool{
 	"bootstrap-vcl":   true,
 }
 
-// reservedEnvNames are set by the operator on the varnish container and
-// cannot be overridden through spec.pod.env.
-var reservedEnvNames = map[string]bool{
-	"VARNISH_HTTP_PORT": true,
+// reservedPodPorts are the fixed ports the operator binds in every pod. The
+// containers share the pod's network namespace, so a PROXY listener on one of
+// them keeps varnishd from starting.
+var reservedPodPorts = map[int32]string{
+	8080: "the varnish HTTP listener",
+	6082: "the varnishd admin CLI",
+	9090: "the vinyl-agent",
+	9131: "the metrics exporter",
+	9464: "the tracer metrics endpoint",
 }
 
 // reservedMountPaths are owned by the operator. spec.pod.volumeMounts
@@ -135,7 +140,8 @@ func pathConflictsWithReserved(p string) bool {
 //   - storage type blocklist and reserved storage names
 //   - backend name VCL identifier conformance
 //   - allowedSources CIDR syntax for purge, BAN, and xkey invalidation
-//   - spec.pod.env reserved and duplicate names
+//   - spec.pod.env duplicate names
+//   - spec.proxyProtocol.port not colliding with a port the operator binds
 //   - tracing.otlp.endpoint required and host:port formatted when tracing is enabled
 func ValidateVinylCache(vc *vinylv1alpha1.VinylCache) (admission.Warnings, error) {
 	var errs []string
@@ -244,6 +250,8 @@ func ValidateVinylCache(vc *vinylv1alpha1.VinylCache) (admission.Warnings, error
 
 	errs = append(errs, validatePodEnv(vc.Spec.Pod.Env)...)
 
+	errs = append(errs, validateProxyProtocolPort(vc)...)
+
 	// Validate spec.storage[].path does not write into a reserved mount.
 	for _, s := range vc.Spec.Storage {
 		if s.Type == "file" && pathIsReserved(s.Path) {
@@ -270,18 +278,28 @@ func ValidateVinylCache(vc *vinylv1alpha1.VinylCache) (admission.Warnings, error
 	return nil, nil
 }
 
-// validatePodEnv checks spec.pod.env: VARNISH_HTTP_PORT is owned by the
-// operator, and a duplicate name would leave it to the kubelet which value
-// wins.
+// validateProxyProtocolPort rejects a PROXY listener on a port the operator
+// already binds in the pod, which would keep varnishd from starting.
+func validateProxyProtocolPort(vc *vinylv1alpha1.VinylCache) []string {
+	pp := vc.Spec.ProxyProtocol
+	if !pp.Enabled {
+		return nil
+	}
+	if what, taken := reservedPodPorts[pp.Port]; taken {
+		return []string{fmt.Sprintf("spec.proxyProtocol.port %d is taken by %s", pp.Port, what)}
+	}
+	if exp := vc.Spec.Monitoring.Exporter; exp != nil && exp.Enabled && exp.Port == pp.Port {
+		return []string{fmt.Sprintf("spec.proxyProtocol.port %d is taken by the metrics exporter", pp.Port)}
+	}
+	return nil
+}
+
+// validatePodEnv checks spec.pod.env for duplicate names, which would leave
+// it to the kubelet which value wins.
 func validatePodEnv(env []corev1.EnvVar) []string {
 	var errs []string
 	seen := make(map[string]bool, len(env))
 	for _, e := range env {
-		if reservedEnvNames[e.Name] {
-			errs = append(errs, fmt.Sprintf(
-				"spec.pod.env[%q]: name is reserved by the operator", e.Name))
-			continue
-		}
 		if seen[e.Name] {
 			errs = append(errs, fmt.Sprintf(
 				"spec.pod.env[%q]: duplicate env name", e.Name))

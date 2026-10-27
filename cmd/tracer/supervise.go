@@ -52,6 +52,7 @@ var (
 // onGroup/onRestart are test seams and metrics hooks.
 type supervisor struct {
 	binary    string
+	workdir   string        // varnishd -n instance directory; empty uses the build default
 	backoff   time.Duration // initial; doubles to a 30s cap, resets on output
 	handle    func(*vsl.Tx)
 	onGroup   func()
@@ -65,9 +66,7 @@ func (s *supervisor) run(ctx context.Context) {
 		if s.onRestart != nil {
 			s.onRestart()
 		}
-		// -t off: wait for the VSM indefinitely, so the sidecar starting
-		// before varnishd is not an error.
-		cmd := exec.CommandContext(ctx, s.binary, "-g", "request", "-t", "off")
+		cmd := exec.CommandContext(ctx, s.binary, varnishlogArgs(s.workdir)...)
 		cmd.Stderr = os.Stderr
 		out, err := cmd.StdoutPipe()
 		if err == nil {
@@ -101,4 +100,16 @@ func (s *supervisor) run(ctx context.Context) {
 			backoff = 30 * time.Second
 		}
 	}
+}
+
+// varnishlogArgs returns the varnishlog arguments. -t off waits for the VSM
+// indefinitely, so the sidecar starting before varnishd is not an error. The
+// flip side is that a wrong instance directory also just waits, silently, so
+// the operator passes varnishd's -n explicitly.
+func varnishlogArgs(workdir string) []string {
+	args := []string{"-g", "request", "-t", "off"}
+	if workdir != "" {
+		args = append(args, "-n", workdir)
+	}
+	return args
 }
