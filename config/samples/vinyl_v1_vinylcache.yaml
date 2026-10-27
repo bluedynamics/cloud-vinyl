@@ -1,11 +1,13 @@
-apiVersion: vinyl.bluedynamics.eu/v1alpha1
+apiVersion: vinyl.bluedynamics.eu/v1
 kind: VinylCache
 metadata:
   name: vinylcache-sample
   namespace: default
 spec:
   replicas: 2
+  image: varnish:9.1.0
   backends:
     - name: app
-      host: app-service.default.svc.cluster.local
+      serviceRef:
+        name: app-service
       port: 8080

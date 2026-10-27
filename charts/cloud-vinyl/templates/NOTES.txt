@@ -7,7 +7,7 @@ To verify the operator is running:
   kubectl get deployment -n {{ .Release.Namespace }} {{ include "cloud-vinyl.fullname" . }}
 
 To create a VinylCache cluster, apply a VinylCache resource:
-  kubectl apply -f https://raw.githubusercontent.com/bluedynamics/cloud-vinyl/main/config/samples/vinyl_v1alpha1_vinylcache.yaml
+  kubectl apply -f https://raw.githubusercontent.com/bluedynamics/cloud-vinyl/main/config/samples/vinyl_v1_vinylcache.yaml
 
 To check the CRD is installed:
   kubectl get crd vinylcaches.vinyl.bluedynamics.eu

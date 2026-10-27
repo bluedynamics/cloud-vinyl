@@ -17,7 +17,7 @@ sidecar that surfaces the cache hit rate.
 Add a `monitoring` section to the spec:
 
 ```yaml
-apiVersion: vinyl.bluedynamics.eu/v1alpha1
+apiVersion: vinyl.bluedynamics.eu/v1
 kind: VinylCache
 metadata:
   name: my-cache

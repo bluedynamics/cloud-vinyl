@@ -46,7 +46,7 @@ Two backends in one cache cluster — a Plone origin (sticky) and a
 stateless API (round-robin):
 
 ```yaml
-apiVersion: vinyl.bluedynamics.eu/v1alpha1
+apiVersion: vinyl.bluedynamics.eu/v1
 kind: VinylCache
 metadata:
   name: my-cache

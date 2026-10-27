@@ -9,7 +9,7 @@ This guide shows how to back the spill file with (1) an EmptyDir with an explici
 Useful when you want to cap cache disk use and isolate it from node ephemeral capacity, without per-pod persistence.
 
 ```yaml
-apiVersion: vinyl.bluedynamics.eu/v1alpha1
+apiVersion: vinyl.bluedynamics.eu/v1
 kind: VinylCache
 metadata:
   name: my-cache
@@ -46,7 +46,7 @@ The file lives on node ephemeral storage, but capped at 60 GiB regardless of how
 Useful for persistence across pod restarts (faster warmup after a roll), or for isolating cache I/O onto a dedicated SSD StorageClass (`hcloud-volumes`, `gp3`, a CSI-driver-provisioned NVMe, etc.):
 
 ```yaml
-apiVersion: vinyl.bluedynamics.eu/v1alpha1
+apiVersion: vinyl.bluedynamics.eu/v1
 kind: VinylCache
 metadata:
   name: my-cache
