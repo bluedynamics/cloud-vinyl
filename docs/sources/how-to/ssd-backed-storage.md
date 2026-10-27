@@ -85,6 +85,14 @@ The StatefulSet creates one PVC per replica — `cache-ssd-my-cache-0`, `cache-s
 
 Make sure `spec.storage[].size` is well under the PVC size (Varnish needs filesystem overhead — allow ~20%).
 
+### Changing the claim templates later
+
+`spec.volumeClaimTemplates` cannot be edited once the VinylCache exists, just like a
+StatefulSet's, and the admission webhook rejects the change. The PVCs also outlive the
+VinylCache: a recreated cache binds the existing claims again, at their old size. To grow
+the volumes, resize the PVCs directly if the StorageClass allows volume expansion.
+Otherwise, delete the VinylCache and its PVCs and create it again.
+
 ## Reserved names and paths
 
 These names cannot be used for your volumes (they collide with operator-managed volumes):
