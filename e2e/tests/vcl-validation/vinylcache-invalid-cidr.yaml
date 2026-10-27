@@ -3,7 +3,7 @@
 # The CRD schema types allowedSources as a plain []string with no pattern, so
 # nothing rejects this before admission. Applying it therefore exercises the
 # webhook itself, which is the point of the test that uses it.
-apiVersion: vinyl.bluedynamics.eu/v1alpha1
+apiVersion: vinyl.bluedynamics.eu/v1
 kind: VinylCache
 metadata:
   name: invalid-cidr-test

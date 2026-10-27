@@ -1,0 +1,94 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: v1alpha1-compat
+  labels:
+    suite: full
+spec:
+  description: |
+    vinyl.bluedynamics.eu/v1alpha1 stays served, deprecated, for the 1.x
+    series (#122). A VinylCache created and updated through it must
+    reconcile like one created through v1, since the operator only reads v1.
+  timeouts:
+    assert: 120s
+    delete: 60s
+  steps:
+    - name: deploy-backend
+      try:
+        - apply:
+            file: ../../fixtures/backends/echo-service.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-backend
+              status:
+                readyReplicas: 1
+
+    - name: create-through-v1alpha1
+      description: Create through the deprecated version, read back as v1 once Ready.
+      try:
+        - apply:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: alpha-cache
+              spec:
+                replicas: 1
+                image: varnish:9.1.0
+                backends:
+                  - name: echo
+                    serviceRef:
+                      name: echo-backend
+                    port: 80
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1
+              kind: VinylCache
+              metadata:
+                name: alpha-cache
+              spec:
+                director:
+                  type: shard
+              status:
+                phase: Ready
+                (conditions[?type == 'VCLSynced'].status | [0]): "True"
+
+    - name: update-through-v1alpha1
+      description: An update through v1alpha1 is reconciled too.
+      try:
+        - patch:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              metadata:
+                name: alpha-cache
+              spec:
+                debounce:
+                  duration: "2s"
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1
+              kind: VinylCache
+              metadata:
+                name: alpha-cache
+              spec:
+                debounce:
+                  duration: 2s
+              status:
+                phase: Ready
+
+    - name: delete-through-v1alpha1
+      try:
+        - delete:
+            ref:
+              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              kind: VinylCache
+              name: alpha-cache
+
+    - name: cleanup-backend
+      try:
+        - delete:
+            file: ../../fixtures/backends/echo-service.yaml

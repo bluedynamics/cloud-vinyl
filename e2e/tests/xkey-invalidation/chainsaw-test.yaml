@@ -33,7 +33,7 @@ spec:
             file: ../../fixtures/vinylcaches/full-featured.yaml
         - assert:
             resource:
-              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              apiVersion: vinyl.bluedynamics.eu/v1
               kind: VinylCache
               metadata:
                 name: my-cache
