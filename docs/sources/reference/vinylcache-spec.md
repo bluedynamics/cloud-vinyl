@@ -162,8 +162,8 @@ varnishParameters:
 |-------|------|---------|-------------|
 | `purge.soft` | boolean | `true` | Use soft purge (stale-while-revalidate). |
 | `purge.allowedSources` | list | `[]` | CIDRs permitted to send `PURGE`. `127.0.0.1` and the operator pod IP are always included. |
-| `xkey` | object | nil | Xkey (surrogate key) configuration. When set, `vmod_xkey` is loaded. |
-| `xkey.softPurge` | boolean | `true` | Use soft purge for xkey invalidation. |
+| `xkey` | object | nil | Xkey (surrogate key) configuration. |
+| `xkey.enabled` | boolean | `false` | Loads `vmod_xkey` and handles xkey `PURGE` requests. The operator's invalidation API purges keys hard. |
 | `ban.enabled` | boolean | `false` | When `true`, emit a `vinyl_ban_allowed` ACL and a `BAN` handler in `vcl_recv` that dispatches `std.ban(req.http.X-Vinyl-Ban)`. Also emits ban-lurker-friendly `x-url`/`x-host` headers on stored objects. |
 | `ban.allowedSources` | list | `[]` | CIDRs permitted to send `BAN` (in addition to `127.0.0.1` and the operator pod IP). |
 | `ban.rateLimitPerMinute` | integer | `0` | Inert in v0.4.2 — field is accepted but not enforced; rate-limiting is tracked as follow-up work. |
@@ -220,7 +220,7 @@ spec:
     purge:
       soft: true
     xkey:
-      softPurge: true
+      enabled: true
   debounce:
     duration: 1s
   retry:

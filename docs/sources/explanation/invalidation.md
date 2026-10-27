@@ -86,7 +86,7 @@ Xkey requires the `vmod_xkey` Varnish module. Enable it in the spec:
 spec:
   invalidation:
     xkey:
-      softPurge: true  # default
+      enabled: true
 ```
 
 ## ACLs

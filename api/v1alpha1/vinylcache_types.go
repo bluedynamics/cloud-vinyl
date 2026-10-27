@@ -510,14 +510,10 @@ type BANSpec struct {
 
 // XkeySpec configures xkey surrogate-key invalidation (requires vmod_xkey).
 type XkeySpec struct {
-	// enabled activates xkey-based invalidation.
+	// enabled activates xkey-based invalidation. The operator's invalidation
+	// API purges xkey keys hard, removing the tagged objects.
 	// +optional
 	Enabled bool `json:"enabled,omitempty"`
-
-	// softPurge enables soft purging via xkey.
-	// +optional
-	// +kubebuilder:default=true
-	SoftPurge *bool `json:"softPurge,omitempty"`
 
 	// allowedSources is a list of CIDR ranges permitted to send xkey invalidation requests.
 	// +optional
