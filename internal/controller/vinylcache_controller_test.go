@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 )
 
@@ -51,7 +51,7 @@ var _ = Describe("VinylCache Controller", func() {
 			Name:      resourceName,
 			Namespace: "default", // TODO(user):Modify as needed
 		}
-		vinylcache := &vinylv1alpha1.VinylCache{}
+		vinylcache := &vinylv1.VinylCache{}
 
 		BeforeEach(func() {
 			By("creating the backend service")
@@ -75,19 +75,19 @@ var _ = Describe("VinylCache Controller", func() {
 			By("creating the custom resource for the Kind VinylCache")
 			err = k8sClient.Get(ctx, typeNamespacedName, vinylcache)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &vinylv1alpha1.VinylCache{
+				resource := &vinylv1.VinylCache{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					Spec: vinylv1alpha1.VinylCacheSpec{
+					Spec: vinylv1.VinylCacheSpec{
 						Replicas: 1,
 						Image:    "varnish:9.1.0",
-						Backends: []vinylv1alpha1.BackendSpec{
+						Backends: []vinylv1.BackendSpec{
 							{
 								Name:       "backend",
 								Port:       8080,
-								ServiceRef: vinylv1alpha1.ServiceRef{Name: "test-service"},
+								ServiceRef: vinylv1.ServiceRef{Name: "test-service"},
 							},
 						},
 					},
@@ -98,7 +98,7 @@ var _ = Describe("VinylCache Controller", func() {
 
 		AfterEach(func() {
 			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &vinylv1alpha1.VinylCache{}
+			resource := &vinylv1.VinylCache{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
 

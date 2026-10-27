@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package webhook contains the business logic for the VinylCache admission webhooks.
-// The kubebuilder scaffolding in internal/webhook/v1alpha1/ delegates to these functions,
+// The kubebuilder scaffolding in internal/webhook/v1/ delegates to these functions,
 // keeping the actual validation and defaulting logic independently testable.
 package webhook
 
@@ -29,7 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 // forbiddenVarnishParams lists varnishd -p parameters that are blocked for security reasons.
@@ -144,7 +144,7 @@ func pathConflictsWithReserved(p string) bool {
 //   - spec.pod.env duplicate names
 //   - spec.proxyProtocol.port not colliding with a port the operator binds
 //   - tracing.otlp.endpoint required and host:port formatted when tracing is enabled
-func ValidateVinylCache(vc *vinylv1alpha1.VinylCache) (admission.Warnings, error) {
+func ValidateVinylCache(vc *vinylv1.VinylCache) (admission.Warnings, error) {
 	var errs []string
 
 	// Validate varnishParameters key shape and blocklist.
@@ -281,7 +281,7 @@ func ValidateVinylCache(vc *vinylv1alpha1.VinylCache) (admission.Warnings, error
 
 // ValidateVinylCacheUpdate validates an update: everything ValidateVinylCache
 // checks on the new object, plus the rules that need the old one.
-func ValidateVinylCacheUpdate(old, vc *vinylv1alpha1.VinylCache) (admission.Warnings, error) {
+func ValidateVinylCacheUpdate(old, vc *vinylv1.VinylCache) (admission.Warnings, error) {
 	warnings, err := ValidateVinylCache(vc)
 	var errs []string
 	if err != nil {
@@ -304,7 +304,7 @@ func ValidateVinylCacheUpdate(old, vc *vinylv1alpha1.VinylCache) (admission.Warn
 
 // validateProxyProtocolPort rejects a PROXY listener on a port the operator
 // already binds in the pod, which would keep varnishd from starting.
-func validateProxyProtocolPort(vc *vinylv1alpha1.VinylCache) []string {
+func validateProxyProtocolPort(vc *vinylv1.VinylCache) []string {
 	pp := vc.Spec.ProxyProtocol
 	if !pp.Enabled {
 		return nil
@@ -334,21 +334,21 @@ func validatePodEnv(env []corev1.EnvVar) []string {
 	return errs
 }
 
-func purgeAllowedSources(vc *vinylv1alpha1.VinylCache) []string {
+func purgeAllowedSources(vc *vinylv1.VinylCache) []string {
 	if vc.Spec.Invalidation.Purge == nil {
 		return nil
 	}
 	return vc.Spec.Invalidation.Purge.AllowedSources
 }
 
-func banAllowedSources(vc *vinylv1alpha1.VinylCache) []string {
+func banAllowedSources(vc *vinylv1.VinylCache) []string {
 	if vc.Spec.Invalidation.BAN == nil {
 		return nil
 	}
 	return vc.Spec.Invalidation.BAN.AllowedSources
 }
 
-func xkeyAllowedSources(vc *vinylv1alpha1.VinylCache) []string {
+func xkeyAllowedSources(vc *vinylv1.VinylCache) []string {
 	if vc.Spec.Invalidation.Xkey == nil {
 		return nil
 	}

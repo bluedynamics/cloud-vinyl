@@ -16,7 +16,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1
 
 import (
 	"context"
@@ -41,6 +41,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
@@ -68,6 +69,9 @@ var _ = BeforeSuite(func() {
 	ctx, cancel = context.WithCancel(context.TODO())
 
 	var err error
+	err = vinylv1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	// The deprecated version, so tests can send requests through it.
 	err = vinylv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 

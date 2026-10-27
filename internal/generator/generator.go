@@ -9,7 +9,7 @@ import (
 	"text/template"
 	"time"
 
-	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 //go:embed templates
@@ -22,7 +22,7 @@ type Generator interface {
 
 // Input contains everything the generator needs to produce VCL.
 type Input struct {
-	Spec      *vinylv1alpha1.VinylCacheSpec
+	Spec      *vinylv1.VinylCacheSpec
 	Peers     []PeerBackend         // cluster peers (other pods in the StatefulSet)
 	Endpoints map[string][]Endpoint // backend name -> list of endpoints
 	Namespace string                // VinylCache namespace (for VCL name)
@@ -144,7 +144,7 @@ type BackendGroup struct {
 }
 
 // DirectorInfo captures the resolved director config for a backend group.
-// It reflects the v1alpha1.DirectorSpec but is template-friendly.
+// It reflects the vinylv1.DirectorSpec but is template-friendly.
 //
 // Intentionally scoped: only fields the VCL templates consume today are captured
 // (Type, shard.Warmup, shard.Rampup). Extend this struct (and resolveDirectorInfo)
@@ -381,7 +381,7 @@ const directorShard = "shard"
 // spec.cluster.retry leaves maxRetries unset.
 const defaultFetchRetries = 1
 
-func resolveMaxRetries(r *vinylv1alpha1.FetchRetrySpec) int32 {
+func resolveMaxRetries(r *vinylv1.FetchRetrySpec) int32 {
 	if r == nil || r.MaxRetries == nil {
 		return defaultFetchRetries
 	}
@@ -402,7 +402,7 @@ func resolveMaxRetries(r *vinylv1alpha1.FetchRetrySpec) int32 {
 //     resolves anew on every attempt and usually picks another backend.
 //   - hash, fallback: deterministic, they would pick the same backend, so
 //     they never retry.
-func setGroupRetry(g *BackendGroup, b vinylv1alpha1.BackendSpec) {
+func setGroupRetry(g *BackendGroup, b vinylv1.BackendSpec) {
 	// Generate already refuses groups without endpoints; nothing to match.
 	if len(g.Backends) == 0 {
 		return
@@ -453,7 +453,7 @@ func fmtDuration(d time.Duration) string {
 
 // resolveDirectorInfo collapses a nullable per-backend DirectorSpec into a template-ready
 // DirectorInfo with defaults (shard / HASH / empty warmup/rampup).
-func resolveDirectorInfo(ds *vinylv1alpha1.DirectorSpec) DirectorInfo {
+func resolveDirectorInfo(ds *vinylv1.DirectorSpec) DirectorInfo {
 	out := DirectorInfo{Type: directorShard}
 	if ds == nil {
 		return out

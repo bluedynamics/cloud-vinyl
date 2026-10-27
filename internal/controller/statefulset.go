@@ -31,7 +31,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 // labelVinylCacheName is the label key used to identify resources belonging to a VinylCache.
@@ -102,7 +102,7 @@ const (
 )
 
 // reconcileStatefulSet creates or updates the StatefulSet for the VinylCache.
-func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vinylv1.VinylCache) error {
 	sts := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      vc.Name,
@@ -341,7 +341,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *v1a
 
 // buildExporterContainer returns the prometheus_varnish_exporter sidecar. It
 // shares the varnish-workdir volume read-only to read the VSM (varnishstat) data.
-func buildExporterContainer(exp *v1alpha1.ExporterSpec) corev1.Container {
+func buildExporterContainer(exp *vinylv1.ExporterSpec) corev1.Container {
 	image := defaultExporterImage
 	if exp.Image.Repository != "" {
 		tag := exp.Image.Tag
@@ -379,7 +379,7 @@ func buildExporterContainer(exp *v1alpha1.ExporterSpec) corev1.Container {
 // buildTracerContainer returns the vinyl-tracer sidecar. It shares the
 // varnish-workdir volume read-only to read the VSL, and exports OTLP spans
 // to the endpoint from spec.tracing.
-func buildTracerContainer(vc *v1alpha1.VinylCache) corev1.Container {
+func buildTracerContainer(vc *vinylv1.VinylCache) corev1.Container {
 	tr := vc.Spec.Tracing
 	image := os.Getenv("TRACER_IMAGE")
 	if image == "" {
@@ -432,7 +432,7 @@ func buildTracerContainer(vc *v1alpha1.VinylCache) corev1.Container {
 //
 // Without spec.storage, no -s is passed and varnishd creates its default
 // storage s0 (malloc, 100 MB), the same size the entrypoint used.
-func varnishdArgs(vc *v1alpha1.VinylCache) []string {
+func varnishdArgs(vc *vinylv1.VinylCache) []string {
 	args := []string{
 		"-F",
 		"-f", bootstrapVCLPath,
@@ -460,7 +460,7 @@ func varnishdArgs(vc *v1alpha1.VinylCache) []string {
 
 // proxyProtocolPort is the PROXY listener's port: spec.proxyProtocol.port,
 // or defaultProxyProtocolPort when unset.
-func proxyProtocolPort(vc *v1alpha1.VinylCache) int32 {
+func proxyProtocolPort(vc *vinylv1.VinylCache) int32 {
 	if vc.Spec.ProxyProtocol.Port != 0 {
 		return vc.Spec.ProxyProtocol.Port
 	}
@@ -470,7 +470,7 @@ func proxyProtocolPort(vc *v1alpha1.VinylCache) int32 {
 // storageArgs renders spec.storage entries as varnishd "-s <name>=<type>,..."
 // command-line args. See https://varnish-cache.org/docs/8.0/reference/varnishd.html#argument-list
 // for the syntax accepted by -s.
-func storageArgs(storage []v1alpha1.StorageSpec) []string {
+func storageArgs(storage []vinylv1.StorageSpec) []string {
 	if len(storage) == 0 {
 		return nil
 	}
@@ -531,7 +531,7 @@ func defaultMallocConf(res corev1.ResourceRequirements) string {
 // varnishEnv builds the varnish container's environment: the operator defaults
 // followed by spec.pod.env. A user entry named like a default replaces it in
 // place, which keeps the order stable across reconciles.
-func varnishEnv(vc *v1alpha1.VinylCache) []corev1.EnvVar {
+func varnishEnv(vc *vinylv1.VinylCache) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: envMallocConf, Value: defaultMallocConf(vc.Spec.Resources)},
 	}

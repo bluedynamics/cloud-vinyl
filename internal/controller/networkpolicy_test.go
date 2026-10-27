@@ -12,19 +12,19 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
-func netpolVC(exp *v1alpha1.ExporterSpec) *v1alpha1.VinylCache {
-	return &v1alpha1.VinylCache{
+func netpolVC(exp *vinylv1.ExporterSpec) *vinylv1.VinylCache {
+	return &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
-		Spec: v1alpha1.VinylCacheSpec{
-			Monitoring: v1alpha1.MonitoringSpec{Exporter: exp},
+		Spec: vinylv1.VinylCacheSpec{
+			Monitoring: vinylv1.MonitoringSpec{Exporter: exp},
 		},
 	}
 }
 
-func getExporterNetpol(t *testing.T, r *VinylCacheReconciler, vc *v1alpha1.VinylCache) (*networkingv1.NetworkPolicy, error) {
+func getExporterNetpol(t *testing.T, r *VinylCacheReconciler, vc *vinylv1.VinylCache) (*networkingv1.NetworkPolicy, error) {
 	t.Helper()
 	np := &networkingv1.NetworkPolicy{}
 	err := r.Get(context.Background(), types.NamespacedName{Name: vc.Name + "-exporter", Namespace: vc.Namespace}, np)
@@ -33,7 +33,7 @@ func getExporterNetpol(t *testing.T, r *VinylCacheReconciler, vc *v1alpha1.Vinyl
 
 func TestReconcileExporterNetworkPolicy_OpensPortWhenEnabled(t *testing.T) {
 	sch := newScheme(t)
-	vc := netpolVC(&v1alpha1.ExporterSpec{Enabled: true})
+	vc := netpolVC(&vinylv1.ExporterSpec{Enabled: true})
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
 
@@ -51,7 +51,7 @@ func TestReconcileExporterNetworkPolicy_OpensPortWhenEnabled(t *testing.T) {
 
 func TestReconcileExporterNetworkPolicy_CustomPort(t *testing.T) {
 	sch := newScheme(t)
-	vc := netpolVC(&v1alpha1.ExporterSpec{Enabled: true, Port: 19131})
+	vc := netpolVC(&vinylv1.ExporterSpec{Enabled: true, Port: 19131})
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
 
@@ -78,7 +78,7 @@ func TestReconcileExporterNetworkPolicy_AbsentWhenDisabled(t *testing.T) {
 
 func TestReconcileExporterNetworkPolicy_RemovedWhenToggledOff(t *testing.T) {
 	sch := newScheme(t)
-	vc := netpolVC(&v1alpha1.ExporterSpec{Enabled: true})
+	vc := netpolVC(&vinylv1.ExporterSpec{Enabled: true})
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
 
@@ -96,16 +96,16 @@ func TestReconcileExporterNetworkPolicy_RemovedWhenToggledOff(t *testing.T) {
 
 // --- tracer policy: metrics reachability (mirrors the exporter policy) ---
 
-func tracerVC(enabled bool) *v1alpha1.VinylCache {
-	return &v1alpha1.VinylCache{
+func tracerVC(enabled bool) *vinylv1.VinylCache {
+	return &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
-		Spec: v1alpha1.VinylCacheSpec{
-			Tracing: v1alpha1.TracingSpec{Enabled: enabled},
+		Spec: vinylv1.VinylCacheSpec{
+			Tracing: vinylv1.TracingSpec{Enabled: enabled},
 		},
 	}
 }
 
-func getTracerNetpol(t *testing.T, r *VinylCacheReconciler, vc *v1alpha1.VinylCache) (*networkingv1.NetworkPolicy, error) {
+func getTracerNetpol(t *testing.T, r *VinylCacheReconciler, vc *vinylv1.VinylCache) (*networkingv1.NetworkPolicy, error) {
 	t.Helper()
 	np := &networkingv1.NetworkPolicy{}
 	err := r.Get(context.Background(), types.NamespacedName{Name: vc.Name + "-tracer", Namespace: vc.Namespace}, np)
@@ -162,7 +162,7 @@ func TestReconcileTracerNetworkPolicy_RemovedWhenToggledOff(t *testing.T) {
 
 // --- agent / invalidation policies: operator reachability (issue #58) ---
 
-func getNetpol(t *testing.T, r *VinylCacheReconciler, vc *v1alpha1.VinylCache, suffix string) *networkingv1.NetworkPolicy {
+func getNetpol(t *testing.T, r *VinylCacheReconciler, vc *vinylv1.VinylCache, suffix string) *networkingv1.NetworkPolicy {
 	t.Helper()
 	np := &networkingv1.NetworkPolicy{}
 	require.NoError(t, r.Get(context.Background(),
@@ -170,7 +170,7 @@ func getNetpol(t *testing.T, r *VinylCacheReconciler, vc *v1alpha1.VinylCache, s
 	return np
 }
 
-func netpolReconciler(t *testing.T, operatorIP string) (*VinylCacheReconciler, *v1alpha1.VinylCache) {
+func netpolReconciler(t *testing.T, operatorIP string) (*VinylCacheReconciler, *vinylv1.VinylCache) {
 	t.Helper()
 	sch := newScheme(t)
 	vc := netpolVC(nil)

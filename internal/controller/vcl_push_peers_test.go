@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 // pod builds a StatefulSet member of "cache" in namespace "app".
@@ -33,7 +33,7 @@ func pod(name, ip string, phase corev1.PodPhase, ready bool) *corev1.Pod {
 	}
 }
 
-func peersFixture(t *testing.T, pods ...*corev1.Pod) (*VinylCacheReconciler, *v1alpha1.VinylCache) {
+func peersFixture(t *testing.T, pods ...*corev1.Pod) (*VinylCacheReconciler, *vinylv1.VinylCache) {
 	t.Helper()
 	sch := newScheme(t)
 	b := fake.NewClientBuilder().WithScheme(sch)
@@ -41,7 +41,7 @@ func peersFixture(t *testing.T, pods ...*corev1.Pod) (*VinylCacheReconciler, *v1
 		b = b.WithObjects(p)
 	}
 	r := &VinylCacheReconciler{Client: b.Build(), Scheme: sch}
-	vc := &v1alpha1.VinylCache{
+	vc := &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "cache", Namespace: "app"},
 	}
 	return r, vc

@@ -25,21 +25,21 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/webhook"
 )
 
 // minimalValidVC returns a VinylCache with the minimum valid configuration required
 // to pass validation (one valid backend, no blocked params or storage types).
-func minimalValidVC() *vinylv1alpha1.VinylCache {
-	return &vinylv1alpha1.VinylCache{
-		Spec: vinylv1alpha1.VinylCacheSpec{
+func minimalValidVC() *vinylv1.VinylCache {
+	return &vinylv1.VinylCache{
+		Spec: vinylv1.VinylCacheSpec{
 			Replicas: 1,
 			Image:    "ghcr.io/bluedynamics/cloud-vinyl-varnish:9.1.0",
-			Backends: []vinylv1alpha1.BackendSpec{
+			Backends: []vinylv1.BackendSpec{
 				{
 					Name:       "app",
-					ServiceRef: vinylv1alpha1.ServiceRef{Name: "app-service"},
+					ServiceRef: vinylv1.ServiceRef{Name: "app-service"},
 				},
 			},
 		},
@@ -226,7 +226,7 @@ func TestValidate_StorageType_Blocklist(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			vc := minimalValidVC()
-			vc.Spec.Storage = []vinylv1alpha1.StorageSpec{
+			vc.Spec.Storage = []vinylv1.StorageSpec{
 				{Name: "cache", Type: tc.storageType},
 			}
 
@@ -243,12 +243,12 @@ func TestValidate_StorageType_Blocklist(t *testing.T) {
 
 func TestValidate_StorageName_Reserved(t *testing.T) {
 	vc := minimalValidVC()
-	vc.Spec.Storage = []vinylv1alpha1.StorageSpec{{Name: "synth", Type: "malloc"}}
+	vc.Spec.Storage = []vinylv1.StorageSpec{{Name: "synth", Type: "malloc"}}
 	_, err := webhook.ValidateVinylCache(vc)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `storage name "synth" is reserved`)
 
-	vc.Spec.Storage = []vinylv1alpha1.StorageSpec{{Name: "synthetic", Type: "malloc"}}
+	vc.Spec.Storage = []vinylv1.StorageSpec{{Name: "synthetic", Type: "malloc"}}
 	_, err = webhook.ValidateVinylCache(vc)
 	assert.NoError(t, err, "only the exact name collides with varnishd's synth storage")
 }
@@ -329,10 +329,10 @@ func TestValidate_BackendNames_VCLConformant(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			vc := minimalValidVC()
-			vc.Spec.Backends = []vinylv1alpha1.BackendSpec{
+			vc.Spec.Backends = []vinylv1.BackendSpec{
 				{
 					Name:       tc.backendName,
-					ServiceRef: vinylv1alpha1.ServiceRef{Name: "svc"},
+					ServiceRef: vinylv1.ServiceRef{Name: "svc"},
 				},
 			}
 
@@ -394,7 +394,7 @@ func TestValidate_AllowedSources_Purge_CIDRSyntax(t *testing.T) {
 	for _, tc := range cases {
 		t.Run("purge/"+tc.name, func(t *testing.T) {
 			vc := minimalValidVC()
-			vc.Spec.Invalidation.Purge = &vinylv1alpha1.PurgeSpec{
+			vc.Spec.Invalidation.Purge = &vinylv1.PurgeSpec{
 				Enabled:        true,
 				AllowedSources: []string{tc.cidr},
 			}
@@ -412,7 +412,7 @@ func TestValidate_AllowedSources_Purge_CIDRSyntax(t *testing.T) {
 
 func TestValidate_AllowedSources_BAN_CIDRSyntax(t *testing.T) {
 	vc := minimalValidVC()
-	vc.Spec.Invalidation.BAN = &vinylv1alpha1.BANSpec{
+	vc.Spec.Invalidation.BAN = &vinylv1.BANSpec{
 		Enabled:        true,
 		AllowedSources: []string{"192.168.1.0/24", "not-valid"},
 	}
@@ -424,7 +424,7 @@ func TestValidate_AllowedSources_BAN_CIDRSyntax(t *testing.T) {
 
 func TestValidate_AllowedSources_Xkey_CIDRSyntax(t *testing.T) {
 	vc := minimalValidVC()
-	vc.Spec.Invalidation.Xkey = &vinylv1alpha1.XkeySpec{
+	vc.Spec.Invalidation.Xkey = &vinylv1.XkeySpec{
 		Enabled:        true,
 		AllowedSources: []string{"172.16.0.0/12", "bad-cidr"},
 	}
@@ -449,13 +449,13 @@ func TestValidate_AllowedSources_NilInvalidationSpecs(t *testing.T) {
 func TestValidate_MultipleErrors_AllAccumulated(t *testing.T) {
 	vc := minimalValidVC()
 	vc.Spec.VarnishParams = map[string]string{"vcc_allow_inline_c": "1"}
-	vc.Spec.Storage = []vinylv1alpha1.StorageSpec{
+	vc.Spec.Storage = []vinylv1.StorageSpec{
 		{Name: "bad", Type: "persistent"},
 	}
-	vc.Spec.Backends = []vinylv1alpha1.BackendSpec{
-		{Name: "bad-name", ServiceRef: vinylv1alpha1.ServiceRef{Name: "svc"}},
+	vc.Spec.Backends = []vinylv1.BackendSpec{
+		{Name: "bad-name", ServiceRef: vinylv1.ServiceRef{Name: "svc"}},
 	}
-	vc.Spec.Invalidation.Purge = &vinylv1alpha1.PurgeSpec{
+	vc.Spec.Invalidation.Purge = &vinylv1.PurgeSpec{
 		AllowedSources: []string{"not-a-cidr"},
 	}
 
@@ -483,23 +483,23 @@ func TestValidate_ValidFullConfig_Passes(t *testing.T) {
 		"thread_pool_min": "100",
 		"thread_pool_max": "1000",
 	}
-	vc.Spec.Storage = []vinylv1alpha1.StorageSpec{
+	vc.Spec.Storage = []vinylv1.StorageSpec{
 		{Name: "cache", Type: "malloc"},
 		{Name: "transient", Type: "file", Path: "/var/cache"},
 	}
-	vc.Spec.Backends = append(vc.Spec.Backends, vinylv1alpha1.BackendSpec{
+	vc.Spec.Backends = append(vc.Spec.Backends, vinylv1.BackendSpec{
 		Name:       "legacy",
-		ServiceRef: vinylv1alpha1.ServiceRef{Name: "legacy-svc"},
+		ServiceRef: vinylv1.ServiceRef{Name: "legacy-svc"},
 	})
-	vc.Spec.Invalidation.Purge = &vinylv1alpha1.PurgeSpec{
+	vc.Spec.Invalidation.Purge = &vinylv1.PurgeSpec{
 		Enabled:        true,
 		AllowedSources: []string{"10.0.0.0/8", "192.168.0.0/16"},
 	}
-	vc.Spec.Invalidation.BAN = &vinylv1alpha1.BANSpec{
+	vc.Spec.Invalidation.BAN = &vinylv1.BANSpec{
 		Enabled:        true,
 		AllowedSources: []string{"172.16.0.0/12"},
 	}
-	vc.Spec.Invalidation.Xkey = &vinylv1alpha1.XkeySpec{
+	vc.Spec.Invalidation.Xkey = &vinylv1.XkeySpec{
 		Enabled:        true,
 		AllowedSources: []string{"10.0.0.0/8"},
 	}
@@ -513,14 +513,14 @@ func TestValidate_ValidFullConfig_Passes(t *testing.T) {
 // validBaseVinylCache returns a minimally valid VinylCache with ObjectMeta set,
 // used by tests that exercise pod.volumes, pod.volumeMounts, volumeClaimTemplates,
 // and storage-path collision validation.
-func validBaseVinylCache() *vinylv1alpha1.VinylCache {
-	return &vinylv1alpha1.VinylCache{
+func validBaseVinylCache() *vinylv1.VinylCache {
+	return &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "vc", Namespace: "ns"},
-		Spec: vinylv1alpha1.VinylCacheSpec{
+		Spec: vinylv1.VinylCacheSpec{
 			Replicas: 1,
 			Image:    "varnish:9.1.0",
-			Backends: []vinylv1alpha1.BackendSpec{
-				{Name: "app", ServiceRef: vinylv1alpha1.ServiceRef{Name: "svc"}},
+			Backends: []vinylv1.BackendSpec{
+				{Name: "app", ServiceRef: vinylv1.ServiceRef{Name: "svc"}},
 			},
 		},
 	}
@@ -621,7 +621,7 @@ func TestValidate_VolumeMountName_Unresolvable_Rejected(t *testing.T) {
 
 func TestValidate_StoragePath_UnderReservedMount_Rejected(t *testing.T) {
 	vc := validBaseVinylCache()
-	vc.Spec.Storage = []vinylv1alpha1.StorageSpec{{
+	vc.Spec.Storage = []vinylv1.StorageSpec{{
 		Name: "disk",
 		Type: "file",
 		Path: "/var/lib/varnish/spill.bin", // under reserved /var/lib/varnish
@@ -637,7 +637,7 @@ func TestValidate_StoragePath_UnderReservedMount_Rejected(t *testing.T) {
 
 func TestValidateVinylCache_TracingRequiresEndpoint(t *testing.T) {
 	vc := minimalValidVC()
-	vc.Spec.Tracing = vinylv1alpha1.TracingSpec{Enabled: true}
+	vc.Spec.Tracing = vinylv1.TracingSpec{Enabled: true}
 	_, err := webhook.ValidateVinylCache(vc)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tracing.otlp.endpoint is required")
@@ -645,9 +645,9 @@ func TestValidateVinylCache_TracingRequiresEndpoint(t *testing.T) {
 
 func TestValidateVinylCache_TracingEndpointMustBeHostPort(t *testing.T) {
 	vc := minimalValidVC()
-	vc.Spec.Tracing = vinylv1alpha1.TracingSpec{
+	vc.Spec.Tracing = vinylv1.TracingSpec{
 		Enabled: true,
-		OTLP:    vinylv1alpha1.OTLPSpec{Endpoint: "no-port-here"},
+		OTLP:    vinylv1.OTLPSpec{Endpoint: "no-port-here"},
 	}
 	_, err := webhook.ValidateVinylCache(vc)
 	require.Error(t, err)
@@ -656,7 +656,7 @@ func TestValidateVinylCache_TracingEndpointMustBeHostPort(t *testing.T) {
 
 func TestValidateVinylCache_TracingDisabledSkipsChecks(t *testing.T) {
 	vc := minimalValidVC()
-	vc.Spec.Tracing = vinylv1alpha1.TracingSpec{} // disabled, empty
+	vc.Spec.Tracing = vinylv1.TracingSpec{} // disabled, empty
 	_, err := webhook.ValidateVinylCache(vc)
 	assert.NoError(t, err)
 }
@@ -670,7 +670,7 @@ func TestValidate_StoragePath_UnderUserMount_Accepted(t *testing.T) {
 	vc.Spec.Pod.VolumeMounts = []corev1.VolumeMount{
 		{Name: "cache-ssd", MountPath: "/var/lib/varnish-cache"},
 	}
-	vc.Spec.Storage = []vinylv1alpha1.StorageSpec{{
+	vc.Spec.Storage = []vinylv1.StorageSpec{{
 		Name: "disk",
 		Type: "file",
 		Path: "/var/lib/varnish-cache/spill.bin",
@@ -715,7 +715,7 @@ func TestValidate_PodEnv_DuplicateIsRejected(t *testing.T) {
 
 func TestValidate_ProxyProtocolPort(t *testing.T) {
 	vc := validBaseVinylCache()
-	vc.Spec.ProxyProtocol = vinylv1alpha1.ProxyProtocolSpec{Enabled: true, Port: 8080}
+	vc.Spec.ProxyProtocol = vinylv1.ProxyProtocolSpec{Enabled: true, Port: 8080}
 	_, err := webhook.ValidateVinylCache(vc)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "spec.proxyProtocol.port 8080 is taken by the varnish HTTP listener")
@@ -724,13 +724,13 @@ func TestValidate_ProxyProtocolPort(t *testing.T) {
 	_, err = webhook.ValidateVinylCache(vc)
 	assert.NoError(t, err)
 
-	vc.Spec.Monitoring.Exporter = &vinylv1alpha1.ExporterSpec{Enabled: true, Port: 8081}
+	vc.Spec.Monitoring.Exporter = &vinylv1.ExporterSpec{Enabled: true, Port: 8081}
 	_, err = webhook.ValidateVinylCache(vc)
 	require.Error(t, err, "a moved exporter port counts too")
 	assert.Contains(t, err.Error(), "spec.proxyProtocol.port 8081 is taken by the metrics exporter")
 	vc.Spec.Monitoring.Exporter = nil
 
-	vc.Spec.ProxyProtocol = vinylv1alpha1.ProxyProtocolSpec{Enabled: false, Port: 8080}
+	vc.Spec.ProxyProtocol = vinylv1.ProxyProtocolSpec{Enabled: false, Port: 8080}
 	_, err = webhook.ValidateVinylCache(vc)
 	assert.NoError(t, err, "a disabled PROXY listener binds nothing")
 }

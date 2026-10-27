@@ -25,7 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 // reconcileEndpointSlice creates/updates an EndpointSlice in vc.Namespace pointing to
@@ -33,7 +33,7 @@ import (
 // service so that PURGE/BAN requests forwarded by Varnish arrive at the operator.
 //
 // No OwnerReference is set — the EndpointSlice is cleaned up by the finalizer.
-func (r *VinylCacheReconciler) reconcileEndpointSlice(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) reconcileEndpointSlice(ctx context.Context, vc *vinylv1.VinylCache) error {
 	invalidationSvcName := vc.Name + "-invalidation"
 	esName := vc.Name + "-invalidation-operator"
 

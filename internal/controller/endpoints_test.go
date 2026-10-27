@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 func newScheme(t *testing.T) *runtime.Scheme {
@@ -24,7 +24,7 @@ func newScheme(t *testing.T) *runtime.Scheme {
 	require.NoError(t, appsv1.AddToScheme(s))
 	require.NoError(t, discoveryv1.AddToScheme(s))
 	require.NoError(t, networkingv1.AddToScheme(s))
-	require.NoError(t, v1alpha1.AddToScheme(s))
+	require.NoError(t, vinylv1.AddToScheme(s))
 	return s
 }
 
@@ -53,11 +53,11 @@ func TestResolveBackendEndpoints_MultipleReadyPods(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(svc, es).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
-	vc := &v1alpha1.VinylCache{
+	vc := &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "cache", Namespace: "app"},
-		Spec: v1alpha1.VinylCacheSpec{
-			Backends: []v1alpha1.BackendSpec{{
-				Name: "plone", ServiceRef: v1alpha1.ServiceRef{Name: "plone-svc"},
+		Spec: vinylv1.VinylCacheSpec{
+			Backends: []vinylv1.BackendSpec{{
+				Name: "plone", ServiceRef: vinylv1.ServiceRef{Name: "plone-svc"},
 			}},
 		},
 	}
@@ -77,11 +77,11 @@ func TestResolveBackendEndpoints_NoEndpointsReturnsEmpty(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(svc).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
-	vc := &v1alpha1.VinylCache{
+	vc := &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "cache", Namespace: "app"},
-		Spec: v1alpha1.VinylCacheSpec{
-			Backends: []v1alpha1.BackendSpec{{
-				Name: "plone", ServiceRef: v1alpha1.ServiceRef{Name: "plone-svc"},
+		Spec: vinylv1.VinylCacheSpec{
+			Backends: []vinylv1.BackendSpec{{
+				Name: "plone", ServiceRef: vinylv1.ServiceRef{Name: "plone-svc"},
 			}},
 		},
 	}
@@ -110,12 +110,12 @@ func TestResolveBackendEndpoints_PortOverride(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(svc, es).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
-	vc := &v1alpha1.VinylCache{
+	vc := &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "cache", Namespace: "app"},
-		Spec: v1alpha1.VinylCacheSpec{
-			Backends: []v1alpha1.BackendSpec{{
+		Spec: vinylv1.VinylCacheSpec{
+			Backends: []vinylv1.BackendSpec{{
 				Name: "plone", Port: 9999,
-				ServiceRef: v1alpha1.ServiceRef{Name: "plone-svc"},
+				ServiceRef: vinylv1.ServiceRef{Name: "plone-svc"},
 			}},
 		},
 	}
@@ -147,11 +147,11 @@ func TestResolveBackendEndpoints_SlicePortUnusable_IsSkipped(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(svc, es).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
-	vc := &v1alpha1.VinylCache{
+	vc := &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "cache", Namespace: "app"},
-		Spec: v1alpha1.VinylCacheSpec{
-			Backends: []v1alpha1.BackendSpec{{
-				Name: "plone", ServiceRef: v1alpha1.ServiceRef{Name: "plone-svc"},
+		Spec: vinylv1.VinylCacheSpec{
+			Backends: []vinylv1.BackendSpec{{
+				Name: "plone", ServiceRef: vinylv1.ServiceRef{Name: "plone-svc"},
 			}},
 		},
 	}
@@ -189,11 +189,11 @@ func TestResolveBackendEndpoints_MultipleSlices_Aggregate(t *testing.T) {
 	es2 := slice("plone-svc-bbb", "10.0.0.3", "10.0.0.4", "10.0.0.5")
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(svc, es1, es2).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
-	vc := &v1alpha1.VinylCache{
+	vc := &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "cache", Namespace: "app"},
-		Spec: v1alpha1.VinylCacheSpec{
-			Backends: []v1alpha1.BackendSpec{{
-				Name: "plone", ServiceRef: v1alpha1.ServiceRef{Name: "plone-svc"},
+		Spec: vinylv1.VinylCacheSpec{
+			Backends: []vinylv1.BackendSpec{{
+				Name: "plone", ServiceRef: vinylv1.ServiceRef{Name: "plone-svc"},
 			}},
 		},
 	}
@@ -230,11 +230,11 @@ func TestResolveBackendEndpoints_ResultIsSortedByIP(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(svc, es).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
-	vc := &v1alpha1.VinylCache{
+	vc := &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "cache", Namespace: "app"},
-		Spec: v1alpha1.VinylCacheSpec{
-			Backends: []v1alpha1.BackendSpec{{
-				Name: "plone", ServiceRef: v1alpha1.ServiceRef{Name: "plone-svc"},
+		Spec: vinylv1.VinylCacheSpec{
+			Backends: []vinylv1.BackendSpec{{
+				Name: "plone", ServiceRef: vinylv1.ServiceRef{Name: "plone-svc"},
 			}},
 		},
 	}

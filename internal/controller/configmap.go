@@ -25,7 +25,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 // bootstrapVCL sets the body with resp.body, not synthetic(): Varnish 9.1
@@ -51,7 +51,7 @@ sub vcl_synth {
 `
 
 // reconcileConfigMap creates or updates the ConfigMap containing the bootstrap VCL.
-func (r *VinylCacheReconciler) reconcileConfigMap(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) reconcileConfigMap(ctx context.Context, vc *vinylv1.VinylCache) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      vc.Name + "-bootstrap-vcl",

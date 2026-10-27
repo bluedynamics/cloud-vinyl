@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1
 
 import (
 	"context"
@@ -23,7 +23,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	internalwebhook "github.com/bluedynamics/cloud-vinyl/internal/webhook"
 )
 
@@ -33,13 +33,13 @@ var vinylcachelog = logf.Log.WithName("vinylcache-resource")
 
 // SetupVinylCacheWebhookWithManager registers the webhook for VinylCache in the manager.
 func SetupVinylCacheWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr, &vinylv1alpha1.VinylCache{}).
+	return ctrl.NewWebhookManagedBy(mgr, &vinylv1.VinylCache{}).
 		WithValidator(&VinylCacheCustomValidator{}).
 		WithDefaulter(&VinylCacheCustomDefaulter{}).
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-vinyl-bluedynamics-eu-v1alpha1-vinylcache,mutating=true,failurePolicy=fail,sideEffects=None,groups=vinyl.bluedynamics.eu,resources=vinylcaches,verbs=create;update,versions=v1alpha1,name=mvinylcache-v1alpha1.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-vinyl-bluedynamics-eu-v1-vinylcache,mutating=true,failurePolicy=fail,sideEffects=None,groups=vinyl.bluedynamics.eu,resources=vinylcaches,verbs=create;update,versions=v1,name=mvinylcache-v1.kb.io,admissionReviewVersions=v1,matchPolicy=Equivalent
 
 // VinylCacheCustomDefaulter struct is responsible for setting default values on the custom resource of the
 // Kind VinylCache when those are created or updated.
@@ -49,7 +49,7 @@ func SetupVinylCacheWebhookWithManager(mgr ctrl.Manager) error {
 type VinylCacheCustomDefaulter struct{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind VinylCache.
-func (d *VinylCacheCustomDefaulter) Default(_ context.Context, obj *vinylv1alpha1.VinylCache) error {
+func (d *VinylCacheCustomDefaulter) Default(_ context.Context, obj *vinylv1.VinylCache) error {
 	vinylcachelog.Info("Defaulting for VinylCache", "name", obj.GetName())
 	internalwebhook.DefaultVinylCache(obj)
 	return nil
@@ -57,7 +57,7 @@ func (d *VinylCacheCustomDefaulter) Default(_ context.Context, obj *vinylv1alpha
 
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
 // NOTE: If you want to customise the 'path', use the flags '--defaulting-path' or '--validation-path'.
-// +kubebuilder:webhook:path=/validate-vinyl-bluedynamics-eu-v1alpha1-vinylcache,mutating=false,failurePolicy=fail,sideEffects=None,groups=vinyl.bluedynamics.eu,resources=vinylcaches,verbs=create;update,versions=v1alpha1,name=vvinylcache-v1alpha1.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-vinyl-bluedynamics-eu-v1-vinylcache,mutating=false,failurePolicy=fail,sideEffects=None,groups=vinyl.bluedynamics.eu,resources=vinylcaches,verbs=create;update,versions=v1,name=vvinylcache-v1.kb.io,admissionReviewVersions=v1,matchPolicy=Equivalent
 
 // VinylCacheCustomValidator struct is responsible for validating the VinylCache resource
 // when it is created, updated, or deleted.
@@ -67,19 +67,19 @@ func (d *VinylCacheCustomDefaulter) Default(_ context.Context, obj *vinylv1alpha
 type VinylCacheCustomValidator struct{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type VinylCache.
-func (v *VinylCacheCustomValidator) ValidateCreate(_ context.Context, obj *vinylv1alpha1.VinylCache) (admission.Warnings, error) {
+func (v *VinylCacheCustomValidator) ValidateCreate(_ context.Context, obj *vinylv1.VinylCache) (admission.Warnings, error) {
 	vinylcachelog.Info("Validation for VinylCache upon creation", "name", obj.GetName())
 	return internalwebhook.ValidateVinylCache(obj)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type VinylCache.
-func (v *VinylCacheCustomValidator) ValidateUpdate(_ context.Context, oldObj, newObj *vinylv1alpha1.VinylCache) (admission.Warnings, error) {
+func (v *VinylCacheCustomValidator) ValidateUpdate(_ context.Context, oldObj, newObj *vinylv1.VinylCache) (admission.Warnings, error) {
 	vinylcachelog.Info("Validation for VinylCache upon update", "name", newObj.GetName())
 	return internalwebhook.ValidateVinylCacheUpdate(oldObj, newObj)
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type VinylCache.
-func (v *VinylCacheCustomValidator) ValidateDelete(_ context.Context, obj *vinylv1alpha1.VinylCache) (admission.Warnings, error) {
+func (v *VinylCacheCustomValidator) ValidateDelete(_ context.Context, obj *vinylv1.VinylCache) (admission.Warnings, error) {
 	vinylcachelog.Info("Validation for VinylCache upon deletion", "name", obj.GetName())
 	return nil, nil
 }

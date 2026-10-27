@@ -10,14 +10,15 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-vinyl-bluedynamics-eu-v1alpha1-vinylcache
+      path: /mutate-vinyl-bluedynamics-eu-v1-vinylcache
   failurePolicy: Fail
-  name: mvinylcache-v1alpha1.kb.io
+  matchPolicy: Equivalent
+  name: mvinylcache-v1.kb.io
   rules:
   - apiGroups:
     - vinyl.bluedynamics.eu
     apiVersions:
-    - v1alpha1
+    - v1
     operations:
     - CREATE
     - UPDATE
@@ -36,14 +37,15 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-vinyl-bluedynamics-eu-v1alpha1-vinylcache
+      path: /validate-vinyl-bluedynamics-eu-v1-vinylcache
   failurePolicy: Fail
-  name: vvinylcache-v1alpha1.kb.io
+  matchPolicy: Equivalent
+  name: vvinylcache-v1.kb.io
   rules:
   - apiGroups:
     - vinyl.bluedynamics.eu
     apiVersions:
-    - v1alpha1
+    - v1
     operations:
     - CREATE
     - UPDATE

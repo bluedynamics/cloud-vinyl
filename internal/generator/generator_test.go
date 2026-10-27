@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 )
 
@@ -18,11 +18,11 @@ func makeMinimalInput() generator.Input {
 	return generator.Input{
 		Name:      "my-cache",
 		Namespace: "production",
-		Spec: &vinylv1alpha1.VinylCacheSpec{
+		Spec: &vinylv1.VinylCacheSpec{
 			Replicas: 1,
 			Image:    "varnish:9.1.0",
-			Backends: []vinylv1alpha1.BackendSpec{
-				{Name: "app_backend", ServiceRef: vinylv1alpha1.ServiceRef{Name: "my-app"}},
+			Backends: []vinylv1.BackendSpec{
+				{Name: "app_backend", ServiceRef: vinylv1.ServiceRef{Name: "my-app"}},
 			},
 		},
 		Endpoints: map[string][]generator.Endpoint{
@@ -98,8 +98,8 @@ func TestGenerate_Xkey_AddsHeaders(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
 	enabled := true
-	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
-		Xkey: &vinylv1alpha1.XkeySpec{Enabled: enabled},
+	input.Spec.Invalidation = vinylv1.InvalidationSpec{
+		Xkey: &vinylv1.XkeySpec{Enabled: enabled},
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
@@ -118,7 +118,7 @@ func TestGenerate_Xkey_AddsHeaders(t *testing.T) {
 func TestGenerate_Cluster_AddsPeerBackends(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Spec.Cluster = vinylv1.ClusterSpec{Enabled: true}
 	input.Peers = []generator.PeerBackend{
 		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
 		{Name: "my_cache_1", IP: "10.0.2.2", Port: 8080},
@@ -212,8 +212,8 @@ func TestGenerate_CustomSnippet_Included(t *testing.T) {
 func TestGenerate_SoftPurge_UsesVmodPurgeSoft(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
-		Purge: &vinylv1alpha1.PurgeSpec{Soft: new(true)},
+	input.Spec.Invalidation = vinylv1.InvalidationSpec{
+		Purge: &vinylv1.PurgeSpec{Soft: new(true)},
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
@@ -227,8 +227,8 @@ func TestGenerate_SoftPurge_UsesVmodPurgeSoft(t *testing.T) {
 func TestGenerate_HardPurge_UsesVmodPurgeHard(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
-		Purge: &vinylv1alpha1.PurgeSpec{Soft: new(false)},
+	input.Spec.Invalidation = vinylv1.InvalidationSpec{
+		Purge: &vinylv1.PurgeSpec{Soft: new(false)},
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
@@ -241,8 +241,8 @@ func TestGenerate_HardPurge_UsesVmodPurgeHard(t *testing.T) {
 func TestGenerate_SoftPurge_NilDefaultsToTrue_UsesVmodPurgeSoft(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
-		Purge: &vinylv1alpha1.PurgeSpec{Soft: nil},
+	input.Spec.Invalidation = vinylv1.InvalidationSpec{
+		Purge: &vinylv1.PurgeSpec{Soft: nil},
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
@@ -258,12 +258,12 @@ func TestGenerate_SoftVsHardPurge_RenderedVCLDiffers(t *testing.T) {
 	g := newGenerator(t)
 
 	softInput := makeMinimalInput()
-	softInput.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
-		Purge: &vinylv1alpha1.PurgeSpec{Soft: new(true)},
+	softInput.Spec.Invalidation = vinylv1.InvalidationSpec{
+		Purge: &vinylv1.PurgeSpec{Soft: new(true)},
 	}
 	hardInput := makeMinimalInput()
-	hardInput.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
-		Purge: &vinylv1alpha1.PurgeSpec{Soft: new(false)},
+	hardInput.Spec.Invalidation = vinylv1.InvalidationSpec{
+		Purge: &vinylv1.PurgeSpec{Soft: new(false)},
 	}
 
 	softVCL, err := g.Generate(softInput)
@@ -307,8 +307,8 @@ func TestGenerate_Purge_NoUnconditionalReturnPurge(t *testing.T) {
 func TestGenerate_VCLHit_NoManualGraceBookkeeping(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
-		Purge: &vinylv1alpha1.PurgeSpec{Soft: new(true)},
+	input.Spec.Invalidation = vinylv1.InvalidationSpec{
+		Purge: &vinylv1.PurgeSpec{Soft: new(true)},
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
@@ -348,7 +348,7 @@ func TestGenerate_VCLHit_NonPurgeFallsThroughToDeliver(t *testing.T) {
 func TestGenerate_ProxyProtocol_ExportsRealIP(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.ProxyProtocol = vinylv1alpha1.ProxyProtocolSpec{Enabled: true}
+	input.Spec.ProxyProtocol = vinylv1.ProxyProtocolSpec{Enabled: true}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
 	assert.Contains(t, r.VCL, "X-Forwarded-For",
@@ -402,7 +402,7 @@ func TestGenerate_Cluster_Disabled_When_NoPeers(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
 	// Cluster enabled in spec but no peers provided — should NOT enable cluster.
-	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Spec.Cluster = vinylv1.ClusterSpec{Enabled: true}
 	input.Peers = nil
 	r, err := g.Generate(input)
 	require.NoError(t, err)
@@ -429,7 +429,7 @@ func TestHashVCL_DifferentInput_DifferentHash(t *testing.T) {
 func TestGenerate_BackendWithProbe(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Backends[0].Probe = &vinylv1alpha1.BackendProbeSpec{URL: "/healthz"}
+	input.Spec.Backends[0].Probe = &vinylv1.BackendProbeSpec{URL: "/healthz"}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
 	assert.Contains(t, r.VCL, ".url = \"/healthz\"",
@@ -441,7 +441,7 @@ func TestGenerate_BackendWithProbe(t *testing.T) {
 func TestGenerate_BackendWithConnectionParameters(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Backends[0].ConnectionParameters = &vinylv1alpha1.ConnectionParameters{
+	input.Spec.Backends[0].ConnectionParameters = &vinylv1.ConnectionParameters{
 		MaxConnections: 150,
 	}
 	r, err := g.Generate(input)
@@ -613,7 +613,7 @@ func TestGenerate_CustomVCLBackendErrorSnippet(t *testing.T) {
 func TestGenerate_VCLBackendError_FallsThroughToBuiltin(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Backends[0].Retry = &vinylv1alpha1.FetchRetrySpec{MaxRetries: new(int32(0))}
+	input.Spec.Backends[0].Retry = &vinylv1.FetchRetrySpec{MaxRetries: new(int32(0))}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
 	body := subBody(t, r.VCL, "vcl_backend_error")
@@ -649,8 +649,8 @@ func TestGenerate_FetchRetry_ShardDefault(t *testing.T) {
 func TestGenerate_FetchRetry_MaxRetriesAndFirstByteTimeout(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Backends[0].Retry = &vinylv1alpha1.FetchRetrySpec{MaxRetries: new(int32(2))}
-	input.Spec.Backends[0].ConnectionParameters = &vinylv1alpha1.ConnectionParameters{
+	input.Spec.Backends[0].Retry = &vinylv1.FetchRetrySpec{MaxRetries: new(int32(2))}
+	input.Spec.Backends[0].ConnectionParameters = &vinylv1.ConnectionParameters{
 		FirstByteTimeout: metav1.Duration{Duration: 1500 * time.Millisecond},
 	}
 	r, err := g.Generate(input)
@@ -663,7 +663,7 @@ func TestGenerate_FetchRetry_MaxRetriesAndFirstByteTimeout(t *testing.T) {
 func TestGenerate_FetchRetry_Disabled(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Backends[0].Retry = &vinylv1alpha1.FetchRetrySpec{MaxRetries: new(int32(0))}
+	input.Spec.Backends[0].Retry = &vinylv1.FetchRetrySpec{MaxRetries: new(int32(0))}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
 	assert.NotContains(t, r.VCL, "bereq.retries", "maxRetries 0 must not generate any retry VCL")
@@ -674,7 +674,7 @@ func TestGenerate_FetchRetry_RoundRobinAndRandom(t *testing.T) {
 		t.Run(typ, func(t *testing.T) {
 			g := newGenerator(t)
 			input := makeMinimalInput()
-			input.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{Type: typ}
+			input.Spec.Backends[0].Director = &vinylv1.DirectorSpec{Type: typ}
 			r, err := g.Generate(input)
 			require.NoError(t, err)
 			assert.Contains(t, subBody(t, r.VCL, "vcl_backend_error"),
@@ -691,7 +691,7 @@ func TestGenerate_FetchRetry_NotForHashOrFallback(t *testing.T) {
 		t.Run(typ, func(t *testing.T) {
 			g := newGenerator(t)
 			input := makeMinimalInput()
-			input.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{Type: typ}
+			input.Spec.Backends[0].Director = &vinylv1.DirectorSpec{Type: typ}
 			r, err := g.Generate(input)
 			require.NoError(t, err)
 			assert.NotContains(t, r.VCL, "bereq.retries",
@@ -703,7 +703,7 @@ func TestGenerate_FetchRetry_NotForHashOrFallback(t *testing.T) {
 func TestGenerate_FetchRetry_PeerHop(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Spec.Cluster = vinylv1.ClusterSpec{Enabled: true}
 	input.Peers = []generator.PeerBackend{
 		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
 		{Name: "my_cache_1", IP: "10.0.2.2", Port: 8080},
@@ -715,7 +715,7 @@ func TestGenerate_FetchRetry_PeerHop(t *testing.T) {
 	assert.Contains(t, subBody(t, r.VCL, "vcl_backend_fetch"),
 		"set bereq.backend = director_my_cache.backend(by=URL, alt=bereq.retries, healthy=ALL);")
 
-	input.Spec.Cluster.Retry = &vinylv1alpha1.FetchRetrySpec{MaxRetries: new(int32(0))}
+	input.Spec.Cluster.Retry = &vinylv1.FetchRetrySpec{MaxRetries: new(int32(0))}
 	r, err = g.Generate(input)
 	require.NoError(t, err)
 	assert.NotContains(t, r.VCL, "bereq.backend == my_cache_0",
@@ -749,8 +749,8 @@ func TestGenerate_CustomVCLFiniSnippet(t *testing.T) {
 func TestGenerate_AllowedPurgeSources_InACL(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
-		Purge: &vinylv1alpha1.PurgeSpec{
+	input.Spec.Invalidation = vinylv1.InvalidationSpec{
+		Purge: &vinylv1.PurgeSpec{
 			AllowedSources: []string{"10.1.0.0/24", "192.168.1.5"},
 		},
 	}
@@ -765,7 +765,7 @@ func TestGenerate_HyphenatedName_SanitizedInVCL(t *testing.T) {
 	input := makeMinimalInput()
 	input.Name = "my-hyphenated-cache"
 	// Enable cluster so that the director name appears in vcl_init.
-	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Spec.Cluster = vinylv1.ClusterSpec{Enabled: true}
 	input.Peers = []generator.PeerBackend{
 		{Name: "my_hyphenated_cache_0", IP: "10.0.2.1", Port: 8080},
 	}
@@ -778,7 +778,7 @@ func TestGenerate_HyphenatedName_SanitizedInVCL(t *testing.T) {
 func TestGenerate_ClusterInit_HasDirectorSetup(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Spec.Cluster = vinylv1.ClusterSpec{Enabled: true}
 	input.Peers = []generator.PeerBackend{
 		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
 	}
@@ -814,7 +814,7 @@ func TestGenerate_ImportStd_AlwaysPresent(t *testing.T) {
 func TestGenerate_BackendWithAllConnectionParameters(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Backends[0].ConnectionParameters = &vinylv1alpha1.ConnectionParameters{
+	input.Spec.Backends[0].ConnectionParameters = &vinylv1.ConnectionParameters{
 		ConnectTimeout:      metav1.Duration{Duration: 2 * time.Second},
 		FirstByteTimeout:    metav1.Duration{Duration: 60 * time.Second},
 		BetweenBytesTimeout: metav1.Duration{Duration: 30 * time.Second},
@@ -836,7 +836,7 @@ func TestGenerate_BackendWithAllConnectionParameters(t *testing.T) {
 func TestGenerate_FmtDuration_Minutes(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Backends[0].ConnectionParameters = &vinylv1alpha1.ConnectionParameters{
+	input.Spec.Backends[0].ConnectionParameters = &vinylv1.ConnectionParameters{
 		ConnectTimeout: metav1.Duration{Duration: 2 * time.Minute},
 	}
 	r, err := g.Generate(input)
@@ -848,7 +848,7 @@ func TestGenerate_FmtDuration_Minutes(t *testing.T) {
 func TestGenerate_FmtDuration_Hours(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Backends[0].ConnectionParameters = &vinylv1alpha1.ConnectionParameters{
+	input.Spec.Backends[0].ConnectionParameters = &vinylv1.ConnectionParameters{
 		ConnectTimeout: metav1.Duration{Duration: 2 * time.Hour},
 	}
 	r, err := g.Generate(input)
@@ -862,11 +862,11 @@ func TestGenerate_BackendGroups_PerBackendDirector(t *testing.T) {
 	input := generator.Input{
 		Namespace: "ns",
 		Name:      "cache",
-		Spec: &vinylv1alpha1.VinylCacheSpec{
+		Spec: &vinylv1.VinylCacheSpec{
 			Replicas: 1,
 			Image:    "vinyl:test",
-			Backends: []vinylv1alpha1.BackendSpec{
-				{Name: "plone", ServiceRef: vinylv1alpha1.ServiceRef{Name: "plone-svc"}},
+			Backends: []vinylv1.BackendSpec{
+				{Name: "plone", ServiceRef: vinylv1.ServiceRef{Name: "plone-svc"}},
 			},
 		},
 		Endpoints: map[string][]generator.Endpoint{
@@ -898,12 +898,12 @@ func TestGenerate_BackendGroups_RoundRobin(t *testing.T) {
 	g := newGenerator(t)
 	input := generator.Input{
 		Namespace: "ns", Name: "cache",
-		Spec: &vinylv1alpha1.VinylCacheSpec{
+		Spec: &vinylv1.VinylCacheSpec{
 			Replicas: 1, Image: "vinyl:test",
-			Backends: []vinylv1alpha1.BackendSpec{{
+			Backends: []vinylv1.BackendSpec{{
 				Name:       "api",
-				ServiceRef: vinylv1alpha1.ServiceRef{Name: "api-svc"},
-				Director:   &vinylv1alpha1.DirectorSpec{Type: "round_robin"},
+				ServiceRef: vinylv1.ServiceRef{Name: "api-svc"},
+				Director:   &vinylv1.DirectorSpec{Type: "round_robin"},
 			}},
 		},
 		Endpoints: map[string][]generator.Endpoint{
@@ -923,9 +923,9 @@ func TestGenerate_Cluster_WithShardWarmupRampup(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
 	warmup := 0.1
-	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
-	input.Spec.Director = vinylv1alpha1.DirectorSpec{
-		Shard: &vinylv1alpha1.ShardSpec{
+	input.Spec.Cluster = vinylv1.ClusterSpec{Enabled: true}
+	input.Spec.Director = vinylv1.DirectorSpec{
+		Shard: &vinylv1.ShardSpec{
 			Warmup: &warmup,
 			Rampup: metav1.Duration{Duration: 30 * time.Second},
 		},
@@ -945,12 +945,12 @@ func TestGenerate_BackendGroups_Hash(t *testing.T) {
 	g := newGenerator(t)
 	input := generator.Input{
 		Namespace: "ns", Name: "cache",
-		Spec: &vinylv1alpha1.VinylCacheSpec{
+		Spec: &vinylv1.VinylCacheSpec{
 			Replicas: 1, Image: "vinyl:test",
-			Backends: []vinylv1alpha1.BackendSpec{{
+			Backends: []vinylv1.BackendSpec{{
 				Name:       "api",
-				ServiceRef: vinylv1alpha1.ServiceRef{Name: "api-svc"},
-				Director:   &vinylv1alpha1.DirectorSpec{Type: "hash"},
+				ServiceRef: vinylv1.ServiceRef{Name: "api-svc"},
+				Director:   &vinylv1.DirectorSpec{Type: "hash"},
 			}},
 		},
 		Endpoints: map[string][]generator.Endpoint{
@@ -970,12 +970,12 @@ func TestGenerate_BackendGroups_Fallback(t *testing.T) {
 	g := newGenerator(t)
 	input := generator.Input{
 		Namespace: "ns", Name: "cache",
-		Spec: &vinylv1alpha1.VinylCacheSpec{
+		Spec: &vinylv1.VinylCacheSpec{
 			Replicas: 1, Image: "vinyl:test",
-			Backends: []vinylv1alpha1.BackendSpec{{
+			Backends: []vinylv1.BackendSpec{{
 				Name:       "primary",
-				ServiceRef: vinylv1alpha1.ServiceRef{Name: "primary-svc"},
-				Director:   &vinylv1alpha1.DirectorSpec{Type: "fallback"},
+				ServiceRef: vinylv1.ServiceRef{Name: "primary-svc"},
+				Director:   &vinylv1.DirectorSpec{Type: "fallback"},
 			}},
 		},
 		Endpoints: map[string][]generator.Endpoint{
@@ -993,11 +993,11 @@ func TestGenerate_EmptyBackendEndpoints_ReturnsError(t *testing.T) {
 	g := newGenerator(t)
 	input := generator.Input{
 		Namespace: "ns", Name: "cache",
-		Spec: &vinylv1alpha1.VinylCacheSpec{
+		Spec: &vinylv1.VinylCacheSpec{
 			Replicas: 1, Image: "vinyl:test",
-			Backends: []vinylv1alpha1.BackendSpec{{
+			Backends: []vinylv1.BackendSpec{{
 				Name:       "empty",
-				ServiceRef: vinylv1alpha1.ServiceRef{Name: "some-svc"},
+				ServiceRef: vinylv1.ServiceRef{Name: "some-svc"},
 			}},
 		},
 		Endpoints: map[string][]generator.Endpoint{
@@ -1014,12 +1014,12 @@ func TestGenerate_ProbeFields_PropagatedToPerPodBackends(t *testing.T) {
 	expected := int32(204)
 	input := generator.Input{
 		Namespace: "ns", Name: "cache",
-		Spec: &vinylv1alpha1.VinylCacheSpec{
+		Spec: &vinylv1.VinylCacheSpec{
 			Replicas: 1, Image: "vinyl:test",
-			Backends: []vinylv1alpha1.BackendSpec{{
+			Backends: []vinylv1.BackendSpec{{
 				Name:       "plone",
-				ServiceRef: vinylv1alpha1.ServiceRef{Name: "plone-svc"},
-				Probe: &vinylv1alpha1.BackendProbeSpec{
+				ServiceRef: vinylv1.ServiceRef{Name: "plone-svc"},
+				Probe: &vinylv1.BackendProbeSpec{
 					URL:              "/ok",
 					Interval:         metav1.Duration{Duration: 10 * time.Second},
 					Timeout:          metav1.Duration{Duration: 5 * time.Second},
@@ -1050,12 +1050,12 @@ func TestGenerate_ProbeDefaults_AppliedWhenFieldsUnset(t *testing.T) {
 	g := newGenerator(t)
 	input := generator.Input{
 		Namespace: "ns", Name: "cache",
-		Spec: &vinylv1alpha1.VinylCacheSpec{
+		Spec: &vinylv1.VinylCacheSpec{
 			Replicas: 1, Image: "vinyl:test",
-			Backends: []vinylv1alpha1.BackendSpec{{
+			Backends: []vinylv1.BackendSpec{{
 				Name:       "plone",
-				ServiceRef: vinylv1alpha1.ServiceRef{Name: "plone-svc"},
-				Probe:      &vinylv1alpha1.BackendProbeSpec{URL: "/ok"},
+				ServiceRef: vinylv1.ServiceRef{Name: "plone-svc"},
+				Probe:      &vinylv1.BackendProbeSpec{URL: "/ok"},
 			}},
 		},
 		Endpoints: map[string][]generator.Endpoint{"plone": {{IP: "10.0.0.1", Port: 8080}}},
@@ -1073,13 +1073,13 @@ func TestGenerate_FullOverride_BypassesEmptyBackendCheck(t *testing.T) {
 	g := newGenerator(t)
 	input := generator.Input{
 		Namespace: "ns", Name: "cache",
-		Spec: &vinylv1alpha1.VinylCacheSpec{
+		Spec: &vinylv1.VinylCacheSpec{
 			Replicas: 1, Image: "vinyl:test",
-			Backends: []vinylv1alpha1.BackendSpec{{
+			Backends: []vinylv1.BackendSpec{{
 				Name:       "empty",
-				ServiceRef: vinylv1alpha1.ServiceRef{Name: "some-svc"},
+				ServiceRef: vinylv1.ServiceRef{Name: "some-svc"},
 			}},
-			VCL: vinylv1alpha1.VCLSpec{FullOverride: "vcl 4.1; # user override"},
+			VCL: vinylv1.VCLSpec{FullOverride: "vcl 4.1; # user override"},
 		},
 		Endpoints: map[string][]generator.Endpoint{"empty": {}},
 	}
@@ -1091,7 +1091,7 @@ func TestGenerate_FullOverride_BypassesEmptyBackendCheck(t *testing.T) {
 func TestGenerate_ClusterShardBy_DefaultsToURL(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Spec.Cluster = vinylv1.ClusterSpec{Enabled: true}
 	input.Peers = []generator.PeerBackend{
 		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
 		{Name: "my_cache_1", IP: "10.0.2.2", Port: 8080},
@@ -1109,10 +1109,10 @@ func TestGenerate_ClusterShardBy_DefaultsToURL(t *testing.T) {
 func TestGenerate_ClusterShardHealthy_HonorsSpecOverride(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
-	input.Spec.Director = vinylv1alpha1.DirectorSpec{
+	input.Spec.Cluster = vinylv1.ClusterSpec{Enabled: true}
+	input.Spec.Director = vinylv1.DirectorSpec{
 		Type:  "shard",
-		Shard: &vinylv1alpha1.ShardSpec{Healthy: "ALL"},
+		Shard: &vinylv1.ShardSpec{Healthy: "ALL"},
 	}
 	input.Peers = []generator.PeerBackend{
 		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
@@ -1157,7 +1157,7 @@ func TestGenerate_OperatorIP_CoexistsWithAllowedSources(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
 	input.OperatorIP = "10.244.1.7"
-	input.Spec.Invalidation.Purge = &vinylv1alpha1.PurgeSpec{
+	input.Spec.Invalidation.Purge = &vinylv1.PurgeSpec{
 		Enabled:        true,
 		AllowedSources: []string{"10.0.0.0/8", "192.168.1.0/24"},
 	}
@@ -1182,7 +1182,7 @@ func TestGenerate_BAN_DisabledByDefault(t *testing.T) {
 func TestGenerate_BAN_EnabledEmitsACLAndHandler(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Invalidation.BAN = &vinylv1alpha1.BANSpec{Enabled: true}
+	input.Spec.Invalidation.BAN = &vinylv1.BANSpec{Enabled: true}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
 
@@ -1217,7 +1217,7 @@ func TestGenerate_BAN_EnabledEmitsACLAndHandler(t *testing.T) {
 func TestGenerate_BAN_BanLurkerHeadersEmitted(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Invalidation.BAN = &vinylv1alpha1.BANSpec{Enabled: true}
+	input.Spec.Invalidation.BAN = &vinylv1.BANSpec{Enabled: true}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
 	assert.Contains(t, r.VCL, "beresp.http.x-url = bereq.url",
@@ -1236,7 +1236,7 @@ func TestGenerate_BAN_RateLimit_CurrentlyInert(t *testing.T) {
 	// the deferred state so nobody half-implements it.
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Invalidation.BAN = &vinylv1alpha1.BANSpec{
+	input.Spec.Invalidation.BAN = &vinylv1.BANSpec{
 		Enabled:            true,
 		RateLimitPerMinute: 60,
 	}
@@ -1252,7 +1252,7 @@ func TestGenerate_BAN_OperatorIPInACL(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
 	input.OperatorIP = "10.244.1.7"
-	input.Spec.Invalidation.BAN = &vinylv1alpha1.BANSpec{Enabled: true}
+	input.Spec.Invalidation.BAN = &vinylv1.BANSpec{Enabled: true}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
 	banACL := strings.SplitAfter(r.VCL, "acl vinyl_ban_allowed {")[1]
@@ -1266,7 +1266,7 @@ func TestGenerate_BAN_OperatorIPInACL(t *testing.T) {
 func TestGenerate_BAN_AllowedSourcesHonored(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Invalidation.BAN = &vinylv1alpha1.BANSpec{
+	input.Spec.Invalidation.BAN = &vinylv1.BANSpec{
 		Enabled:        true,
 		AllowedSources: []string{"10.0.0.0/8", "192.168.1.0/24"},
 	}
@@ -1281,7 +1281,7 @@ func TestGenerate_BAN_AllowedSourcesHonored(t *testing.T) {
 func TestGenerate_BAN_EnabledButNotConfigured_OnlyLocalhost(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Invalidation.BAN = &vinylv1alpha1.BANSpec{Enabled: true}
+	input.Spec.Invalidation.BAN = &vinylv1.BANSpec{Enabled: true}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
 	banACL := strings.SplitAfter(r.VCL, "acl vinyl_ban_allowed {")[1]
@@ -1302,12 +1302,12 @@ func TestGenerate_BAN_EnabledButNotConfigured_OnlyLocalhost(t *testing.T) {
 
 func clusterInputWithBAN(banEnabled bool) generator.Input {
 	input := makeMinimalInput()
-	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
+	input.Spec.Cluster = vinylv1.ClusterSpec{Enabled: true}
 	input.Peers = []generator.PeerBackend{
 		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
 	}
 	if banEnabled {
-		input.Spec.Invalidation.BAN = &vinylv1alpha1.BANSpec{Enabled: true}
+		input.Spec.Invalidation.BAN = &vinylv1.BANSpec{Enabled: true}
 	}
 	return input
 }
@@ -1360,10 +1360,10 @@ func TestGenerate_Cluster_BanHandlingPrecedesShardRedirect(t *testing.T) {
 func TestGenerate_ClusterShardBy_RendersURL_NeverHASH(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
-	input.Spec.Director = vinylv1alpha1.DirectorSpec{
+	input.Spec.Cluster = vinylv1.ClusterSpec{Enabled: true}
+	input.Spec.Director = vinylv1.DirectorSpec{
 		Type:  "shard",
-		Shard: &vinylv1alpha1.ShardSpec{By: "URL"},
+		Shard: &vinylv1.ShardSpec{By: "URL"},
 	}
 	input.Peers = []generator.PeerBackend{
 		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
@@ -1389,10 +1389,10 @@ func TestGenerate_ClusterShardBy_RendersURL_NeverHASH(t *testing.T) {
 func TestGenerate_ClusterShardBy_LegacyHASH_CoercedToURL(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
-	input.Spec.Director = vinylv1alpha1.DirectorSpec{
+	input.Spec.Cluster = vinylv1.ClusterSpec{Enabled: true}
+	input.Spec.Director = vinylv1.DirectorSpec{
 		Type:  "shard",
-		Shard: &vinylv1alpha1.ShardSpec{By: "HASH"}, // simulates a pre-fix stored object
+		Shard: &vinylv1.ShardSpec{By: "HASH"}, // simulates a pre-fix stored object
 	}
 	input.Peers = []generator.PeerBackend{
 		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
@@ -1414,10 +1414,10 @@ func TestGenerate_ClusterShardBy_LegacyHASH_CoercedToURL(t *testing.T) {
 func TestGenerate_ClusterShardBy_ArbitraryUnexpectedValue_CoercedToURL(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Cluster = vinylv1alpha1.ClusterSpec{Enabled: true}
-	input.Spec.Director = vinylv1alpha1.DirectorSpec{
+	input.Spec.Cluster = vinylv1.ClusterSpec{Enabled: true}
+	input.Spec.Director = vinylv1.DirectorSpec{
 		Type:  "shard",
-		Shard: &vinylv1alpha1.ShardSpec{By: "RANDOM"},
+		Shard: &vinylv1.ShardSpec{By: "RANDOM"},
 	}
 	input.Peers = []generator.PeerBackend{
 		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
@@ -1451,8 +1451,8 @@ func TestGenerate_VCLSynth_AlwaysCopiesNGoneToHeader(t *testing.T) {
 func TestGenerate_HardPurge_ObjectsPurgedHeaderPath(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
-		Purge: &vinylv1alpha1.PurgeSpec{Soft: new(false)},
+	input.Spec.Invalidation = vinylv1.InvalidationSpec{
+		Purge: &vinylv1.PurgeSpec{Soft: new(false)},
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
@@ -1465,8 +1465,8 @@ func TestGenerate_HardPurge_ObjectsPurgedHeaderPath(t *testing.T) {
 func TestGenerate_SoftPurge_ObjectsPurgedHeaderPath(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
-		Purge: &vinylv1alpha1.PurgeSpec{Soft: new(true)},
+	input.Spec.Invalidation = vinylv1.InvalidationSpec{
+		Purge: &vinylv1.PurgeSpec{Soft: new(true)},
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
@@ -1479,8 +1479,8 @@ func TestGenerate_SoftPurge_ObjectsPurgedHeaderPath(t *testing.T) {
 func TestGenerate_XkeyPurge_ObjectsPurgedHeaderPath(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
-		Xkey: &vinylv1alpha1.XkeySpec{Enabled: true},
+	input.Spec.Invalidation = vinylv1.InvalidationSpec{
+		Xkey: &vinylv1.XkeySpec{Enabled: true},
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
@@ -1493,8 +1493,8 @@ func TestGenerate_XkeyPurge_ObjectsPurgedHeaderPath(t *testing.T) {
 func TestGenerate_XkeySoftpurge_ObjectsPurgedHeaderPath(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Invalidation = vinylv1alpha1.InvalidationSpec{
-		Xkey: &vinylv1alpha1.XkeySpec{Enabled: true},
+	input.Spec.Invalidation = vinylv1.InvalidationSpec{
+		Xkey: &vinylv1.XkeySpec{Enabled: true},
 	}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
@@ -1535,7 +1535,7 @@ func TestGenerate_TracingDisabled_NoTracingVCL(t *testing.T) {
 func TestGenerate_TracingEnabled_ImportsUUID(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Tracing = vinylv1alpha1.TracingSpec{Enabled: true}
+	input.Spec.Tracing = vinylv1.TracingSpec{Enabled: true}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
 	assert.Contains(t, r.VCL, "import uuid;",
@@ -1545,7 +1545,7 @@ func TestGenerate_TracingEnabled_ImportsUUID(t *testing.T) {
 func TestGenerate_TracingEnabled_RecvValidatesTraceparent(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Tracing = vinylv1alpha1.TracingSpec{Enabled: true}
+	input.Spec.Tracing = vinylv1.TracingSpec{Enabled: true}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
 	assert.Contains(t, r.VCL,
@@ -1568,7 +1568,7 @@ func TestGenerate_TracingEnabled_RecvValidatesTraceparent(t *testing.T) {
 func TestGenerate_TracingEnabled_BackendFetchMintsSpanID(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Tracing = vinylv1alpha1.TracingSpec{Enabled: true}
+	input.Spec.Tracing = vinylv1.TracingSpec{Enabled: true}
 	r, err := g.Generate(input)
 	require.NoError(t, err)
 	assert.Contains(t, r.VCL, "set bereq.http.traceparent")
@@ -1579,7 +1579,7 @@ func TestGenerate_TracingEnabled_BackendFetchMintsSpanID(t *testing.T) {
 func TestGenerate_TracingWithUserSnippets_BothPresent(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()
-	input.Spec.Tracing = vinylv1alpha1.TracingSpec{Enabled: true}
+	input.Spec.Tracing = vinylv1.TracingSpec{Enabled: true}
 	input.Spec.VCL.Snippets.VCLRecv = "# user recv snippet"
 	input.Spec.VCL.Snippets.VCLBackendFetch = "# user backend_fetch snippet"
 	r, err := g.Generate(input)
@@ -1619,7 +1619,7 @@ func TestGenerate_NoESI_NoDoESI(t *testing.T) {
 // must have no effect on ESI processing. (That old convention is also why
 // it was broken: this same map renders verbatim into varnishd's real -p
 // feature=... argument, and real varnishd has no "esi" feature bit at all —
-// see api/v1alpha1/vinylcache_types.go's ESISpec doc comment.)
+// see api/v1/vinylcache_types.go's ESISpec doc comment.)
 func TestGenerate_ESI_VarnishParamsFeatureIgnored(t *testing.T) {
 	g := newGenerator(t)
 	input := makeMinimalInput()

@@ -12,7 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
 )
@@ -22,7 +22,7 @@ func TestReconcile_RecordsReconcileMetric(t *testing.T) {
 	m := monitoring.NewMetrics(reg)
 
 	sch := newScheme(t)
-	vc := &v1alpha1.VinylCache{
+	vc := &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: "ns1"},
 	}
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).
@@ -41,7 +41,7 @@ func TestUpdateStatus_SetsVCLVersionsGauge(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := monitoring.NewMetrics(reg)
 	sch := newScheme(t)
-	vc := &v1alpha1.VinylCache{ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: "ns1"}}
+	vc := &vinylv1.VinylCache{ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: "ns1"}}
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).WithStatusSubresource(vc).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch, Metrics: m}
 
@@ -63,7 +63,7 @@ func TestUpdateStatus_VCLVersionsGauge_NoPodsMeansNoVersions(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := monitoring.NewMetrics(reg)
 	sch := newScheme(t)
-	vc := &v1alpha1.VinylCache{ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: "ns1"}}
+	vc := &vinylv1.VinylCache{ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: "ns1"}}
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).WithStatusSubresource(vc).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch, Metrics: m}
 

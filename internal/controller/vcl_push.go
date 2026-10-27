@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 )
 
@@ -38,7 +38,7 @@ import (
 // VCL compilation errors are not retried.
 func (r *VinylCacheReconciler) pushVCL(
 	ctx context.Context,
-	vc *v1alpha1.VinylCache,
+	vc *vinylv1.VinylCache,
 	result *generator.Result,
 	peers []generator.PeerBackend,
 ) ([]generator.PeerBackend, error) {
@@ -128,7 +128,7 @@ const defaultPushRetryInterval = 30 * time.Second
 // vclNameFor is the name a generated VCL is pushed under. It embeds the content
 // hash, so comparing this name against what varnishd reports tells the operator
 // whether a pod already carries the desired VCL.
-func vclNameFor(vc *v1alpha1.VinylCache, hash string) string {
+func vclNameFor(vc *vinylv1.VinylCache, hash string) string {
 	short := hash
 	if len(short) > 8 {
 		short = short[:8]
@@ -152,7 +152,7 @@ func vclNameFor(vc *v1alpha1.VinylCache, hash string) string {
 // a pod that is still on the bootstrap VCL would hand users a 503.
 func (r *VinylCacheReconciler) collectPeers(
 	ctx context.Context,
-	vc *v1alpha1.VinylCache,
+	vc *vinylv1.VinylCache,
 ) (podObservation, error) {
 	var reachable, ready []generator.PeerBackend
 	podList := &corev1.PodList{}
@@ -195,7 +195,7 @@ func isPodReady(pod *corev1.Pod) bool {
 // debounceRemaining returns the duration the reconciler should wait before
 // pushing VCL. Zero means "push now". Uses the reconciler-level debouncer,
 // which is primed by EndpointSlice events.
-func (r *VinylCacheReconciler) debounceRemaining(vc *v1alpha1.VinylCache) time.Duration {
+func (r *VinylCacheReconciler) debounceRemaining(vc *vinylv1.VinylCache) time.Duration {
 	if r.debouncer == nil {
 		return 0
 	}
@@ -212,7 +212,7 @@ func (r *VinylCacheReconciler) debounceRemaining(vc *v1alpha1.VinylCache) time.D
 // pushRetryInterval is how long to wait before the reconcile loop retries a
 // failed VCL push. spec.retry.backoffBase drives it; the loop itself is the
 // retry mechanism, so this is the only knob that still has an effect.
-func pushRetryInterval(vc *v1alpha1.VinylCache) time.Duration {
+func pushRetryInterval(vc *vinylv1.VinylCache) time.Duration {
 	if vc.Spec.Retry.BackoffBase.Duration > 0 {
 		return vc.Spec.Retry.BackoffBase.Duration
 	}

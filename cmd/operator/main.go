@@ -38,12 +38,12 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/controller"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
 	"github.com/bluedynamics/cloud-vinyl/internal/proxy"
-	webhookv1alpha1 "github.com/bluedynamics/cloud-vinyl/internal/webhook/v1alpha1"
+	webhookv1 "github.com/bluedynamics/cloud-vinyl/internal/webhook/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -55,7 +55,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(vinylv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(vinylv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -243,7 +243,7 @@ func main() {
 	}
 	// nolint:goconst
 	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
-		if err := webhookv1alpha1.SetupVinylCacheWebhookWithManager(mgr); err != nil {
+		if err := webhookv1.SetupVinylCacheWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "VinylCache")
 			os.Exit(1)
 		}

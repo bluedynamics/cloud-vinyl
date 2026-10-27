@@ -12,7 +12,7 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 )
 
@@ -25,7 +25,7 @@ import (
 // not treat missing endpoints as an error.
 func (r *VinylCacheReconciler) resolveBackendEndpoints(
 	ctx context.Context,
-	vc *v1alpha1.VinylCache,
+	vc *vinylv1.VinylCache,
 ) (map[string][]generator.Endpoint, error) {
 	out := make(map[string][]generator.Endpoint, len(vc.Spec.Backends))
 	for _, b := range vc.Spec.Backends {
@@ -41,7 +41,7 @@ func (r *VinylCacheReconciler) resolveBackendEndpoints(
 func (r *VinylCacheReconciler) listBackendEndpoints(
 	ctx context.Context,
 	namespace string,
-	b v1alpha1.BackendSpec,
+	b vinylv1.BackendSpec,
 ) ([]generator.Endpoint, error) {
 	list := &discoveryv1.EndpointSliceList{}
 	if err := r.List(ctx, list,
@@ -86,7 +86,7 @@ func endpointReady(ep discoveryv1.Endpoint) bool {
 // slice port; otherwise the first port with a non-nil Port value is used.
 // For multi-port services set spec.backends[].port explicitly to avoid
 // depending on Service port ordering.
-func pickPort(ports []discoveryv1.EndpointPort, b v1alpha1.BackendSpec) int {
+func pickPort(ports []discoveryv1.EndpointPort, b vinylv1.BackendSpec) int {
 	if b.Port > 0 {
 		return int(b.Port)
 	}
