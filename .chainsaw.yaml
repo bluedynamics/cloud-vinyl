@@ -41,7 +41,7 @@ spec:
       # The decisive artifact for a stuck delete: shows finalizers,
       # deletionTimestamp and status at the moment things went wrong.
       - get:
-          apiVersion: vinyl.bluedynamics.eu/v1alpha1
+          apiVersion: vinyl.bluedynamics.eu/v1
           kind: VinylCache
           format: yaml
 

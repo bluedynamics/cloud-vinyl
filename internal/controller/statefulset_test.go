@@ -14,25 +14,25 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 func TestStorageArgs_Malloc(t *testing.T) {
-	got := storageArgs([]v1alpha1.StorageSpec{
+	got := storageArgs([]vinylv1.StorageSpec{
 		{Name: "s0", Type: "malloc", Size: resource.MustParse("1500M")},
 	})
 	assert.Equal(t, []string{"-s", "s0=malloc,1500000000"}, got)
 }
 
 func TestStorageArgs_File(t *testing.T) {
-	got := storageArgs([]v1alpha1.StorageSpec{
+	got := storageArgs([]vinylv1.StorageSpec{
 		{Name: "disk", Type: "file", Path: "/var/lib/varnish/cache.bin", Size: resource.MustParse("10Gi")},
 	})
 	assert.Equal(t, []string{"-s", "disk=file,/var/lib/varnish/cache.bin,10737418240"}, got)
 }
 
 func TestStorageArgs_Multiple(t *testing.T) {
-	got := storageArgs([]v1alpha1.StorageSpec{
+	got := storageArgs([]vinylv1.StorageSpec{
 		{Name: "mem", Type: "malloc", Size: resource.MustParse("1G")},
 		{Name: "disk", Type: "file", Path: "/var/lib/varnish/cache", Size: resource.MustParse("10G")},
 	})
@@ -44,7 +44,7 @@ func TestStorageArgs_Multiple(t *testing.T) {
 
 func TestStorageArgs_Empty(t *testing.T) {
 	assert.Nil(t, storageArgs(nil))
-	assert.Nil(t, storageArgs([]v1alpha1.StorageSpec{}))
+	assert.Nil(t, storageArgs([]vinylv1.StorageSpec{}))
 }
 
 func TestVarnishParamArgs_Single(t *testing.T) {
@@ -87,18 +87,18 @@ func TestVarnishParamArgs_SortedByKey(t *testing.T) {
 	}, got, "params must be emitted sorted by key regardless of map iteration order")
 }
 
-func exporterBaseVC() *v1alpha1.VinylCache {
-	return &v1alpha1.VinylCache{
+func exporterBaseVC() *vinylv1.VinylCache {
+	return &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
-		Spec: v1alpha1.VinylCacheSpec{
+		Spec: vinylv1.VinylCacheSpec{
 			Replicas: 1,
 			Image:    "varnish:9.1.0",
-			Backends: []v1alpha1.BackendSpec{{Name: "app", ServiceRef: v1alpha1.ServiceRef{Name: "svc"}}},
+			Backends: []vinylv1.BackendSpec{{Name: "app", ServiceRef: vinylv1.ServiceRef{Name: "svc"}}},
 		},
 	}
 }
 
-func getStatefulSet(t *testing.T, vc *v1alpha1.VinylCache) *appsv1.StatefulSet {
+func getStatefulSet(t *testing.T, vc *vinylv1.VinylCache) *appsv1.StatefulSet {
 	t.Helper()
 	sch := newScheme(t)
 	cli := fake.NewClientBuilder().WithScheme(sch).Build()
@@ -112,7 +112,7 @@ func getStatefulSet(t *testing.T, vc *v1alpha1.VinylCache) *appsv1.StatefulSet {
 
 func TestReconcileStatefulSet_ExporterSidecarWhenEnabled(t *testing.T) {
 	vc := exporterBaseVC()
-	vc.Spec.Monitoring.Exporter = &v1alpha1.ExporterSpec{Enabled: true}
+	vc.Spec.Monitoring.Exporter = &vinylv1.ExporterSpec{Enabled: true}
 
 	ss := getStatefulSet(t, vc)
 
@@ -142,7 +142,7 @@ func TestReconcileStatefulSet_ExporterSidecarWhenEnabled(t *testing.T) {
 // NetworkPolicy, while the exporter kept listening on 9131.
 func TestReconcileStatefulSet_ExporterListensOnConfiguredPort(t *testing.T) {
 	vc := exporterBaseVC()
-	vc.Spec.Monitoring.Exporter = &v1alpha1.ExporterSpec{Enabled: true, Port: 9200}
+	vc.Spec.Monitoring.Exporter = &vinylv1.ExporterSpec{Enabled: true, Port: 9200}
 	ss := getStatefulSet(t, vc)
 	for _, c := range ss.Spec.Template.Spec.Containers {
 		if c.Name != "vinyl-exporter" {
@@ -163,12 +163,12 @@ func TestReconcileStatefulSet_NoExporterByDefault(t *testing.T) {
 	}
 }
 
-func tracingVC(name string) *v1alpha1.VinylCache {
+func tracingVC(name string) *vinylv1.VinylCache {
 	vc := exporterBaseVC()
 	vc.Name = name
-	vc.Spec.Tracing = v1alpha1.TracingSpec{
+	vc.Spec.Tracing = vinylv1.TracingSpec{
 		Enabled: true,
-		OTLP: v1alpha1.OTLPSpec{
+		OTLP: vinylv1.OTLPSpec{
 			Endpoint: "collector.monitoring.svc:4317",
 			Insecure: true,
 		},
@@ -224,15 +224,15 @@ func TestReconcileStatefulSet_TracerImageFromEnv(t *testing.T) {
 func TestReconcileStatefulSet_UserVolumesAndMountsAppended(t *testing.T) {
 	sch := newScheme(t)
 	quantity := resource.MustParse("100Mi")
-	vc := &v1alpha1.VinylCache{
+	vc := &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
-		Spec: v1alpha1.VinylCacheSpec{
+		Spec: vinylv1.VinylCacheSpec{
 			Replicas: 1,
 			Image:    "varnish:9.1.0",
-			Backends: []v1alpha1.BackendSpec{{
-				Name: "app", ServiceRef: v1alpha1.ServiceRef{Name: "svc"},
+			Backends: []vinylv1.BackendSpec{{
+				Name: "app", ServiceRef: vinylv1.ServiceRef{Name: "svc"},
 			}},
-			Pod: v1alpha1.PodSpec{
+			Pod: vinylv1.PodSpec{
 				Volumes: []corev1.Volume{
 					{
 						Name: "cache-ssd",
@@ -302,13 +302,13 @@ func TestReconcileStatefulSet_UserVolumesAndMountsAppended(t *testing.T) {
 func TestReconcileStatefulSet_VolumeClaimTemplatesPassthrough(t *testing.T) {
 	sch := newScheme(t)
 	storageClass := "hcloud-volumes"
-	vc := &v1alpha1.VinylCache{
+	vc := &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
-		Spec: v1alpha1.VinylCacheSpec{
+		Spec: vinylv1.VinylCacheSpec{
 			Replicas: 2,
 			Image:    "varnish:9.1.0",
-			Backends: []v1alpha1.BackendSpec{{
-				Name: "app", ServiceRef: v1alpha1.ServiceRef{Name: "svc"},
+			Backends: []vinylv1.BackendSpec{{
+				Name: "app", ServiceRef: vinylv1.ServiceRef{Name: "svc"},
 			}},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
 				ObjectMeta: metav1.ObjectMeta{Name: "cache-ssd"},
@@ -322,7 +322,7 @@ func TestReconcileStatefulSet_VolumeClaimTemplatesPassthrough(t *testing.T) {
 					},
 				},
 			}},
-			Pod: v1alpha1.PodSpec{
+			Pod: vinylv1.PodSpec{
 				VolumeMounts: []corev1.VolumeMount{
 					{Name: "cache-ssd", MountPath: "/var/lib/varnish-cache"},
 				},
@@ -347,13 +347,13 @@ func TestReconcileStatefulSet_VolumeClaimTemplatesPassthrough(t *testing.T) {
 
 func TestReconcileStatefulSet_NoUserVolumes_DefaultsUnchanged(t *testing.T) {
 	sch := newScheme(t)
-	vc := &v1alpha1.VinylCache{
+	vc := &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-cache", Namespace: "app"},
-		Spec: v1alpha1.VinylCacheSpec{
+		Spec: vinylv1.VinylCacheSpec{
 			Replicas: 1,
 			Image:    "varnish:9.1.0",
-			Backends: []v1alpha1.BackendSpec{{
-				Name: "app", ServiceRef: v1alpha1.ServiceRef{Name: "svc"},
+			Backends: []vinylv1.BackendSpec{{
+				Name: "app", ServiceRef: vinylv1.ServiceRef{Name: "svc"},
 			}},
 		},
 	}
@@ -473,7 +473,7 @@ func TestReconcileStatefulSet_UserFeatureComesAfterHTTP2(t *testing.T) {
 
 func TestReconcileStatefulSet_VarnishParamsAfterFixedAndStorageArgs(t *testing.T) {
 	vc := exporterBaseVC()
-	vc.Spec.Storage = []v1alpha1.StorageSpec{
+	vc.Spec.Storage = []vinylv1.StorageSpec{
 		{Name: "mem", Type: "malloc", Size: resource.MustParse("1G")},
 	}
 	vc.Spec.VarnishParams = map[string]string{
@@ -503,7 +503,7 @@ func TestReconcileStatefulSet_VarnishParamsAfterFixedAndStorageArgs(t *testing.T
 // used to add a hidden -s malloc,$VARNISH_SIZE next to them (#113).
 func TestReconcileStatefulSet_StorageOnlyFromSpec(t *testing.T) {
 	vc := exporterBaseVC()
-	vc.Spec.Storage = []v1alpha1.StorageSpec{
+	vc.Spec.Storage = []vinylv1.StorageSpec{
 		{Name: "cache", Type: "malloc", Size: resource.MustParse("3G")},
 	}
 	varnish := varnishContainer(t, getStatefulSet(t, vc))
@@ -540,7 +540,7 @@ func TestReconcileStatefulSet_ProxyListenerOnlyWhenEnabled(t *testing.T) {
 		assert.NotEqual(t, "proxy", p.Name)
 	}
 
-	vc.Spec.ProxyProtocol = v1alpha1.ProxyProtocolSpec{Enabled: true}
+	vc.Spec.ProxyProtocol = vinylv1.ProxyProtocolSpec{Enabled: true}
 	varnish = varnishContainer(t, getStatefulSet(t, vc))
 	assert.Equal(t, []string{"http=:8080,HTTP", "proxy=:8081,PROXY"}, listeners(varnish.Args))
 

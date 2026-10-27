@@ -14,7 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1alpha1 contains API Schema definitions for the vinyl v1alpha1 API group.
+// Package v1alpha1 contains the deprecated v1alpha1 version of the vinyl API
+// group. Its schema is v1's: VinylCache here only wraps the v1 spec and
+// status types, so both versions stay identical by construction and the API
+// server converts between them by rewriting apiVersion alone.
 // +kubebuilder:object:generate=true
 // +groupName=vinyl.bluedynamics.eu
 package v1alpha1

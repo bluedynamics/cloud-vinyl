@@ -10,7 +10,7 @@ import (
 
 	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 )
 
@@ -29,7 +29,7 @@ func TestUpdateStatus_ClusterPeersCoverReachablePods(t *testing.T) {
 	}
 	r.updateStatus(context.Background(), vc, &generator.Result{Hash: "want"}, obs, 1)
 
-	assert.Equal(t, []v1alpha1.ClusterPeerStatus{
+	assert.Equal(t, []vinylv1.ClusterPeerStatus{
 		{PodName: "c_0", Ready: true, ActiveVCLHash: "want"},
 		{PodName: "c_1", Ready: false, ActiveVCLHash: "bootstrap"},
 	}, vc.Status.ClusterPeers)
@@ -107,7 +107,7 @@ func TestUpdateStatus_VCLVersionsGauge_IgnoresUnreachablePods(t *testing.T) {
 		testutil.ToFloat64(m.VCLVersionsLoaded.WithLabelValues("cache", "app")))
 }
 
-func statusFixtureWithMetrics(t *testing.T) (*VinylCacheReconciler, *v1alpha1.VinylCache, *monitoring.Metrics) {
+func statusFixtureWithMetrics(t *testing.T) (*VinylCacheReconciler, *vinylv1.VinylCache, *monitoring.Metrics) {
 	t.Helper()
 	r, vc := statusFixture(t)
 	m := monitoring.NewMetrics(prometheus.NewRegistry())

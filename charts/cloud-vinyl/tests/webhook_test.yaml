@@ -11,7 +11,7 @@ tests:
     asserts:
       - equal:
           path: webhooks[0].clientConfig.service.path
-          value: /validate-vinyl-bluedynamics-eu-v1alpha1-vinylcache
+          value: /validate-vinyl-bluedynamics-eu-v1-vinylcache
 
   - it: ValidatingWebhook should have failurePolicy=Fail
     template: validatingwebhook.yaml
@@ -38,7 +38,7 @@ tests:
     asserts:
       - equal:
           path: webhooks[0].clientConfig.service.path
-          value: /mutate-vinyl-bluedynamics-eu-v1alpha1-vinylcache
+          value: /mutate-vinyl-bluedynamics-eu-v1-vinylcache
 
   - it: MutatingWebhook should have failurePolicy=Fail
     template: mutatingwebhook.yaml
@@ -46,6 +46,29 @@ tests:
       - equal:
           path: webhooks[0].failurePolicy
           value: Fail
+
+  # Both webhooks register for v1 only. matchPolicy Equivalent makes the API
+  # server convert requests for the deprecated v1alpha1 and send them here
+  # too; with Exact they would skip validation and defaulting entirely.
+  - it: ValidatingWebhook should cover v1alpha1 requests through Equivalent
+    template: validatingwebhook.yaml
+    asserts:
+      - equal:
+          path: webhooks[0].matchPolicy
+          value: Equivalent
+      - equal:
+          path: webhooks[0].rules[0].apiVersions
+          value: ["v1"]
+
+  - it: MutatingWebhook should cover v1alpha1 requests through Equivalent
+    template: mutatingwebhook.yaml
+    asserts:
+      - equal:
+          path: webhooks[0].matchPolicy
+          value: Equivalent
+      - equal:
+          path: webhooks[0].rules[0].apiVersions
+          value: ["v1"]
 
   - it: Service for webhook should expose port 443
     template: service.yaml

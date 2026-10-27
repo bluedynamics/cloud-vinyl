@@ -51,16 +51,18 @@ kubectl expose deployment nginx --port=80 --name=nginx
 Save the following to `quickstart.yaml`:
 
 ```yaml
-apiVersion: vinyl.bluedynamics.eu/v1alpha1
+apiVersion: vinyl.bluedynamics.eu/v1
 kind: VinylCache
 metadata:
   name: quickstart
   namespace: default
 spec:
   replicas: 2
+  image: varnish:9.1.0
   backends:
     - name: nginx
-      host: nginx.default.svc.cluster.local
+      serviceRef:
+        name: nginx
       port: 80
 ```
 

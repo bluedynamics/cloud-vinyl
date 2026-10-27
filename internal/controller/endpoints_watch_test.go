@@ -10,33 +10,33 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 func TestEndpointSliceToVinylCache_MapsByServiceName(t *testing.T) {
 	sch := newScheme(t)
-	vcA := &v1alpha1.VinylCache{
+	vcA := &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "cache-a", Namespace: "app"},
-		Spec: v1alpha1.VinylCacheSpec{
-			Backends: []v1alpha1.BackendSpec{
-				{Name: "plone", ServiceRef: v1alpha1.ServiceRef{Name: "plone-svc"}},
-				{Name: "api", ServiceRef: v1alpha1.ServiceRef{Name: "api-svc"}},
+		Spec: vinylv1.VinylCacheSpec{
+			Backends: []vinylv1.BackendSpec{
+				{Name: "plone", ServiceRef: vinylv1.ServiceRef{Name: "plone-svc"}},
+				{Name: "api", ServiceRef: vinylv1.ServiceRef{Name: "api-svc"}},
 			},
 		},
 	}
-	vcB := &v1alpha1.VinylCache{
+	vcB := &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "cache-b", Namespace: "app"},
-		Spec: v1alpha1.VinylCacheSpec{
-			Backends: []v1alpha1.BackendSpec{
-				{Name: "plone", ServiceRef: v1alpha1.ServiceRef{Name: "plone-svc"}},
+		Spec: vinylv1.VinylCacheSpec{
+			Backends: []vinylv1.BackendSpec{
+				{Name: "plone", ServiceRef: vinylv1.ServiceRef{Name: "plone-svc"}},
 			},
 		},
 	}
-	vcOther := &v1alpha1.VinylCache{
+	vcOther := &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "cache-other", Namespace: "other"},
-		Spec: v1alpha1.VinylCacheSpec{
-			Backends: []v1alpha1.BackendSpec{
-				{Name: "plone", ServiceRef: v1alpha1.ServiceRef{Name: "plone-svc"}},
+		Spec: vinylv1.VinylCacheSpec{
+			Backends: []vinylv1.BackendSpec{
+				{Name: "plone", ServiceRef: vinylv1.ServiceRef{Name: "plone-svc"}},
 			},
 		},
 	}
@@ -74,6 +74,6 @@ func TestEndpointSliceToVinylCache_WrongTypeReturnsNil(t *testing.T) {
 	sch := newScheme(t)
 	cli := fake.NewClientBuilder().WithScheme(sch).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
-	reqs := r.endpointSliceToVinylCache(context.Background(), &v1alpha1.VinylCache{})
+	reqs := r.endpointSliceToVinylCache(context.Background(), &vinylv1.VinylCache{})
 	assert.Nil(t, reqs, "non-EndpointSlice object should yield nil")
 }

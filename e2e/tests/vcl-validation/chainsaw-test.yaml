@@ -35,7 +35,7 @@ spec:
             file: vinylcache-valid.yaml
         - assert:
             resource:
-              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              apiVersion: vinyl.bluedynamics.eu/v1
               kind: VinylCache
               metadata:
                 name: valid-test
@@ -45,7 +45,7 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              apiVersion: vinyl.bluedynamics.eu/v1
               kind: VinylCache
               metadata:
                 name: valid-test
@@ -57,7 +57,7 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              apiVersion: vinyl.bluedynamics.eu/v1
               kind: VinylCache
               metadata:
                 name: valid-test
@@ -110,7 +110,7 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              apiVersion: vinyl.bluedynamics.eu/v1
               kind: VinylCache
               metadata:
                 name: valid-test

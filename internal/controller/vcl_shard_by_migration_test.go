@@ -22,13 +22,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
-func vcWithShardBy(by string) *v1alpha1.VinylCache {
-	vc := &v1alpha1.VinylCache{}
+func vcWithShardBy(by string) *vinylv1.VinylCache {
+	vc := &vinylv1.VinylCache{}
 	if by != "" {
-		vc.Spec.Director.Shard = &v1alpha1.ShardSpec{By: by}
+		vc.Spec.Director.Shard = &vinylv1.ShardSpec{By: by}
 	}
 	return vc
 }
@@ -71,7 +71,7 @@ func TestLegacyShardByLogFields_Empty_NoLog(t *testing.T) {
 }
 
 func TestLegacyShardByLogFields_NilShard_NoLog(t *testing.T) {
-	vc := &v1alpha1.VinylCache{}
+	vc := &vinylv1.VinylCache{}
 	_, _, ok := legacyShardByLogFields(vc)
 	assert.False(t, ok)
 }

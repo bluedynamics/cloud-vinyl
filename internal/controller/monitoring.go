@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
 )
 
@@ -23,7 +23,7 @@ var (
 // requested in the spec AND the prometheus-operator CRDs are installed. It never
 // returns an error when the CRDs are absent — clusters without prometheus-operator
 // must reconcile normally.
-func (r *VinylCacheReconciler) reconcileMonitoring(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) reconcileMonitoring(ctx context.Context, vc *vinylv1.VinylCache) error {
 	log := logf.FromContext(ctx)
 
 	if sm := vc.Spec.Monitoring.ServiceMonitor; sm != nil && sm.Enabled {
@@ -81,7 +81,7 @@ func toUnstructured(in any, gvk schema.GroupVersionKind) (*unstructured.Unstruct
 }
 
 // applyOwned sets the controller owner reference and create-or-updates the object.
-func (r *VinylCacheReconciler) applyOwned(ctx context.Context, vc *v1alpha1.VinylCache, obj *unstructured.Unstructured) error {
+func (r *VinylCacheReconciler) applyOwned(ctx context.Context, vc *vinylv1.VinylCache, obj *unstructured.Unstructured) error {
 	if err := controllerutil.SetControllerReference(vc, obj, r.Scheme); err != nil {
 		return err
 	}

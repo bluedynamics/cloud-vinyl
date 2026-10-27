@@ -27,14 +27,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 // reconcileSecret ensures the per-namespace agent Secret exists.
 // The Secret is shared by all VinylCaches in the same namespace.
 // It is NOT owned by any single VinylCache so it survives individual CR deletion.
 // The token is never rotated — idempotent by design.
-func (r *VinylCacheReconciler) reconcileSecret(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) reconcileSecret(ctx context.Context, vc *vinylv1.VinylCache) error {
 	existing := &corev1.Secret{}
 	err := r.Get(ctx, types.NamespacedName{Name: agentSecretName, Namespace: vc.Namespace}, existing)
 	if err == nil {

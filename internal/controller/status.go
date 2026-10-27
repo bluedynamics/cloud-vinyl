@@ -24,14 +24,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 )
 
 // updateStatus refreshes the VinylCache status after a successful reconciliation.
 func (r *VinylCacheReconciler) updateStatus(
 	ctx context.Context,
-	vc *v1alpha1.VinylCache,
+	vc *vinylv1.VinylCache,
 	result *generator.Result,
 	obs podObservation,
 	pushedCount int,
@@ -48,7 +48,7 @@ func (r *VinylCacheReconciler) updateStatus(
 	// changed. Leaving the existing status untouched is correct there too.
 	if pushedCount > 0 {
 		now := metav1.NewTime(time.Now())
-		vc.Status.ActiveVCL = &v1alpha1.ActiveVCLStatus{
+		vc.Status.ActiveVCL = &vinylv1.ActiveVCLStatus{
 			Name:     fmt.Sprintf("%s-%s", vc.Namespace, vc.Name),
 			Hash:     result.Hash,
 			PushedAt: &now,
@@ -79,9 +79,9 @@ func (r *VinylCacheReconciler) updateStatus(
 	for _, p := range peers {
 		readyByName[p.Name] = true
 	}
-	vc.Status.ClusterPeers = make([]v1alpha1.ClusterPeerStatus, 0, len(obs.reachable))
+	vc.Status.ClusterPeers = make([]vinylv1.ClusterPeerStatus, 0, len(obs.reachable))
 	for _, p := range obs.reachable {
-		vc.Status.ClusterPeers = append(vc.Status.ClusterPeers, v1alpha1.ClusterPeerStatus{
+		vc.Status.ClusterPeers = append(vc.Status.ClusterPeers, vinylv1.ClusterPeerStatus{
 			PodName:       p.Name,
 			Ready:         readyByName[p.Name],
 			ActiveVCLHash: obs.vclNames[p.IP],
@@ -98,22 +98,22 @@ func (r *VinylCacheReconciler) updateStatus(
 	// condition, not push targets. The old wording ("VCL pushed to 0/1 pods")
 	// read like a push failure during the #77 investigation when it was in fact
 	// reporting readiness.
-	setCondition(vc, v1alpha1.ConditionVCLSynced, metav1.ConditionTrue, "VCLPushed",
+	setCondition(vc, vinylv1.ConditionVCLSynced, metav1.ConditionTrue, "VCLPushed",
 		fmt.Sprintf("VCL active on %d/%d ready pods", len(peers), vc.Spec.Replicas))
-	setCondition(vc, v1alpha1.ConditionBackendsAvailable, metav1.ConditionTrue, "BackendsConfigured", "backend configuration applied")
+	setCondition(vc, vinylv1.ConditionBackendsAvailable, metav1.ConditionTrue, "BackendsConfigured", "backend configuration applied")
 
 	if allReplicasReady {
-		setCondition(vc, v1alpha1.ConditionProgressing, metav1.ConditionFalse, "ReconcileComplete", "reconciliation complete")
+		setCondition(vc, vinylv1.ConditionProgressing, metav1.ConditionFalse, "ReconcileComplete", "reconciliation complete")
 	} else {
-		setCondition(vc, v1alpha1.ConditionProgressing, metav1.ConditionTrue, "WaitingForReplicas",
+		setCondition(vc, vinylv1.ConditionProgressing, metav1.ConditionTrue, "WaitingForReplicas",
 			fmt.Sprintf("waiting for %d/%d replicas to become ready", len(peers), vc.Spec.Replicas))
 	}
 
 	vc.Status.Phase = calculatePhase(vc)
 	if allReplicasReady {
-		setCondition(vc, v1alpha1.ConditionReady, metav1.ConditionTrue, "AllReady", "VinylCache is ready")
+		setCondition(vc, vinylv1.ConditionReady, metav1.ConditionTrue, "AllReady", "VinylCache is ready")
 	} else {
-		setCondition(vc, v1alpha1.ConditionReady, metav1.ConditionFalse, "NotAllReady",
+		setCondition(vc, vinylv1.ConditionReady, metav1.ConditionFalse, "NotAllReady",
 			fmt.Sprintf("%d/%d replicas ready", len(peers), vc.Spec.Replicas))
 	}
 
@@ -123,13 +123,13 @@ func (r *VinylCacheReconciler) updateStatus(
 }
 
 // setErrorStatus sets the VinylCache phase and conditions to reflect an error.
-func (r *VinylCacheReconciler) setErrorStatus(ctx context.Context, vc *v1alpha1.VinylCache, reconcileErr error) {
+func (r *VinylCacheReconciler) setErrorStatus(ctx context.Context, vc *vinylv1.VinylCache, reconcileErr error) {
 	log := logf.FromContext(ctx)
 
-	vc.Status.Phase = v1alpha1.PhaseError
+	vc.Status.Phase = vinylv1.PhaseError
 	vc.Status.Message = reconcileErr.Error()
-	setCondition(vc, v1alpha1.ConditionReady, metav1.ConditionFalse, "ReconcileError", reconcileErr.Error())
-	setCondition(vc, v1alpha1.ConditionVCLSynced, metav1.ConditionFalse, "VCLPushFailed", reconcileErr.Error())
+	setCondition(vc, vinylv1.ConditionReady, metav1.ConditionFalse, "ReconcileError", reconcileErr.Error())
+	setCondition(vc, vinylv1.ConditionVCLSynced, metav1.ConditionFalse, "VCLPushFailed", reconcileErr.Error())
 
 	if err := r.Status().Update(ctx, vc); err != nil {
 		log.Error(err, "updating VinylCache error status")
@@ -142,22 +142,22 @@ func (r *VinylCacheReconciler) setErrorStatus(ctx context.Context, vc *v1alpha1.
 //   - Degraded: VCLSynced=False (VCL push failed or partial)
 //   - Error:    set explicitly via setErrorStatus
 //   - Pending:  initial state or waiting for replicas
-func calculatePhase(vc *v1alpha1.VinylCache) string {
-	vclSynced := findConditionStatus(vc, v1alpha1.ConditionVCLSynced)
-	backendsAvailable := findConditionStatus(vc, v1alpha1.ConditionBackendsAvailable)
+func calculatePhase(vc *vinylv1.VinylCache) string {
+	vclSynced := findConditionStatus(vc, vinylv1.ConditionVCLSynced)
+	backendsAvailable := findConditionStatus(vc, vinylv1.ConditionBackendsAvailable)
 
 	if vclSynced == metav1.ConditionTrue && backendsAvailable == metav1.ConditionTrue &&
 		vc.Status.ReadyPeers >= vc.Status.TotalPeers {
-		return v1alpha1.PhaseReady
+		return vinylv1.PhaseReady
 	}
 	if vclSynced == metav1.ConditionFalse {
-		return v1alpha1.PhaseDegraded
+		return vinylv1.PhaseDegraded
 	}
-	return v1alpha1.PhasePending
+	return vinylv1.PhasePending
 }
 
 // setCondition sets (or updates) a named condition on the VinylCache status.
-func setCondition(vc *v1alpha1.VinylCache, condType string, status metav1.ConditionStatus, reason, message string) {
+func setCondition(vc *vinylv1.VinylCache, condType string, status metav1.ConditionStatus, reason, message string) {
 	now := metav1.NewTime(time.Now())
 	for i, c := range vc.Status.Conditions {
 		if c.Type == condType {
@@ -191,7 +191,7 @@ func setCondition(vc *v1alpha1.VinylCache, condType string, status metav1.Condit
 }
 
 // findConditionStatus returns the Status of a condition by type, or "" if not found.
-func findConditionStatus(vc *v1alpha1.VinylCache, condType string) metav1.ConditionStatus {
+func findConditionStatus(vc *vinylv1.VinylCache, condType string) metav1.ConditionStatus {
 	for _, c := range vc.Status.Conditions {
 		if c.Type == condType {
 			return c.Status

@@ -26,7 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
 )
@@ -56,8 +56,8 @@ func makeReconcilerWithMock(mock AgentClient) *VinylCacheReconciler {
 	}
 }
 
-func makeVC() *v1alpha1.VinylCache {
-	vc := &v1alpha1.VinylCache{}
+func makeVC() *vinylv1.VinylCache {
+	vc := &vinylv1.VinylCache{}
 	vc.Namespace = "default"
 	vc.Name = "test-cache"
 	return vc

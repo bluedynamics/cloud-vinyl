@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
 	"github.com/bluedynamics/cloud-vinyl/internal/proxy"
@@ -94,7 +94,7 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}()
 
 	// 1. Load VinylCache.
-	vc := &v1alpha1.VinylCache{}
+	vc := &vinylv1.VinylCache{}
 	if err := r.Get(ctx, req.NamespacedName, vc); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -284,7 +284,7 @@ func (r *VinylCacheReconciler) endpointSliceToVinylCache(ctx context.Context, ob
 	if svcName == "" {
 		return nil
 	}
-	list := &v1alpha1.VinylCacheList{}
+	list := &vinylv1.VinylCacheList{}
 	if err := r.List(ctx, list, client.InNamespace(es.Namespace)); err != nil {
 		logf.FromContext(ctx).Error(err, "endpointSlice watch: failed to list VinylCaches",
 			"namespace", es.Namespace)
@@ -316,7 +316,7 @@ func (r *VinylCacheReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		r.debouncer = newDebouncer()
 	}
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.VinylCache{}).
+		For(&vinylv1.VinylCache{}).
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{}).

@@ -16,7 +16,7 @@ limitations under the License.
 
 package controller
 
-import v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+import vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 
 // legacyShardByLogFields returns the log message and structured fields to
 // emit when reconciling a VinylCache whose director.shard.by will be
@@ -33,7 +33,7 @@ import v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 // object, a future enum member reverted, or anything else that reached
 // storage before/around a schema change. All of those must be surfaced the
 // same way.
-func legacyShardByLogFields(vc *v1alpha1.VinylCache) (msg string, kvs []any, ok bool) {
+func legacyShardByLogFields(vc *vinylv1.VinylCache) (msg string, kvs []any, ok bool) {
 	s := vc.Spec.Director.Shard
 	if s == nil || s.By == "" || s.By == "URL" {
 		return "", nil, false

@@ -27,11 +27,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 // ensureFinalizer adds the vinyl finalizer to the VinylCache object if not present.
-func (r *VinylCacheReconciler) ensureFinalizer(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) ensureFinalizer(ctx context.Context, vc *vinylv1.VinylCache) error {
 	if controllerutil.ContainsFinalizer(vc, finalizerName) {
 		return nil
 	}
@@ -44,7 +44,7 @@ func (r *VinylCacheReconciler) ensureFinalizer(ctx context.Context, vc *v1alpha1
 
 // handleDeletion removes resources not covered by OwnerReferences (cross-namespace
 // or explicitly excluded) and then removes the finalizer so Kubernetes can delete the object.
-func (r *VinylCacheReconciler) handleDeletion(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) handleDeletion(ctx context.Context, vc *vinylv1.VinylCache) error {
 	if !controllerutil.ContainsFinalizer(vc, finalizerName) {
 		return nil
 	}
@@ -75,7 +75,7 @@ func (r *VinylCacheReconciler) handleDeletion(ctx context.Context, vc *v1alpha1.
 // created for the invalidation service. These have no OwnerReference because the
 // invalidation service is managed by the operator (same namespace, but no owner reference
 // to allow finalizer-based cleanup).
-func (r *VinylCacheReconciler) deleteInvalidationEndpointSlices(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) deleteInvalidationEndpointSlices(ctx context.Context, vc *vinylv1.VinylCache) error {
 	invalidationSvcName := vc.Name + "-invalidation"
 
 	// List EndpointSlices labeled with the invalidation service name.

@@ -29,11 +29,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 // reconcileNetworkPolicies creates or updates the NetworkPolicies for a VinylCache.
-func (r *VinylCacheReconciler) reconcileNetworkPolicies(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) reconcileNetworkPolicies(ctx context.Context, vc *vinylv1.VinylCache) error {
 	if err := r.reconcileTrafficNetworkPolicy(ctx, vc); err != nil {
 		return err
 	}
@@ -97,7 +97,7 @@ func singleHostCIDR(ip string) string {
 // Varnish is an HTTP cache and must be reachable by Ingress controllers, Services,
 // and any upstream client. Cluster peers also need port 8080 for shard routing.
 // Port 6082 (admin CLI) is localhost-only and not exposed.
-func (r *VinylCacheReconciler) reconcileTrafficNetworkPolicy(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) reconcileTrafficNetworkPolicy(ctx context.Context, vc *vinylv1.VinylCache) error {
 	np := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      vc.Name + "-traffic",
@@ -140,7 +140,7 @@ func (r *VinylCacheReconciler) reconcileTrafficNetworkPolicy(ctx context.Context
 // reconcileInvalidationNetworkPolicy allows the operator to reach Varnish pods
 // on port 8080 for PURGE/BAN forwarding. See operatorPeers for how the operator
 // is identified.
-func (r *VinylCacheReconciler) reconcileInvalidationNetworkPolicy(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) reconcileInvalidationNetworkPolicy(ctx context.Context, vc *vinylv1.VinylCache) error {
 	np := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      vc.Name + "-invalidation",
@@ -183,7 +183,7 @@ func (r *VinylCacheReconciler) reconcileInvalidationNetworkPolicy(ctx context.Co
 // reconcileAgentNetworkPolicy allows the operator to reach the vinyl-agent
 // sidecar on port 9090, which is how VCL is pushed. See operatorPeers for how the
 // operator is identified.
-func (r *VinylCacheReconciler) reconcileAgentNetworkPolicy(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) reconcileAgentNetworkPolicy(ctx context.Context, vc *vinylv1.VinylCache) error {
 	np := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      vc.Name + "-agent",
@@ -229,7 +229,7 @@ func (r *VinylCacheReconciler) reconcileAgentNetworkPolicy(ctx context.Context, 
 // metrics, so ingress is allowed from all sources — consistent with the
 // always-open Varnish HTTP port. The policy exists only while the exporter
 // sidecar is enabled; when disabled, a stale policy is removed.
-func (r *VinylCacheReconciler) reconcileExporterNetworkPolicy(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) reconcileExporterNetworkPolicy(ctx context.Context, vc *vinylv1.VinylCache) error {
 	np := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      vc.Name + "-exporter",
@@ -291,7 +291,7 @@ func (r *VinylCacheReconciler) reconcileExporterNetworkPolicy(ctx context.Contex
 // consistent with the always-open Varnish HTTP port. The policy exists only
 // while the tracer sidecar is enabled; when disabled, a stale policy is
 // removed.
-func (r *VinylCacheReconciler) reconcileTracerNetworkPolicy(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) reconcileTracerNetworkPolicy(ctx context.Context, vc *vinylv1.VinylCache) error {
 	np := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      vc.Name + "-tracer",

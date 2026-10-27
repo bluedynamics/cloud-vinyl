@@ -34,7 +34,7 @@ spec:
             file: ../../fixtures/vinylcaches/per-backend-director.yaml
         - assert:
             resource:
-              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              apiVersion: vinyl.bluedynamics.eu/v1
               kind: VinylCache
               metadata:
                 name: director-cache
@@ -43,7 +43,7 @@ spec:
         - assert:
             # Webhook defaulter must have filled shard defaults on the per-backend director.
             resource:
-              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              apiVersion: vinyl.bluedynamics.eu/v1
               kind: VinylCache
               metadata:
                 name: director-cache
@@ -81,7 +81,7 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              apiVersion: vinyl.bluedynamics.eu/v1
               kind: VinylCache
               metadata:
                 name: director-cache
@@ -113,7 +113,7 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: vinyl.bluedynamics.eu/v1alpha1
+              apiVersion: vinyl.bluedynamics.eu/v1
               kind: VinylCache
               metadata:
                 name: director-cache

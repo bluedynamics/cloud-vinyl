@@ -8,7 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 )
 
@@ -63,12 +63,12 @@ func TestUpdateStatus_PushedButNotYetReady_RecordsActiveVCL(t *testing.T) {
 
 // statusFixture builds a reconciler whose status writes land in a fake client,
 // which updateStatus needs at the end of its run.
-func statusFixture(t *testing.T) (*VinylCacheReconciler, *v1alpha1.VinylCache) {
+func statusFixture(t *testing.T) (*VinylCacheReconciler, *vinylv1.VinylCache) {
 	t.Helper()
 	sch := newScheme(t)
-	vc := &v1alpha1.VinylCache{
+	vc := &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "cache", Namespace: "app"},
-		Spec:       v1alpha1.VinylCacheSpec{Replicas: 1},
+		Spec:       vinylv1.VinylCacheSpec{Replicas: 1},
 	}
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).WithStatusSubresource(vc).Build()
 	return &VinylCacheReconciler{Client: cli, Scheme: sch}, vc

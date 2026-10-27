@@ -22,50 +22,50 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 func TestCalculatePhase_NoPodsReady_ReturnsPending(t *testing.T) {
-	vc := &v1alpha1.VinylCache{}
+	vc := &vinylv1.VinylCache{}
 	vc.Status.ReadyPeers = 0
 
 	phase := calculatePhase(vc)
-	if phase != v1alpha1.PhasePending {
-		t.Errorf("expected %q, got %q", v1alpha1.PhasePending, phase)
+	if phase != vinylv1.PhasePending {
+		t.Errorf("expected %q, got %q", vinylv1.PhasePending, phase)
 	}
 }
 
 func TestCalculatePhase_AllReady_ReturnsReady(t *testing.T) {
-	vc := &v1alpha1.VinylCache{}
+	vc := &vinylv1.VinylCache{}
 	vc.Status.ReadyPeers = 3
 	vc.Status.Conditions = []metav1.Condition{
-		{Type: v1alpha1.ConditionVCLSynced, Status: metav1.ConditionTrue},
-		{Type: v1alpha1.ConditionBackendsAvailable, Status: metav1.ConditionTrue},
+		{Type: vinylv1.ConditionVCLSynced, Status: metav1.ConditionTrue},
+		{Type: vinylv1.ConditionBackendsAvailable, Status: metav1.ConditionTrue},
 	}
 
 	phase := calculatePhase(vc)
-	if phase != v1alpha1.PhaseReady {
-		t.Errorf("expected %q, got %q", v1alpha1.PhaseReady, phase)
+	if phase != vinylv1.PhaseReady {
+		t.Errorf("expected %q, got %q", vinylv1.PhaseReady, phase)
 	}
 }
 
 func TestCalculatePhase_VCLNotSynced_ReturnsDegraded(t *testing.T) {
-	vc := &v1alpha1.VinylCache{}
+	vc := &vinylv1.VinylCache{}
 	vc.Status.ReadyPeers = 2
 	vc.Status.Conditions = []metav1.Condition{
-		{Type: v1alpha1.ConditionVCLSynced, Status: metav1.ConditionFalse},
-		{Type: v1alpha1.ConditionBackendsAvailable, Status: metav1.ConditionTrue},
+		{Type: vinylv1.ConditionVCLSynced, Status: metav1.ConditionFalse},
+		{Type: vinylv1.ConditionBackendsAvailable, Status: metav1.ConditionTrue},
 	}
 
 	phase := calculatePhase(vc)
-	if phase != v1alpha1.PhaseDegraded {
-		t.Errorf("expected %q, got %q", v1alpha1.PhaseDegraded, phase)
+	if phase != vinylv1.PhaseDegraded {
+		t.Errorf("expected %q, got %q", vinylv1.PhaseDegraded, phase)
 	}
 }
 
 func failedCondition(msg string, ltt metav1.Time) []metav1.Condition {
 	return []metav1.Condition{{
-		Type:               v1alpha1.ConditionVCLSynced,
+		Type:               vinylv1.ConditionVCLSynced,
 		Status:             metav1.ConditionFalse,
 		Reason:             "VCLPushFailed",
 		Message:            msg,
@@ -79,11 +79,11 @@ func failedCondition(msg string, ltt metav1.Time) []metav1.Condition {
 // the reporter of #58 looking in the wrong place.
 func TestSetCondition_RefreshesMessageAndKeepsTransitionTime(t *testing.T) {
 	old := metav1.NewTime(time.Now().Add(-time.Hour))
-	vc := &v1alpha1.VinylCache{}
+	vc := &vinylv1.VinylCache{}
 	vc.Generation = 2
 	vc.Status.Conditions = failedCondition("VCL push failed on all 1 pods", old)
 
-	setCondition(vc, v1alpha1.ConditionVCLSynced, metav1.ConditionFalse, "VCLPushFailed",
+	setCondition(vc, vinylv1.ConditionVCLSynced, metav1.ConditionFalse, "VCLPushFailed",
 		"VCL push failed on all 2 pods")
 
 	got := vc.Status.Conditions[0]
@@ -101,10 +101,10 @@ func TestSetCondition_RefreshesMessageAndKeepsTransitionTime(t *testing.T) {
 
 func TestSetCondition_StatusChangeMovesTransitionTime(t *testing.T) {
 	old := metav1.NewTime(time.Now().Add(-time.Hour))
-	vc := &v1alpha1.VinylCache{}
+	vc := &vinylv1.VinylCache{}
 	vc.Status.Conditions = failedCondition("VCL push failed on all 2 pods", old)
 
-	setCondition(vc, v1alpha1.ConditionVCLSynced, metav1.ConditionTrue, "VCLPushed", "VCL pushed to 2/2 pods")
+	setCondition(vc, vinylv1.ConditionVCLSynced, metav1.ConditionTrue, "VCLPushed", "VCL pushed to 2/2 pods")
 
 	got := vc.Status.Conditions[0]
 	if got.LastTransitionTime.Equal(&old) {

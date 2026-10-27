@@ -21,7 +21,7 @@
 # actually reaching varnishd (verified by hand: omitting it serves the raw,
 # unexpanded "<esi:include.../>" tag instead of the assembled "FRAGMENT"
 # token).
-apiVersion: vinyl.bluedynamics.eu/v1alpha1
+apiVersion: vinyl.bluedynamics.eu/v1
 kind: VinylCache
 metadata:
   name: esi-cache

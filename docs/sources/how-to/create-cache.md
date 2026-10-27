@@ -5,7 +5,7 @@ This guide creates a minimal Vinyl Cache cluster using a `VinylCache` custom res
 ## Minimal example
 
 ```yaml
-apiVersion: vinyl.bluedynamics.eu/v1alpha1
+apiVersion: vinyl.bluedynamics.eu/v1
 kind: VinylCache
 metadata:
   name: my-cache

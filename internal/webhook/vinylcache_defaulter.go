@@ -21,7 +21,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 const (
@@ -42,12 +42,12 @@ const (
 
 // applyShardDefaults fills ShardSpec defaults on a DirectorSpec whose Type is
 // "shard". Idempotent: existing non-zero values are preserved.
-func applyShardDefaults(ds *vinylv1alpha1.DirectorSpec) {
+func applyShardDefaults(ds *vinylv1.DirectorSpec) {
 	if ds.Type != directorTypeShard {
 		return
 	}
 	if ds.Shard == nil {
-		ds.Shard = &vinylv1alpha1.ShardSpec{}
+		ds.Shard = &vinylv1.ShardSpec{}
 	}
 	s := ds.Shard
 	if s.Warmup == nil {
@@ -89,12 +89,12 @@ func applyShardDefaults(ds *vinylv1alpha1.DirectorSpec) {
 //   - Retry.BackoffBase = 30s
 //   - Retry.BackoffMax = 5m
 //   - ProxyProtocol.Port = 8081 (when ProxyProtocol.Enabled is true)
-func DefaultVinylCache(vc *vinylv1alpha1.VinylCache) {
+func DefaultVinylCache(vc *vinylv1.VinylCache) {
 	// Ensure Purge spec exists. Soft is intentionally left untouched here:
 	// its true default is applied at the CRD level (+kubebuilder:default on
 	// PurgeSpec.Soft), which can tell "unset" apart from an explicit false.
 	if vc.Spec.Invalidation.Purge == nil {
-		vc.Spec.Invalidation.Purge = &vinylv1alpha1.PurgeSpec{}
+		vc.Spec.Invalidation.Purge = &vinylv1.PurgeSpec{}
 	}
 
 	// Director type default: shard.

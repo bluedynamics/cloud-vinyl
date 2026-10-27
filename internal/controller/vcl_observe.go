@@ -20,7 +20,7 @@ import (
 	"context"
 	"time"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 )
 
@@ -60,7 +60,7 @@ const defaultObserveTimeout = 3 * time.Second
 // while wrongly assuming a pod is up to date stalls convergence outright.
 func (r *VinylCacheReconciler) observeVCLNames(
 	ctx context.Context,
-	vc *v1alpha1.VinylCache,
+	vc *vinylv1.VinylCache,
 	pods []generator.PeerBackend,
 ) map[string]string {
 	if len(pods) == 0 {

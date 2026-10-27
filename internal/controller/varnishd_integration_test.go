@@ -31,7 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 // testVarnishImage is the image these tests run varnishd from.
@@ -93,11 +93,11 @@ func TestVarnishdStartsWithOperatorCommandLine(t *testing.T) {
 	image := testVarnishImage(t)
 
 	t.Run("spec.storage and PROXY enabled", func(t *testing.T) {
-		vc := &v1alpha1.VinylCache{}
-		vc.Spec.Storage = []v1alpha1.StorageSpec{
+		vc := &vinylv1.VinylCache{}
+		vc.Spec.Storage = []vinylv1.StorageSpec{
 			{Name: "cache", Type: "malloc", Size: resource.MustParse("64Mi")},
 		}
-		vc.Spec.ProxyProtocol = v1alpha1.ProxyProtocolSpec{Enabled: true, Port: 8081}
+		vc.Spec.ProxyProtocol = vinylv1.ProxyProtocolSpec{Enabled: true, Port: 8081}
 		id := startOperatorVarnishd(t, image, vc)
 
 		storages := varnishadm(t, id, "storage.list")
@@ -117,7 +117,7 @@ func TestVarnishdStartsWithOperatorCommandLine(t *testing.T) {
 	})
 
 	t.Run("defaults", func(t *testing.T) {
-		id := startOperatorVarnishd(t, image, &v1alpha1.VinylCache{})
+		id := startOperatorVarnishd(t, image, &vinylv1.VinylCache{})
 
 		assert.Contains(t, varnishadm(t, id, "storage.list"), "storage.s0",
 			"without spec.storage, varnishd creates its default storage")
@@ -131,7 +131,7 @@ func TestVarnishdStartsWithOperatorCommandLine(t *testing.T) {
 
 // startOperatorVarnishd runs varnishd with varnishdArgs(vc) and the pod's
 // mounts, waits until its admin CLI answers and returns the container id.
-func startOperatorVarnishd(t *testing.T, image string, vc *v1alpha1.VinylCache) string {
+func startOperatorVarnishd(t *testing.T, image string, vc *vinylv1.VinylCache) string {
 	t.Helper()
 	dir := t.TempDir()
 	vclPath := filepath.Join(dir, "default.vcl")

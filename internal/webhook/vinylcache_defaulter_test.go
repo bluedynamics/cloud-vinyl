@@ -24,19 +24,19 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/webhook"
 )
 
 // emptyVC returns a VinylCache with no spec fields set (all zero values).
-func emptyVC() *vinylv1alpha1.VinylCache {
-	return &vinylv1alpha1.VinylCache{}
+func emptyVC() *vinylv1.VinylCache {
+	return &vinylv1.VinylCache{}
 }
 
 // --- Purge.Soft default ---
 //
 // Soft defaulting to true now happens at the CRD level via
-// +kubebuilder:default=true (api/v1alpha1/vinylcache_types.go), applied by
+// +kubebuilder:default=true (api/v1/vinylcache_types.go), applied by
 // the API server during admission, before the webhook ever sees the object.
 // The webhook itself must leave an already-set Soft value alone in every
 // case, and must not invent a value where none was set.
@@ -56,7 +56,7 @@ func TestDefault_SoftPurge_NotOverwrittenIfFalseIsExplicitlyMeant(t *testing.T) 
 	// Soft is now a *bool, so "not set" (nil) and "explicitly false" are
 	// distinguishable. An explicit false must survive the webhook unchanged.
 	vc := emptyVC()
-	vc.Spec.Invalidation.Purge = &vinylv1alpha1.PurgeSpec{Soft: new(false)}
+	vc.Spec.Invalidation.Purge = &vinylv1.PurgeSpec{Soft: new(false)}
 	webhook.DefaultVinylCache(vc)
 
 	require.NotNil(t, vc.Spec.Invalidation.Purge.Soft,
@@ -67,7 +67,7 @@ func TestDefault_SoftPurge_NotOverwrittenIfFalseIsExplicitlyMeant(t *testing.T) 
 
 func TestDefault_SoftPurge_AlreadyTrue_NotChanged(t *testing.T) {
 	vc := emptyVC()
-	vc.Spec.Invalidation.Purge = &vinylv1alpha1.PurgeSpec{Soft: new(true)}
+	vc.Spec.Invalidation.Purge = &vinylv1.PurgeSpec{Soft: new(true)}
 	webhook.DefaultVinylCache(vc)
 
 	require.NotNil(t, vc.Spec.Invalidation.Purge.Soft)
@@ -117,7 +117,7 @@ func TestDefault_ShardWarmup_DefaultsTo0_1(t *testing.T) {
 func TestDefault_ShardWarmup_NotOverwrittenIfAlreadySet(t *testing.T) {
 	vc := emptyVC()
 	warmup := 0.5
-	vc.Spec.Director.Shard = &vinylv1alpha1.ShardSpec{Warmup: &warmup}
+	vc.Spec.Director.Shard = &vinylv1.ShardSpec{Warmup: &warmup}
 	webhook.DefaultVinylCache(vc)
 
 	require.NotNil(t, vc.Spec.Director.Shard.Warmup)
@@ -136,7 +136,7 @@ func TestDefault_ShardRampup_DefaultsTo30s(t *testing.T) {
 
 func TestDefault_ShardRampup_NotOverwrittenIfAlreadySet(t *testing.T) {
 	vc := emptyVC()
-	vc.Spec.Director.Shard = &vinylv1alpha1.ShardSpec{
+	vc.Spec.Director.Shard = &vinylv1.ShardSpec{
 		Rampup: metav1.Duration{Duration: 60 * time.Second},
 	}
 	webhook.DefaultVinylCache(vc)
@@ -159,7 +159,7 @@ func TestDefault_ShardBy_DefaultsToURL(t *testing.T) {
 
 func TestDefault_ShardBy_NotOverwrittenIfAlreadySet(t *testing.T) {
 	vc := emptyVC()
-	vc.Spec.Director.Shard = &vinylv1alpha1.ShardSpec{By: "URL"}
+	vc.Spec.Director.Shard = &vinylv1.ShardSpec{By: "URL"}
 	webhook.DefaultVinylCache(vc)
 
 	assert.Equal(t, "URL", vc.Spec.Director.Shard.By, "ShardSpec.By should not be overwritten")
@@ -176,7 +176,7 @@ func TestDefault_ShardHealthy_DefaultsToCHOSEN(t *testing.T) {
 
 func TestDefault_ShardHealthy_NotOverwrittenIfAlreadySet(t *testing.T) {
 	vc := emptyVC()
-	vc.Spec.Director.Shard = &vinylv1alpha1.ShardSpec{Healthy: "ALL"}
+	vc.Spec.Director.Shard = &vinylv1.ShardSpec{Healthy: "ALL"}
 	webhook.DefaultVinylCache(vc)
 
 	assert.Equal(t, "ALL", vc.Spec.Director.Shard.Healthy, "ShardSpec.Healthy should not be overwritten")
@@ -323,10 +323,10 @@ func TestDefault_ProxyProtocolPort_NotOverwrittenIfAlreadySet(t *testing.T) {
 
 // vcWithBackend returns a VinylCache with a single backend (name only).
 // Used by per-backend director tests.
-func vcWithBackend() *vinylv1alpha1.VinylCache {
-	return &vinylv1alpha1.VinylCache{
-		Spec: vinylv1alpha1.VinylCacheSpec{
-			Backends: []vinylv1alpha1.BackendSpec{{Name: "b"}},
+func vcWithBackend() *vinylv1.VinylCache {
+	return &vinylv1.VinylCache{
+		Spec: vinylv1.VinylCacheSpec{
+			Backends: []vinylv1.BackendSpec{{Name: "b"}},
 		},
 	}
 }
@@ -342,7 +342,7 @@ func TestDefault_BackendDirector_NilIsUntouched(t *testing.T) {
 
 func TestDefault_BackendDirector_EmptyTypeDefaultsShard(t *testing.T) {
 	vc := vcWithBackend()
-	vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{}
+	vc.Spec.Backends[0].Director = &vinylv1.DirectorSpec{}
 	webhook.DefaultVinylCache(vc)
 	require.NotNil(t, vc.Spec.Backends[0].Director)
 	assert.Equal(t, "shard", vc.Spec.Backends[0].Director.Type)
@@ -350,7 +350,7 @@ func TestDefault_BackendDirector_EmptyTypeDefaultsShard(t *testing.T) {
 
 func TestDefault_BackendDirector_ShardDefaults(t *testing.T) {
 	vc := vcWithBackend()
-	vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{Type: "shard"}
+	vc.Spec.Backends[0].Director = &vinylv1.DirectorSpec{Type: "shard"}
 	webhook.DefaultVinylCache(vc)
 	s := vc.Spec.Backends[0].Director.Shard
 	require.NotNil(t, s)
@@ -363,7 +363,7 @@ func TestDefault_BackendDirector_ShardDefaults(t *testing.T) {
 
 func TestDefault_BackendDirector_NonShardTypeKeepsNilShard(t *testing.T) {
 	vc := vcWithBackend()
-	vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{Type: "round_robin"}
+	vc.Spec.Backends[0].Director = &vinylv1.DirectorSpec{Type: "round_robin"}
 	webhook.DefaultVinylCache(vc)
 	assert.Equal(t, "round_robin", vc.Spec.Backends[0].Director.Type)
 	assert.Nil(t, vc.Spec.Backends[0].Director.Shard,
@@ -373,9 +373,9 @@ func TestDefault_BackendDirector_NonShardTypeKeepsNilShard(t *testing.T) {
 func TestDefault_BackendDirector_ShardUserValuesPreserved(t *testing.T) {
 	vc := vcWithBackend()
 	warmup := 0.5
-	vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{
+	vc.Spec.Backends[0].Director = &vinylv1.DirectorSpec{
 		Type: "shard",
-		Shard: &vinylv1alpha1.ShardSpec{
+		Shard: &vinylv1.ShardSpec{
 			Warmup: &warmup,
 			Rampup: metav1.Duration{Duration: 60 * time.Second},
 			By:     "URL",

@@ -16,7 +16,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1
 
 import (
 	. "github.com/onsi/ginkgo/v2"
@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
 )
 
@@ -35,19 +36,19 @@ import (
 // internal/webhook's minimalValidVC unit fixture (test helpers cannot be
 // imported across packages) — copy its required spec fields exactly; if
 // the two drift, the admit test fails loudly, which is the point.
-func minimalAdmissibleVC(name string) *vinylv1alpha1.VinylCache {
-	return &vinylv1alpha1.VinylCache{
+func minimalAdmissibleVC(name string) *vinylv1.VinylCache {
+	return &vinylv1.VinylCache{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: "default",
 		},
-		Spec: vinylv1alpha1.VinylCacheSpec{
+		Spec: vinylv1.VinylCacheSpec{
 			Replicas: 1,
 			Image:    "ghcr.io/bluedynamics/cloud-vinyl-varnish:9.1.0",
-			Backends: []vinylv1alpha1.BackendSpec{
+			Backends: []vinylv1.BackendSpec{
 				{
 					Name:       "app",
-					ServiceRef: vinylv1alpha1.ServiceRef{Name: "app-service"},
+					ServiceRef: vinylv1.ServiceRef{Name: "app-service"},
 				},
 			},
 		},
@@ -56,15 +57,15 @@ func minimalAdmissibleVC(name string) *vinylv1alpha1.VinylCache {
 
 var _ = Describe("VinylCache Webhook", func() {
 	var (
-		obj       *vinylv1alpha1.VinylCache
-		oldObj    *vinylv1alpha1.VinylCache
+		obj       *vinylv1.VinylCache
+		oldObj    *vinylv1.VinylCache
 		validator VinylCacheCustomValidator
 		defaulter VinylCacheCustomDefaulter
 	)
 
 	BeforeEach(func() {
-		obj = &vinylv1alpha1.VinylCache{}
-		oldObj = &vinylv1alpha1.VinylCache{}
+		obj = &vinylv1.VinylCache{}
+		oldObj = &vinylv1.VinylCache{}
 		validator = VinylCacheCustomValidator{}
 		Expect(validator).NotTo(BeNil(), "Expected validator to be initialized")
 		defaulter = VinylCacheCustomDefaulter{}
@@ -88,6 +89,40 @@ var _ = Describe("VinylCache Webhook", func() {
 		//     By("checking that the default values are set")
 		//     Expect(obj.SomeFieldWithDefault).To(Equal("default_value"))
 		// })
+	})
+
+	// v1alpha1 stays served and deprecated. The webhooks register for v1 with
+	// matchPolicy Equivalent, so the API server converts a v1alpha1 request
+	// and sends it through the same defaulting and validation (#122).
+	Context("When a client still uses the deprecated v1alpha1", func() {
+		It("validates v1alpha1 requests through the v1 webhook", func() {
+			vc := &vinylv1alpha1.VinylCache{
+				ObjectMeta: metav1.ObjectMeta{Name: "alpha-blocked", Namespace: "default"},
+				Spec:       minimalAdmissibleVC("unused").Spec,
+			}
+			vc.Spec.VarnishParams = map[string]string{"cc_command": "gcc"}
+			err := k8sClient.Create(ctx, vc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("admission webhook"))
+			Expect(err.Error()).To(ContainSubstring(`varnishParameters key "cc_command" is not allowed`))
+		})
+
+		It("defaults a v1alpha1 object and serves it as v1", func() {
+			vc := &vinylv1alpha1.VinylCache{
+				ObjectMeta: metav1.ObjectMeta{Name: "alpha-admitted", Namespace: "default"},
+				Spec:       minimalAdmissibleVC("unused").Spec,
+			}
+			Expect(k8sClient.Create(ctx, vc)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, vc))).To(Succeed())
+			})
+
+			var asV1 vinylv1.VinylCache
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(vc), &asV1)).To(Succeed())
+			Expect(asV1.Spec.Backends).To(HaveLen(1))
+			Expect(asV1.Spec.Director).NotTo(BeNil(), "the mutating webhook must have run")
+			Expect(asV1.Spec.Director.Type).To(Equal("shard"))
+		})
 	})
 
 	Context("When creating or updating VinylCache under Validating Webhook", func() {
@@ -122,7 +157,7 @@ var _ = Describe("VinylCache Webhook", func() {
 
 		It("denies tracing enabled without an OTLP endpoint", func() {
 			vc := minimalAdmissibleVC("traced-invalid")
-			vc.Spec.Tracing = vinylv1alpha1.TracingSpec{Enabled: true}
+			vc.Spec.Tracing = vinylv1.TracingSpec{Enabled: true}
 			err := k8sClient.Create(ctx, vc)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("tracing.otlp.endpoint is required"))
@@ -130,9 +165,9 @@ var _ = Describe("VinylCache Webhook", func() {
 
 		It("admits tracing with a host:port endpoint", func() {
 			vc := minimalAdmissibleVC("traced-valid")
-			vc.Spec.Tracing = vinylv1alpha1.TracingSpec{
+			vc.Spec.Tracing = vinylv1.TracingSpec{
 				Enabled: true,
-				OTLP:    vinylv1alpha1.OTLPSpec{Endpoint: "collector:4317"},
+				OTLP:    vinylv1.OTLPSpec{Endpoint: "collector:4317"},
 			}
 			Expect(k8sClient.Create(ctx, vc)).To(Succeed())
 			DeferCleanup(func() {
@@ -141,7 +176,7 @@ var _ = Describe("VinylCache Webhook", func() {
 		})
 
 		// The CRD carries a CEL x-kubernetes-validations rule on
-		// spec.varnishParameters (api/v1alpha1/vinylcache_types.go) as a
+		// spec.varnishParameters (api/v1/vinylcache_types.go) as a
 		// backstop independent of the admission webhook: the webhook's
 		// failurePolicy=fail only protects against the webhook being down,
 		// not against it never having been installed. This test proves the
@@ -194,8 +229,8 @@ var _ = Describe("VinylCache Webhook", func() {
 		// again, so the CRD rejects an explicit maxRetries > 0 for them (#117).
 		It("rejects retry.maxRetries > 0 for a fallback director via CEL", func() {
 			vc := minimalAdmissibleVC("cel-retry-fallback")
-			vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{Type: "fallback"}
-			vc.Spec.Backends[0].Retry = &vinylv1alpha1.FetchRetrySpec{MaxRetries: new(int32(1))}
+			vc.Spec.Backends[0].Director = &vinylv1.DirectorSpec{Type: "fallback"}
+			vc.Spec.Backends[0].Retry = &vinylv1.FetchRetrySpec{MaxRetries: new(int32(1))}
 			err := k8sClient.Create(ctx, vc)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("retry.maxRetries must be 0 for hash and fallback directors"))
@@ -203,8 +238,8 @@ var _ = Describe("VinylCache Webhook", func() {
 
 		It("admits retry.maxRetries 0 for a hash director", func() {
 			vc := minimalAdmissibleVC("retry-hash-off")
-			vc.Spec.Backends[0].Director = &vinylv1alpha1.DirectorSpec{Type: "hash"}
-			vc.Spec.Backends[0].Retry = &vinylv1alpha1.FetchRetrySpec{MaxRetries: new(int32(0))}
+			vc.Spec.Backends[0].Director = &vinylv1.DirectorSpec{Type: "hash"}
+			vc.Spec.Backends[0].Retry = &vinylv1.FetchRetrySpec{MaxRetries: new(int32(0))}
 			Expect(k8sClient.Create(ctx, vc)).To(Succeed())
 			DeferCleanup(func() {
 				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, vc))).To(Succeed())

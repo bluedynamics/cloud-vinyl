@@ -2,9 +2,14 @@
 
 `VinylCache` is the central custom resource managed by cloud-vinyl.
 
-**API group:** `vinyl.bluedynamics.eu/v1alpha1`
+**API group:** `vinyl.bluedynamics.eu/v1`
 **Kind:** `VinylCache`
 **Scope:** Namespaced
+
+`vinyl.bluedynamics.eu/v1alpha1` is still served throughout the 1.x series, with the
+same schema, and is deprecated: the API server returns a warning for every request
+through it. Existing objects and manifests keep working. Move manifests to `v1` by
+changing `apiVersion` only.
 
 ## Spec fields
 
@@ -193,7 +198,7 @@ varnishParameters:
 ## Example
 
 ```yaml
-apiVersion: vinyl.bluedynamics.eu/v1alpha1
+apiVersion: vinyl.bluedynamics.eu/v1
 kind: VinylCache
 metadata:
   name: my-cache

@@ -27,7 +27,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	v1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 )
 
 const invalidationPort = 8090
@@ -36,7 +36,7 @@ const invalidationPort = 8090
 //  1. Headless service (cluster-internal pod-to-pod communication)
 //  2. Traffic service (main cache ingress)
 //  3. Invalidation service (PURGE/BAN proxy, no selector — operator manages EndpointSlice)
-func (r *VinylCacheReconciler) reconcileServices(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) reconcileServices(ctx context.Context, vc *vinylv1.VinylCache) error {
 	if err := r.reconcileHeadlessService(ctx, vc); err != nil {
 		return err
 	}
@@ -50,7 +50,7 @@ func (r *VinylCacheReconciler) reconcileServices(ctx context.Context, vc *v1alph
 }
 
 // reconcileHeadlessService creates/updates the headless service used by the StatefulSet.
-func (r *VinylCacheReconciler) reconcileHeadlessService(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) reconcileHeadlessService(ctx context.Context, vc *vinylv1.VinylCache) error {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      vc.Name,
@@ -95,7 +95,7 @@ func (r *VinylCacheReconciler) reconcileHeadlessService(ctx context.Context, vc 
 }
 
 // reconcileTrafficService creates/updates the main traffic service.
-func (r *VinylCacheReconciler) reconcileTrafficService(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) reconcileTrafficService(ctx context.Context, vc *vinylv1.VinylCache) error {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      vc.Name + "-traffic",
@@ -148,7 +148,7 @@ func (r *VinylCacheReconciler) reconcileTrafficService(ctx context.Context, vc *
 // reconcileInvalidationService creates/updates the invalidation service.
 // This service has no selector — the operator manages its EndpointSlice directly.
 // No OwnerReference is set because cleanup is handled via the finalizer.
-func (r *VinylCacheReconciler) reconcileInvalidationService(ctx context.Context, vc *v1alpha1.VinylCache) error {
+func (r *VinylCacheReconciler) reconcileInvalidationService(ctx context.Context, vc *vinylv1.VinylCache) error {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      vc.Name + "-invalidation",

@@ -1,0 +1,899 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package v1
+
+import (
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// Phase constants represent the overall state of a VinylCache instance.
+const (
+	PhasePending  = "Pending"
+	PhaseReady    = "Ready"
+	PhaseDegraded = "Degraded"
+	PhaseError    = "Error"
+)
+
+// Condition type constants for VinylCache status conditions.
+const (
+	ConditionReady             = "Ready"
+	ConditionVCLSynced         = "VCLSynced"
+	ConditionBackendsAvailable = "BackendsAvailable"
+	ConditionProgressing       = "Progressing"
+	ConditionVCLConsistent     = "VCLConsistent"
+)
+
+// VinylCacheSpec defines the desired state of VinylCache.
+type VinylCacheSpec struct {
+	// replicas is the desired number of Varnish pods in the cluster.
+	// +kubebuilder:validation:Minimum=1
+	Replicas int32 `json:"replicas"`
+
+	// image is the container image for the Varnish pods.
+	// +kubebuilder:validation:MinLength=1
+	Image string `json:"image"`
+
+	// backends defines the upstream services Varnish will proxy to.
+	// At least one backend is required.
+	// +kubebuilder:validation:MinItems=1
+	Backends []BackendSpec `json:"backends"`
+
+	// director configures how Varnish distributes requests across backend endpoints.
+	// +optional
+	Director DirectorSpec `json:"director,omitempty"`
+
+	// cluster configures Varnish clustering between pods.
+	// +optional
+	Cluster ClusterSpec `json:"cluster,omitempty"`
+
+	// varnishParameters are runtime parameters passed to varnishd via -p flags,
+	// one flag per map entry: the key must be a bare varnishd parameter name
+	// (lowercase letters, digits, and underscores, starting with a letter —
+	// the admission webhook rejects anything else, including padding
+	// whitespace or uppercase) and the value is passed through unchanged,
+	// e.g. {"thread_pool_min": "100"} becomes "-p thread_pool_min=100".
+	// Entries are sorted by key before being rendered as args, so the pod
+	// template does not churn between reconciles.
+	//
+	// ESI processing is NOT controlled through this map — see spec.esi.
+	// varnishd's "feature" parameter is still useful alongside it: if ESI
+	// response bodies don't reliably start with '<', also set
+	// {"feature": "+esi_disable_xml_check"} (a real varnishd feature bit;
+	// see spec.esi's doc comment for why there is no "+esi" equivalent).
+	//
+	// Certain security-sensitive parameters (vcc_allow_inline_c, cc_command)
+	// are blocked by the admission webhook.
+	//
+	// The key shape is also enforced here via CEL, independently of the
+	// admission webhook: the webhook's failurePolicy=fail only protects
+	// against the webhook being down, not against it never having been
+	// installed (e.g. a cluster running these CRDs without the operator's
+	// webhook configuration applied), and varnishParamArgs renders these
+	// keys straight into varnishd's argv.
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="self.all(k, k.matches('^[a-z][a-z0-9_]*$'))",message="varnishParameters keys must be bare varnishd parameter names (lowercase letters, digits, underscore)"
+	VarnishParams map[string]string `json:"varnishParameters,omitempty"`
+
+	// storage configures one or more Varnish storage backends (malloc or file).
+	// When set, these are the only cache storages. When empty, varnishd
+	// creates its default storage s0 (malloc, 100 MB).
+	// +optional
+	Storage []StorageSpec `json:"storage,omitempty"`
+
+	// vcl configures VCL generation: snippets injected into generated VCL subroutines,
+	// or a full VCL override.
+	// +optional
+	VCL VCLSpec `json:"vcl,omitempty"`
+
+	// invalidation configures cache invalidation methods (PURGE, BAN, xkey).
+	// +optional
+	Invalidation InvalidationSpec `json:"invalidation,omitempty"`
+
+	// proxyProtocol enables PROXY protocol on a dedicated port for passing client IP.
+	// +optional
+	ProxyProtocol ProxyProtocolSpec `json:"proxyProtocol,omitempty"`
+
+	// service configures the Kubernetes Service created for traffic ingress.
+	// +optional
+	Service ServiceSpec `json:"service,omitempty"`
+
+	// debounce configures a grace period before applying endpoint changes to Varnish,
+	// preventing thundering-herd on rapid endpoint churn.
+	// +optional
+	Debounce DebounceSpec `json:"debounce,omitempty"`
+
+	// retry configures retry behaviour when VCL updates fail to apply.
+	// +optional
+	Retry RetrySpec `json:"retry,omitempty"`
+
+	// pod configures pod-level scheduling and metadata.
+	// +optional
+	Pod PodSpec `json:"pod,omitempty"`
+
+	// volumeClaimTemplates are appended verbatim to the generated StatefulSet's
+	// spec.volumeClaimTemplates. Each template yields one PVC per replica
+	// (named <claim>-<statefulset>-<ord>) that persists across pod restarts
+	// for that replica. Useful for per-replica SSD-backed file storage.
+	// Reference the claim name from spec.pod.volumeMounts; reference the
+	// resulting mountPath from spec.storage[].path.
+	// +optional
+	VolumeClaimTemplates []corev1.PersistentVolumeClaim `json:"volumeClaimTemplates,omitempty"`
+
+	// monitoring configures Prometheus metrics and alerting rules.
+	// +optional
+	Monitoring MonitoringSpec `json:"monitoring,omitempty"`
+
+	// tracing configures the vinyl-tracer sidecar that exports OpenTelemetry
+	// trace spans built from the Varnish Shared memory Log.
+	// +optional
+	Tracing TracingSpec `json:"tracing,omitempty"`
+
+	// esi configures Edge Side Includes (ESI) processing.
+	// +optional
+	ESI ESISpec `json:"esi,omitempty"`
+
+	// resources sets CPU and memory requests/limits for the Varnish container.
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+// ESISpec configures Edge Side Includes (ESI) processing.
+type ESISpec struct {
+	// enabled gates the generated vcl_backend_response block that sets
+	// beresp.do_esi = true whenever a backend response carries
+	// Surrogate-Control: content="ESI/1.0". ESI is core varnishd
+	// functionality, not a VMOD and not something any "-p feature=..."
+	// flag turns on or off — an earlier convention asked for
+	// {"feature": "+esi"} in spec.varnishParameters, but "+esi" is not a
+	// real varnishd feature bit (varnishd -x parameter lists no bare
+	// "esi" token) and passing it crashes varnishd outright ("Unknown
+	// feature bit (+esi)"), atomically rejecting the whole -p feature=...
+	// value even when combined with a real token. This field replaces
+	// that convention as the only way to enable ESI.
+	//
+	// If response bodies don't reliably start with '<' (varnishd's ESI
+	// implementation sniffs the body to decide whether to scan it for
+	// <esi:...> tags), additionally set spec.varnishParameters'
+	// {"feature": "+esi_disable_xml_check"} — that token IS real and
+	// independent of this field.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+}
+
+// BackendSpec describes an upstream Kubernetes service used as a Varnish backend.
+// +kubebuilder:validation:XValidation:rule="!(has(self.retry) && has(self.retry.maxRetries) && self.retry.maxRetries > 0 && has(self.director) && has(self.director.type) && self.director.type in ['hash', 'fallback'])",message="retry.maxRetries must be 0 for hash and fallback directors: they would pick the same backend again"
+type BackendSpec struct {
+	// name is the VCL identifier for this backend. Must match ^[a-zA-Z][a-zA-Z0-9_]*$.
+	// +kubebuilder:validation:Pattern=`^[a-zA-Z][a-zA-Z0-9_]*$`
+	Name string `json:"name"`
+
+	// serviceRef references the Kubernetes Service in the same namespace.
+	ServiceRef ServiceRef `json:"serviceRef"`
+
+	// weight is the relative weight for the director. 0 means standby (fallback director).
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Weight int32 `json:"weight,omitempty"`
+
+	// port overrides the service port used for this backend.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	Port int32 `json:"port,omitempty"`
+
+	// probe configures the Varnish backend health probe.
+	// +optional
+	Probe *BackendProbeSpec `json:"probe,omitempty"`
+
+	// connectionParameters configures backend connection pool timeouts and limits.
+	// +optional
+	ConnectionParameters *ConnectionParameters `json:"connectionParameters,omitempty"`
+
+	// director overrides the cluster-wide director for this backend only.
+	// If nil, a shard director with defaults is generated, grouping all resolved
+	// per-pod backends for this serviceRef. Use "round_robin" or "random" if
+	// consistent hashing is undesirable (e.g. stateless backends).
+	// +optional
+	Director *DirectorSpec `json:"director,omitempty"`
+
+	// retry configures retrying a fetch on another backend of this group
+	// when the backend sent no response. Defaults to one retry for shard,
+	// round_robin and random directors; hash and fallback directors never
+	// retry, since they would pick the same backend again.
+	// +optional
+	Retry *FetchRetrySpec `json:"retry,omitempty"`
+}
+
+// FetchRetrySpec configures retrying a failed backend fetch on another backend.
+// Only GET and HEAD requests are retried, and only when no response arrived:
+// connection refused, a connection closed before the response, or a connect
+// timeout. A fetch that ran into first_byte_timeout is not retried, because
+// that would double the wait and the load on a backend that is already slow.
+type FetchRetrySpec struct {
+	// maxRetries is the number of retries per fetch. 0 disables retrying.
+	// Default: 1.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=3
+	MaxRetries *int32 `json:"maxRetries,omitempty"`
+}
+
+// ServiceRef references a Kubernetes Service by name in the same namespace.
+// Cross-namespace references are not permitted (enforced by the admission webhook).
+type ServiceRef struct {
+	// name is the Kubernetes Service name.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+}
+
+// BackendProbeSpec configures the Varnish backend health probe.
+type BackendProbeSpec struct {
+	// url is the URL to probe. If empty, the backend's root path is used.
+	// +optional
+	URL string `json:"url,omitempty"`
+
+	// interval is how often to probe the backend.
+	// +optional
+	Interval metav1.Duration `json:"interval,omitempty"`
+
+	// timeout is the maximum time to wait for a probe response.
+	// +optional
+	Timeout metav1.Duration `json:"timeout,omitempty"`
+
+	// window is the number of most recent probes to consider for threshold evaluation.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Window int32 `json:"window,omitempty"`
+
+	// threshold is the minimum number of successful probes within the window for the backend
+	// to be considered healthy.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Threshold int32 `json:"threshold,omitempty"`
+
+	// expectedResponse is the expected HTTP response status code. Defaults to 200.
+	// +optional
+	ExpectedResponse *int32 `json:"expectedResponse,omitempty"`
+}
+
+// ConnectionParameters configures Varnish backend connection pool behaviour.
+type ConnectionParameters struct {
+	// connectTimeout is the maximum time to establish a TCP connection to the backend.
+	// +optional
+	ConnectTimeout metav1.Duration `json:"connectTimeout,omitempty"`
+
+	// firstByteTimeout is the maximum time to wait for the first byte of the response.
+	// +optional
+	FirstByteTimeout metav1.Duration `json:"firstByteTimeout,omitempty"`
+
+	// betweenBytesTimeout is the maximum time to wait between bytes of the response body.
+	// +optional
+	BetweenBytesTimeout metav1.Duration `json:"betweenBytesTimeout,omitempty"`
+
+	// idleTimeout is the maximum time an idle connection may be reused. Should be less
+	// than the backend's keep-alive timeout to avoid 503 races.
+	// +optional
+	IdleTimeout metav1.Duration `json:"idleTimeout,omitempty"`
+
+	// maxConnections is the maximum number of concurrent connections to the backend.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxConnections int32 `json:"maxConnections,omitempty"`
+}
+
+// DirectorSpec configures how Varnish distributes requests across backend endpoints.
+type DirectorSpec struct {
+	// type selects the Varnish director algorithm.
+	// "shard" (default) provides consistent hashing; "round_robin", "random", and "hash"
+	// are also supported.
+	// +optional
+	// +kubebuilder:validation:Enum=shard;round_robin;random;hash;fallback
+	Type string `json:"type,omitempty"`
+
+	// shard configures the shard director (consistent-hash). Only used when type is "shard".
+	// +optional
+	Shard *ShardSpec `json:"shard,omitempty"`
+
+	// hash configures the hash director. Only used when type is "hash".
+	// +optional
+	Hash *HashSpec `json:"hash,omitempty"`
+}
+
+// ShardSpec configures the Varnish shard director for consistent hashing.
+type ShardSpec struct {
+	// warmup is the proportion of requests (0.0–1.0) sent to the alternative backend
+	// to pre-populate its cache. Default: 0.1. Must be between 0.0 and 1.0.
+	// +optional
+	Warmup *float64 `json:"warmup,omitempty"`
+
+	// rampup is the time after adding a backend before it receives its full share of traffic,
+	// preventing thundering-herd. Default: 30s.
+	// +optional
+	Rampup metav1.Duration `json:"rampup,omitempty"`
+
+	// replicas is the number of Ketama replicas per backend in the hash ring. Default: 67.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Replicas int32 `json:"replicas,omitempty"`
+
+	// by determines what value the cluster-peer shard director hashes to pick a
+	// backend, at the point in vcl_recv where cluster routing runs. "URL" (default)
+	// hashes the request URL. "HASH" is not offered: it would hash Varnish's
+	// req.hash, which is only populated by vcl_hash, and vcl_recv's cluster routing
+	// never reaches vcl_hash — so HASH cannot work at this call site.
+	// +optional
+	// +kubebuilder:validation:Enum=URL
+	By string `json:"by,omitempty"`
+
+	// healthy controls which backends the director considers when selecting a shard.
+	// "CHOSEN" (default) only considers the chosen backend healthy; "ALL" requires all
+	// backends to be healthy.
+	// +optional
+	// +kubebuilder:validation:Enum=CHOSEN;ALL
+	Healthy string `json:"healthy,omitempty"`
+}
+
+// HashSpec configures the Varnish hash director.
+type HashSpec struct {
+	// header is the request header name used as the hash key.
+	// +optional
+	Header string `json:"header,omitempty"`
+}
+
+// ClusterSpec configures Varnish clustering between pods.
+type ClusterSpec struct {
+	// enabled activates inter-pod clustering via a shard director.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// peerRouting configures how requests are routed between Varnish peers.
+	// +optional
+	PeerRouting PeerRoutingSpec `json:"peerRouting,omitempty"`
+
+	// retry configures retrying a request on another Varnish peer when the
+	// peer sent no response, e.g. because its pod was OOMKilled. The peer
+	// that receives the retry serves it from its own cache or backend.
+	// Default: one retry.
+	// +optional
+	Retry *FetchRetrySpec `json:"retry,omitempty"`
+}
+
+// PeerRoutingSpec configures peer-to-peer request routing in a Varnish cluster.
+type PeerRoutingSpec struct {
+	// type is the routing strategy between Varnish pods. Only "shard" is supported.
+	// +optional
+	// +kubebuilder:validation:Enum=shard
+	Type string `json:"type,omitempty"`
+}
+
+// VCLSpec configures VCL generation for the Varnish instance.
+type VCLSpec struct {
+	// snippets provides VCL code injected into each generated subroutine.
+	// +optional
+	Snippets VCLSnippets `json:"snippets,omitempty"`
+
+	// fullOverride replaces the entire generated VCL with a custom VCL string.
+	// Use with caution — this disables all structured configuration.
+	// +optional
+	FullOverride string `json:"fullOverride,omitempty"`
+}
+
+// VCLSnippets provides inline VCL code inserted into each generated subroutine.
+// Each field is limited to 64 KiB (enforced by CEL validation).
+type VCLSnippets struct {
+	// header is inserted at the top of the VCL file, before any subroutines.
+	// Use for import statements and global declarations.
+	// +optional
+	Header string `json:"header,omitempty"`
+
+	// vclInit is inserted into the vcl_init subroutine after director initialisation.
+	// +optional
+	VCLInit string `json:"vclInit,omitempty"`
+
+	// vclRecv is inserted into vcl_recv after generated routing logic, before return().
+	// +optional
+	VCLRecv string `json:"vclRecv,omitempty"`
+
+	// vclHash is inserted into vcl_hash.
+	// +optional
+	VCLHash string `json:"vclHash,omitempty"`
+
+	// vclHit is inserted into vcl_hit.
+	// +optional
+	VCLHit string `json:"vclHit,omitempty"`
+
+	// vclMiss is inserted into vcl_miss.
+	// +optional
+	VCLMiss string `json:"vclMiss,omitempty"`
+
+	// vclPass is inserted into vcl_pass.
+	// +optional
+	VCLPass string `json:"vclPass,omitempty"`
+
+	// vclPurge is inserted into vcl_purge.
+	// +optional
+	VCLPurge string `json:"vclPurge,omitempty"`
+
+	// vclPipe is inserted into vcl_pipe.
+	// +optional
+	VCLPipe string `json:"vclPipe,omitempty"`
+
+	// vclBackendFetch is inserted into vcl_backend_fetch.
+	// +optional
+	VCLBackendFetch string `json:"vclBackendFetch,omitempty"`
+
+	// vclBackendResponse is inserted into vcl_backend_response.
+	// +optional
+	VCLBackendResponse string `json:"vclBackendResponse,omitempty"`
+
+	// vclDeliver is inserted into vcl_deliver.
+	// +optional
+	VCLDeliver string `json:"vclDeliver,omitempty"`
+
+	// vclSynth is inserted into vcl_synth.
+	// +optional
+	VCLSynth string `json:"vclSynth,omitempty"`
+
+	// vclBackendError is inserted into vcl_backend_error.
+	// +optional
+	VCLBackendError string `json:"vclBackendError,omitempty"`
+
+	// vclFini is inserted into vcl_fini.
+	// +optional
+	VCLFini string `json:"vclFini,omitempty"`
+}
+
+// InvalidationSpec configures cache invalidation methods.
+type InvalidationSpec struct {
+	// purge configures HTTP PURGE-based cache invalidation.
+	// +optional
+	Purge *PurgeSpec `json:"purge,omitempty"`
+
+	// ban configures BAN-based cache invalidation.
+	// +optional
+	BAN *BANSpec `json:"ban,omitempty"`
+
+	// xkey configures xkey-based surrogate key invalidation (requires vmod_xkey).
+	// +optional
+	Xkey *XkeySpec `json:"xkey,omitempty"`
+}
+
+// PurgeSpec configures HTTP PURGE-based cache invalidation.
+type PurgeSpec struct {
+	// enabled activates the PURGE invalidation handler.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// soft enables soft purges, which mark objects as expired rather than removing them.
+	// This allows Varnish to serve stale content while revalidating.
+	// +optional
+	// +kubebuilder:default=true
+	Soft *bool `json:"soft,omitempty"`
+
+	// allowedSources is a list of CIDR ranges permitted to send PURGE requests.
+	// If empty, no source restriction is applied.
+	// +optional
+	AllowedSources []string `json:"allowedSources,omitempty"`
+}
+
+// BANSpec configures BAN-based cache invalidation.
+type BANSpec struct {
+	// enabled activates the BAN invalidation handler.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// allowedSources is a list of CIDR ranges permitted to send BAN requests.
+	// +optional
+	AllowedSources []string `json:"allowedSources,omitempty"`
+
+	// rateLimitPerMinute limits BAN requests per minute. 0 means no limit.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	RateLimitPerMinute int32 `json:"rateLimitPerMinute,omitempty"`
+}
+
+// XkeySpec configures xkey surrogate-key invalidation (requires vmod_xkey).
+type XkeySpec struct {
+	// enabled activates xkey-based invalidation. The operator's invalidation
+	// API purges xkey keys hard, removing the tagged objects.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// allowedSources is a list of CIDR ranges permitted to send xkey invalidation requests.
+	// +optional
+	AllowedSources []string `json:"allowedSources,omitempty"`
+}
+
+// ProxyProtocolSpec enables PROXY protocol on a dedicated port.
+type ProxyProtocolSpec struct {
+	// enabled activates PROXY protocol support.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// port is the port on which PROXY protocol connections are accepted. Default: 8081.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	Port int32 `json:"port,omitempty"`
+}
+
+// StorageSpec configures a Varnish storage backend.
+type StorageSpec struct {
+	// name is the internal storage identifier used in varnishd -s arguments.
+	// "synth" is reserved: varnishd 9.1 defines a storage of that name.
+	Name string `json:"name"`
+
+	// type is the storage backend type. Only "malloc" and "file" are permitted.
+	// "persistent", "umem", and "default" are rejected by the admission webhook.
+	// +kubebuilder:validation:Enum=malloc;file
+	Type string `json:"type"`
+
+	// size is the storage allocation as a Kubernetes resource quantity (e.g. "1Gi").
+	// The operator converts to bytes for varnishd.
+	// +optional
+	Size resource.Quantity `json:"size,omitempty"`
+
+	// path is the filesystem path for file-type storage.
+	// +optional
+	Path string `json:"path,omitempty"`
+}
+
+// ServiceSpec configures the Kubernetes Service created for Varnish traffic ingress.
+type ServiceSpec struct {
+	// annotations are added to the Service object.
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// type sets the Kubernetes Service type (ClusterIP, NodePort, LoadBalancer).
+	// +optional
+	// +kubebuilder:validation:Enum=ClusterIP;NodePort;LoadBalancer
+	Type string `json:"type,omitempty"`
+}
+
+// DebounceSpec configures the grace period before applying endpoint changes to Varnish.
+type DebounceSpec struct {
+	// duration is the time to wait after the last endpoint change before pushing a VCL update.
+	// This prevents thundering-herd on rapid endpoint churn. Default: 1s.
+	// +optional
+	// +kubebuilder:default="1s"
+	Duration metav1.Duration `json:"duration,omitempty"`
+}
+
+// RetrySpec configures retry behaviour for failed VCL update operations.
+type RetrySpec struct {
+	// maxAttempts has no effect.
+	//
+	// Deprecated: VCL pushes are retried by the reconcile loop, which pushes to
+	// every reachable pod that does not already carry the desired VCL. Bounding
+	// the attempts would leave a pod unconverged with no way back, so the field
+	// is inert and scheduled for removal in the next breaking version. It never
+	// had the semantics its name suggests: it bounded attempts per reconcile,
+	// never in total.
+	// See docs/superpowers/specs/2026-08-25-reconcile-starvation-design.md.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxAttempts int32 `json:"maxAttempts,omitempty"`
+
+	// backoffBase is how long the reconcile loop waits before retrying a failed
+	// VCL push. Default: 30s.
+	// +optional
+	BackoffBase metav1.Duration `json:"backoffBase,omitempty"`
+
+	// backoffMax is the maximum backoff duration (exponential backoff cap). Default: 5m.
+	// +optional
+	BackoffMax metav1.Duration `json:"backoffMax,omitempty"`
+}
+
+// PodSpec configures pod-level scheduling, metadata, and placement constraints.
+type PodSpec struct {
+	// annotations are added to each Varnish pod.
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// labels are added to each Varnish pod (merged with operator-managed labels).
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+
+	// nodeSelector constrains pods to nodes matching all specified labels.
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// tolerations allow pods to be scheduled on tainted nodes.
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+
+	// affinity configures pod affinity and anti-affinity scheduling rules.
+	// +optional
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+
+	// priorityClassName is the name of the PriorityClass for Varnish pods.
+	// +optional
+	PriorityClass string `json:"priorityClassName,omitempty"`
+
+	// volumes are additional pod-level volumes appended to the operator-managed
+	// defaults (agent-token, varnish-secret, varnish-workdir, varnish-tmp,
+	// bootstrap-vcl). Use to back spec.storage[].path with a PVC, an EmptyDir
+	// with sizeLimit, or any VolumeSource supported by Kubernetes. Reserved
+	// names collide with operator-managed volumes and are rejected by the
+	// admission webhook. Volume names must also be unique across volumes and
+	// volumeClaimTemplates.
+	// +optional
+	Volumes []corev1.Volume `json:"volumes,omitempty"`
+
+	// volumeMounts are additional mounts appended to the varnish container.
+	// Each entry must reference a name present in spec.pod.volumes or
+	// spec.volumeClaimTemplates. Reserved mount paths (/run/vinyl,
+	// /etc/varnish/secret, /var/lib/varnish, /tmp, /etc/varnish/default.vcl)
+	// are rejected by the admission webhook.
+	// +optional
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+
+	// env sets environment variables on the varnish container. An entry
+	// whose name matches an operator default replaces that default; all
+	// others are appended. The operator sets MALLOC_CONF to tune varnishd's
+	// jemalloc heap for a container (see the memory sizing how-to); setting
+	// MALLOC_CONF here replaces the whole value, and an empty value restores
+	// jemalloc's own defaults.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=64
+	Env []corev1.EnvVar `json:"env,omitempty"`
+}
+
+// MonitoringSpec configures Prometheus monitoring for the Varnish cluster.
+type MonitoringSpec struct {
+	// enabled activates Prometheus metrics scraping.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// prometheusRules configures PrometheusRule objects for alerting.
+	// +optional
+	PrometheusRules *PrometheusRulesSpec `json:"prometheusRules,omitempty"`
+
+	// serviceMonitor configures a ServiceMonitor for Prometheus Operator scraping.
+	// +optional
+	ServiceMonitor *ServiceMonitorSpec `json:"serviceMonitor,omitempty"`
+
+	// exporter configures the prometheus_varnish_exporter sidecar that exposes
+	// native varnish_* metrics (cache hit/miss, backend health) from varnishstat.
+	// +optional
+	Exporter *ExporterSpec `json:"exporter,omitempty"`
+}
+
+// TracingSpec configures OpenTelemetry trace export for the Varnish cluster.
+type TracingSpec struct {
+	// enabled activates the vinyl-tracer sidecar.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// otlp configures the OTLP trace exporter. endpoint is required when
+	// tracing is enabled.
+	// +optional
+	OTLP OTLPSpec `json:"otlp,omitempty"`
+
+	// serviceName is the OTel service.name resource attribute.
+	// Defaults to the VinylCache name.
+	// +optional
+	ServiceName string `json:"serviceName,omitempty"`
+
+	// resources are the tracer container's resource requirements.
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+// OTLPSpec is the OTLP exporter configuration.
+type OTLPSpec struct {
+	// endpoint is the collector's host:port (no scheme).
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// protocol selects the OTLP transport. Defaults to grpc.
+	// +kubebuilder:validation:Enum=grpc;http/protobuf
+	// +optional
+	Protocol string `json:"protocol,omitempty"`
+
+	// insecure disables TLS for the OTLP connection.
+	// +optional
+	Insecure bool `json:"insecure,omitempty"`
+}
+
+// ExporterSpec configures the varnish metrics exporter sidecar.
+type ExporterSpec struct {
+	// enabled adds a prometheus_varnish_exporter sidecar to each Varnish pod.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// image overrides the exporter image. Defaults to
+	// ghcr.io/bluedynamics/varnish-exporter:1.6.1-varnish9.1.0.
+	// +optional
+	Image ExporterImageSpec `json:"image,omitempty"`
+
+	// port is the container port the exporter listens on. Defaults to 9131.
+	// +optional
+	Port int32 `json:"port,omitempty"`
+
+	// resources sets the exporter container resource requirements.
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+// ExporterImageSpec is the exporter container image reference.
+type ExporterImageSpec struct {
+	// +optional
+	Repository string `json:"repository,omitempty"`
+	// +optional
+	Tag string `json:"tag,omitempty"`
+}
+
+// PrometheusRulesSpec configures PrometheusRule objects for alerting.
+type PrometheusRulesSpec struct {
+	// enabled creates a PrometheusRule with default alerting rules.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+}
+
+// ServiceMonitorSpec configures a ServiceMonitor for Prometheus Operator.
+type ServiceMonitorSpec struct {
+	// enabled creates a ServiceMonitor targeting the Varnish metrics endpoint.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// interval is the scrape interval (e.g. "30s"). Defaults to the Prometheus global interval.
+	// +optional
+	Interval string `json:"interval,omitempty"`
+}
+
+// VinylCacheStatus defines the observed state of VinylCache.
+type VinylCacheStatus struct {
+	// phase is the high-level lifecycle state derived from conditions.
+	// One of: Pending, Ready, Degraded, Error.
+	// +optional
+	Phase string `json:"phase,omitempty"`
+
+	// message provides a human-readable explanation of the current phase.
+	// +optional
+	Message string `json:"message,omitempty"`
+
+	// activeVCL describes the VCL version currently loaded in Varnish.
+	// +optional
+	ActiveVCL *ActiveVCLStatus `json:"activeVCL,omitempty"`
+
+	// replicas is the total number of pods targeted by the StatefulSet.
+	// +optional
+	Replicas int32 `json:"replicas,omitempty"`
+
+	// readyReplicas is the number of pods that have passed their readiness checks.
+	// +optional
+	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
+
+	// updatedReplicas is the number of pods running the current StatefulSet revision.
+	// +optional
+	UpdatedReplicas int32 `json:"updatedReplicas,omitempty"`
+
+	// availableReplicas is the number of pods available for at least minReadySeconds.
+	// +optional
+	AvailableReplicas int32 `json:"availableReplicas,omitempty"`
+
+	// selector is the label selector string used by the scale subresource.
+	// +optional
+	Selector string `json:"selector,omitempty"`
+
+	// backends reports the observed health of each configured backend.
+	// +optional
+	Backends []BackendStatus `json:"backends,omitempty"`
+
+	// clusterPeers reports the observed state of each Varnish pod in the cluster.
+	// +optional
+	ClusterPeers []ClusterPeerStatus `json:"clusterPeers,omitempty"`
+
+	// readyPeers is the number of cluster peers in Ready state.
+	// +optional
+	ReadyPeers int32 `json:"readyPeers,omitempty"`
+
+	// totalPeers is the total number of cluster peers known to the operator.
+	// +optional
+	TotalPeers int32 `json:"totalPeers,omitempty"`
+
+	// conditions represent the current detailed state of the VinylCache resource.
+	// Standard types: Ready, VCLSynced, BackendsAvailable, Progressing, VCLConsistent.
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// ActiveVCLStatus describes the VCL version currently loaded in Varnish.
+type ActiveVCLStatus struct {
+	// name is the VCL label (e.g. "boot" or a generated name).
+	Name string `json:"name"`
+
+	// hash is the SHA-256 digest of the VCL source, used to detect drift.
+	Hash string `json:"hash"`
+
+	// pushedAt is the time when this VCL was successfully applied.
+	// +optional
+	PushedAt *metav1.Time `json:"pushedAt,omitempty"`
+}
+
+// BackendStatus reports the observed health of a configured backend.
+type BackendStatus struct {
+	// name matches the BackendSpec.Name.
+	Name string `json:"name"`
+
+	// healthy is true if Varnish considers the backend available.
+	Healthy bool `json:"healthy"`
+
+	// address is the resolved endpoint address (host:port).
+	// +optional
+	Address string `json:"address,omitempty"`
+}
+
+// ClusterPeerStatus reports the observed state of a single Varnish pod in the cluster.
+type ClusterPeerStatus struct {
+	// podName is the name of the Varnish pod.
+	PodName string `json:"podName"`
+
+	// ready is true if the pod has passed its readiness check.
+	Ready bool `json:"ready"`
+
+	// activeVCLHash is the hash of the VCL currently loaded in this pod.
+	// Used to detect VCL consistency across the cluster.
+	// +optional
+	ActiveVCLHash string `json:"activeVCLHash,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// +kubebuilder:subresource:status
+// +kubebuilder:subresource:scale:specpath=.spec.replicas,statuspath=.status.replicas,selectorpath=.status.selector
+// +kubebuilder:resource:shortName=vc,categories=vinyl
+// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
+// +kubebuilder:printcolumn:name="Replicas",type="string",JSONPath=".status.readyReplicas"
+// +kubebuilder:printcolumn:name="VCL",type="string",JSONPath=".status.conditions[?(@.type=='VCLSynced')].status"
+// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",priority=1
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+
+// VinylCache is the Schema for the vinylcaches API.
+// It describes a complete Varnish cache cluster: replicas, backends, VCL configuration,
+// clustering, and cache invalidation strategy.
+type VinylCache struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// metadata is standard Kubernetes object metadata.
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	// spec defines the desired state of the VinylCache cluster.
+	// +optional
+	Spec VinylCacheSpec `json:"spec,omitempty"`
+
+	// status defines the observed state of the VinylCache cluster.
+	// +optional
+	Status VinylCacheStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// VinylCacheList contains a list of VinylCache.
+type VinylCacheList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []VinylCache `json:"items"`
+}

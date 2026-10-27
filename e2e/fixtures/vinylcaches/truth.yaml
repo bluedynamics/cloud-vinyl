@@ -5,7 +5,7 @@
 # chainsaw-test.yaml description for why a separate fixture (rather than
 # reusing tracing.yaml) was worth the duplication here. Service names resolve
 # inside the test namespace, so the endpoint needs no namespace templating.
-apiVersion: vinyl.bluedynamics.eu/v1alpha1
+apiVersion: vinyl.bluedynamics.eu/v1
 kind: VinylCache
 metadata:
   name: truth-cache

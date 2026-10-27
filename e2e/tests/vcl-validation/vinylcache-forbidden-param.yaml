@@ -5,7 +5,7 @@
 # distinguish a webhook that validates correctly from one that refuses
 # everything, which is exactly what an unreachable webhook does under
 # failurePolicy: Fail.
-apiVersion: vinyl.bluedynamics.eu/v1alpha1
+apiVersion: vinyl.bluedynamics.eu/v1
 kind: VinylCache
 metadata:
   name: forbidden-param-test

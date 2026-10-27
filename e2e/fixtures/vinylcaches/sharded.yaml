@@ -29,7 +29,7 @@
 #   Setting it to 0 (an explicit, non-nil override — see
 #   applyShardDefaults's nil check) makes routing depend only on the shard
 #   hash, which is what shard-routing is testing in the first place.
-apiVersion: vinyl.bluedynamics.eu/v1alpha1
+apiVersion: vinyl.bluedynamics.eu/v1
 kind: VinylCache
 metadata:
   name: my-cache

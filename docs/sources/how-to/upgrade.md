@@ -19,13 +19,22 @@ CRDs in `charts/cloud-vinyl/crds/` are installed on `helm install` but are **not
 automatically by `helm upgrade`. This is intentional — Helm never deletes CRDs, and CRD
 schema changes require careful migration.
 
-To update the CRD manually:
+To update the CRD manually, use server-side apply:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/bluedynamics/cloud-vinyl/main/config/crd/bases/vinyl.bluedynamics.eu_vinylcaches.yaml
+kubectl apply --server-side --force-conflicts \
+  -f https://raw.githubusercontent.com/bluedynamics/cloud-vinyl/main/config/crd/bases/vinyl.bluedynamics.eu_vinylcaches.yaml
 ```
 
-For GitOps workflows, manage the CRD separately and set `installCRDs: false` in Helm values.
+Since 1.0 the CRD serves two API versions, `v1` and the deprecated `v1alpha1`, each with
+the full schema. That makes it too large for a plain `kubectl apply`, which stores the
+whole object in the `last-applied-configuration` annotation and fails with
+`metadata.annotations: Too long: may not be more than 262144 bytes`.
+`--force-conflicts` takes over fields that an earlier client-side apply owned.
+
+For GitOps workflows, manage the CRD separately and render or install the chart with
+`--skip-crds`. The tool has to apply the CRD server-side as well, for example with the
+Argo CD sync option `ServerSideApply=true`.
 
 ## Rollback
 

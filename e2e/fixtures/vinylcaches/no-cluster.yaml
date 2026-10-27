@@ -20,7 +20,7 @@
 # grace/revalidate window would make the same assertion true only after an
 # unbounded delay (see sharded.yaml's header comment for where that was
 # measured).
-apiVersion: vinyl.bluedynamics.eu/v1alpha1
+apiVersion: vinyl.bluedynamics.eu/v1
 kind: VinylCache
 metadata:
   name: my-cache
