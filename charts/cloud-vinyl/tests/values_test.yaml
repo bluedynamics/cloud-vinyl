@@ -1,0 +1,13 @@
+suite: Values Tests
+templates:
+  - deployment.yaml
+tests:
+  # installCRDs never had an effect and is gone from values.yaml (#129). The
+  # schema forbids unknown keys, so it stays accepted until 2.0 or values
+  # files that still set it would fail to install or upgrade.
+  - it: still accepts the deprecated installCRDs value
+    set:
+      installCRDs: false
+    asserts:
+      - isKind:
+          of: Deployment

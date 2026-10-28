@@ -92,9 +92,10 @@ monitoring:
     scrapeTimeout: "10s"
     additionalLabels: {}
 
-# Install the VinylCache CRD as part of this chart.
-# Set to false for GitOps workflows where CRDs are managed separately.
-installCRDs: true
+# The VinylCache CRD ships in crds/. Helm installs it with the chart but never
+# upgrades or deletes it. To manage it yourself, e.g. in GitOps, install or
+# render the chart with --skip-crds and apply the CRD server-side (see the
+# upgrade how-to).
 
 # Pod scheduling constraints.
 nodeSelector: {}

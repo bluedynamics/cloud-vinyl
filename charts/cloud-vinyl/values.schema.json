@@ -148,7 +148,7 @@
         }
       }
     },
-    "installCRDs": {"type": "boolean"},
+    "installCRDs": {"type": "boolean", "description": "Deprecated and ignored: no template ever read it. Use helm --skip-crds instead. Still accepted so existing values files validate; removed in 2.0."},
     "nodeSelector": {"type": "object"},
     "tolerations": {
       "type": "array",
