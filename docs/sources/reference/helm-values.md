@@ -10,7 +10,12 @@ All configurable values for the `cloud-vinyl` Helm chart.
 | `nameOverride` | string | `""` | Override chart name component of resource names. |
 | `fullnameOverride` | string | `""` | Override full resource name (replaces `<release>-<chart>`). |
 | `imagePullSecrets` | list | `[]` | Image pull secrets for private registries. |
-| `installCRDs` | boolean | `true` | Install the VinylCache CRD. Set `false` for GitOps workflows. |
+
+The VinylCache CRD is not controlled by a value. It ships in the chart's `crds/`
+directory, which Helm installs with the chart but never upgrades or deletes. Pass
+`--skip-crds` to manage the CRD yourself, and see
+[Upgrade cloud-vinyl](../how-to/upgrade.md) for applying it. The former `installCRDs`
+value never had an effect; it is still accepted, and ignored, until 2.0.
 
 ## image
 
