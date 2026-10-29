@@ -2,22 +2,32 @@
 
 This guide shows how to send cache-invalidation requests to a running VinylCache cluster.
 
-## Find the proxy endpoint
+## Find the invalidation address
 
-The operator exposes an invalidation proxy on port `8090` of the operator Service:
+Every VinylCache gets a Service named `<cache>-invalidation` in its own namespace, on port
+`8090`. The operator reports the address to use in the cache's status:
 
 ```bash
-kubectl get svc -n cloud-vinyl-system cloud-vinyl
-# NAME           TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)
-# cloud-vinyl    ClusterIP   10.0.0.1      <none>        8080/TCP,8090/TCP
+kubectl get vinylcache my-cache -n app -o jsonpath='{.status.invalidationURL}'
+# http://my-cache-invalidation.app:8090
 ```
 
-For in-cluster requests use `http://cloud-vinyl.cloud-vinyl-system.svc:8090`.
+Send all requests in this guide to that address. The examples use a cache `my-cache` in
+the namespace `app`.
+
+```{important}
+The host must include the namespace: `my-cache-invalidation.app` or the full
+`my-cache-invalidation.app.svc.cluster.local`. One operator serves the caches of all
+namespaces and tells them apart by the `Host` header alone, so the bare Service name
+`my-cache-invalidation` is rejected with `404 unknown cache`, even from inside the
+cache's own namespace. The error names the host to use, and the operator counts every
+rejection in `vinyl_invalidation_unknown_host_total`.
+```
 
 ## PURGE a URL
 
 ```bash
-curl -X PURGE http://cloud-vinyl.cloud-vinyl-system.svc:8090/path/to/resource
+curl -X PURGE http://my-cache-invalidation.app:8090/path/to/resource
 ```
 
 Response:
@@ -54,12 +64,12 @@ The proxy accepts BAN as either a JSON POST or the native BAN HTTP method, valid
 
 ```bash
 # JSON form:
-curl -X POST http://cloud-vinyl.cloud-vinyl-system.svc:8090/ban \
+curl -X POST http://my-cache-invalidation.app:8090/ban \
   -H "Content-Type: application/json" \
   -d '{"expression": "obj.http.X-Cache-Tag ~ \"product-42\""}'
 
 # Native BAN HTTP method (equivalent):
-curl -X BAN http://cloud-vinyl.cloud-vinyl-system.svc:8090/ \
+curl -X BAN http://my-cache-invalidation.app:8090/ \
   -H "X-Ban-Expression: obj.http.X-Cache-Tag ~ \"product-42\""
 ```
 
@@ -102,7 +112,7 @@ Use `obj.http.x-url` / `obj.http.x-host` rather than `req.*` — only the former
 Requires `spec.invalidation.xkey` to be enabled in the `VinylCache`.
 
 ```bash
-curl -X POST http://cloud-vinyl.cloud-vinyl-system.svc:8090/purge/xkey \
+curl -X POST http://my-cache-invalidation.app:8090/purge/xkey \
   -H "Content-Type: application/json" \
   -d '{"keys": ["product-42", "category-home"]}'
 ```
