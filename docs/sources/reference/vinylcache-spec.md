@@ -191,8 +191,9 @@ varnishParameters:
 | Field | Type | Description |
 |-------|------|-------------|
 | `phase` | string | `Pending`, `Ready`, `Degraded`, or `Error`. |
-| `readyReplicas` | string | `<ready>/<total>` replica count string. |
-| `vclHash` | string | SHA-256 hash of the currently active VCL. |
+| `readyReplicas` | integer | Number of pods that passed their readiness checks. |
+| `activeVCL.hash` | string | SHA-256 hash of the currently active VCL. |
+| `invalidationURL` | string | Address for `PURGE`, `BAN` and xkey requests, e.g. `http://my-cache-invalidation.app:8090`. The host includes the namespace; the bare Service name is rejected. See [Purge and BAN the cache](../how-to/purge-ban.md). |
 | `conditions` | list | Standard Kubernetes conditions (`Ready`, `VCLSynced`). |
 
 ## Example

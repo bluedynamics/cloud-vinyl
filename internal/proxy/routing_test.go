@@ -97,3 +97,27 @@ func TestRegisteredRouter(t *testing.T) {
 		assert.Equal(t, "cache-b", name)
 	})
 }
+
+// The bare "<cache>-invalidation" name is never routed: the proxy serves all
+// namespaces and the same bare name arrives from each of them (#132).
+// Suggest only names the hosts a client probably meant.
+func TestRegisteredRouter_BareNameIsSuggestedNotRouted(t *testing.T) {
+	r := NewRegisteredRouter()
+	r.Register("app", "my-cache")
+
+	_, _, ok := r.Lookup("my-cache-invalidation:8090")
+	assert.False(t, ok, "the bare Service name must not route")
+	assert.Equal(t, []string{"my-cache-invalidation.app"}, r.Suggest("my-cache-invalidation:8090"))
+
+	r.Register("billing", "my-cache")
+	assert.Equal(t, []string{"my-cache-invalidation.app", "my-cache-invalidation.billing"},
+		r.Suggest("my-cache-invalidation"),
+		"with the name in two namespaces, both are offered and neither is picked")
+
+	assert.Empty(t, r.Suggest("other-cache-invalidation"), "no cache of that name")
+	assert.Empty(t, r.Suggest("my-cache-invalidation.app"), "an already namespaced host gets no suggestion")
+	assert.Empty(t, r.Suggest("my-cache"), "only the Service name, not the cache name")
+
+	r.Unregister("app", "my-cache")
+	assert.Equal(t, []string{"my-cache-invalidation.billing"}, r.Suggest("my-cache-invalidation"))
+}

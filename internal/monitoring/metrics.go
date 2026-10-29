@@ -57,6 +57,14 @@ type Metrics struct {
 	// noise rather than a signal (see objectsPurgedCapable in
 	// internal/proxy/handler.go).
 	ObjectsPurgedUnknownTotal *prometheus.CounterVec // labels: cache, namespace, type (purge|xkey)
+	// InvalidationUnknownHostTotal counts invalidation requests rejected
+	// because their Host header names no registered cache, most often the
+	// bare "<cache>-invalidation" Service name without the namespace (#132).
+	// Clients such as plone.cachepurging do not log failed purges, so this
+	// is where such a misconfiguration becomes visible. Deliberately
+	// unlabelled: the host is client-controlled and would make the label
+	// set unbounded.
+	InvalidationUnknownHostTotal prometheus.Counter
 
 	// Cache state.
 	// Note: hit-ratio and backend-health are NOT operator-side gauges — they come
@@ -123,6 +131,12 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		Help: "Total number of individual pod purge responses that answered 2xx but did not carry a parseable X-Vinyl-Purged count. type is purge or xkey; ban never sets this header by design.",
 	}, []string{labelCache, labelNamespace, labelType})
 	reg.MustRegister(m.ObjectsPurgedUnknownTotal)
+
+	m.InvalidationUnknownHostTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "vinyl_invalidation_unknown_host_total",
+		Help: "Invalidation requests rejected because their Host header names no registered cache.",
+	})
+	reg.MustRegister(m.InvalidationUnknownHostTotal)
 
 	m.VCLVersionsLoaded = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "vinyl_vcl_versions_loaded",

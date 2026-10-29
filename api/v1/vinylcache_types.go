@@ -795,6 +795,13 @@ type VinylCacheStatus struct {
 	// +optional
 	Selector string `json:"selector,omitempty"`
 
+	// invalidationURL is where to send PURGE, BAN and xkey requests for this
+	// cache: its invalidation Service, with the namespace in the host. The
+	// invalidation proxy tells caches apart by the Host header alone, so the
+	// bare Service name is rejected.
+	// +optional
+	InvalidationURL string `json:"invalidationURL,omitempty"`
+
 	// backends reports the observed health of each configured backend.
 	// +optional
 	Backends []BackendStatus `json:"backends,omitempty"`

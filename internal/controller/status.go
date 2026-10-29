@@ -39,6 +39,8 @@ func (r *VinylCacheReconciler) updateStatus(
 	peers := obs.ready
 	log := logf.FromContext(ctx)
 
+	vc.Status.InvalidationURL = invalidationURL(vc)
+
 	// Only claim a VCL is active once it actually reached a pod. The reconciler
 	// decides whether to push by comparing this hash against the freshly
 	// generated one, so recording a hash that was pushed to nobody makes the

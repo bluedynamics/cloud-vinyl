@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"sort"
 	"strings"
 	"sync"
 )
@@ -84,14 +85,40 @@ func (r *RegisteredRouter) Unregister(namespace, cacheName string) {
 	delete(r.routes, fqdnHost)
 }
 
+// Suggest returns the short hosts of all registered caches whose bare
+// Service name equals host ("<cache>-invalidation", port ignored), sorted.
+// It only feeds the error message: the bare name is never routed, because the
+// proxy serves every namespace and the same bare name arrives from each of
+// them. Accepting it while unambiguous would break a working client as soon
+// as another namespace created a cache of the same name (#132).
+func (r *RegisteredRouter) Suggest(host string) []string {
+	host = stripPort(host)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var hosts []string
+	for h, e := range r.routes {
+		bare := e.cacheName + "-invalidation"
+		if host == bare && h == bare+"."+e.namespace {
+			hosts = append(hosts, h)
+		}
+	}
+	sort.Strings(hosts)
+	return hosts
+}
+
 // Lookup returns the namespace and cacheName for the given host.
 func (r *RegisteredRouter) Lookup(host string) (string, string, bool) {
-	// Strip optional port suffix.
-	if idx := strings.LastIndex(host, ":"); idx >= 0 {
-		host = host[:idx]
-	}
+	host = stripPort(host)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	e, ok := r.routes[host]
 	return e.namespace, e.cacheName, ok
+}
+
+// stripPort removes an optional ":port" suffix from a Host header.
+func stripPort(host string) string {
+	if idx := strings.LastIndex(host, ":"); idx >= 0 {
+		return host[:idx]
+	}
+	return host
 }

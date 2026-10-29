@@ -2,11 +2,26 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
+
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
 )
+
+// unknownHostLogInterval limits the warning for rejected unknown hosts to one
+// per interval; the host is client-controlled and could flood the log.
+const unknownHostLogInterval = time.Minute
+
+// hostSuggester is implemented by routers that can name the hosts a client
+// probably meant (RegisteredRouter).
+type hostSuggester interface {
+	Suggest(host string) []string
+}
 
 // TokenProvider returns the agent Bearer token for a given namespace.
 type TokenProvider interface {
@@ -29,6 +44,10 @@ type Server struct {
 	acl           map[string]*ACL // per-cache ACLs, keyed by "namespace/cacheName"
 	rateLimiter   RateLimiter
 	metrics       *monitoring.Metrics // nil-safe
+
+	unknownHostMu         sync.Mutex
+	unknownHostLoggedAt   time.Time
+	unknownHostSuppressed int
 }
 
 // SetMetrics installs a nil-safe metrics recorder.
@@ -71,7 +90,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 1. Resolve Host → namespace/cacheName.
 	namespace, cacheName, ok := s.router.Lookup(r.Host)
 	if !ok {
-		writeJSONError(w, http.StatusNotFound, "unknown cache: "+r.Host)
+		s.rejectUnknownHost(w, r.Host)
 		return
 	}
 
@@ -134,4 +153,48 @@ func (s *Server) Start(ctx context.Context) error {
 	case err := <-errCh:
 		return err
 	}
+}
+
+// rejectUnknownHost answers a request whose Host names no registered cache.
+// It counts and logs the rejection, since clients such as plone.cachepurging
+// do not report failed purges, and names the namespaced host when the Host is
+// a cache's bare Service name (#132).
+func (s *Server) rejectUnknownHost(w http.ResponseWriter, host string) {
+	if s.metrics != nil {
+		s.metrics.InvalidationUnknownHostTotal.Inc()
+	}
+	var hints []string
+	if sg, ok := s.router.(hostSuggester); ok {
+		hints = sg.Suggest(host)
+	}
+	s.logUnknownHost(host, hints)
+
+	msg := "unknown cache: " + host
+	if len(hints) > 0 {
+		quoted := make([]string, len(hints))
+		for i, h := range hints {
+			quoted[i] = fmt.Sprintf("%q", h)
+		}
+		msg += fmt.Sprintf(" (the Host must include the namespace, use %s)", strings.Join(quoted, " or "))
+	}
+	writeJSONError(w, http.StatusNotFound, msg)
+}
+
+// logUnknownHost warns at most once per unknownHostLogInterval and reports
+// how many rejections it skipped in between.
+func (s *Server) logUnknownHost(host string, hints []string) {
+	s.unknownHostMu.Lock()
+	now := time.Now()
+	if now.Sub(s.unknownHostLoggedAt) < unknownHostLogInterval {
+		s.unknownHostSuppressed++
+		s.unknownHostMu.Unlock()
+		return
+	}
+	suppressed := s.unknownHostSuppressed
+	s.unknownHostLoggedAt, s.unknownHostSuppressed = now, 0
+	s.unknownHostMu.Unlock()
+
+	logf.Log.WithName("invalidation-proxy").Info(
+		"rejected invalidation request: Host names no registered cache",
+		"host", host, "useHost", hints, "suppressedSinceLastLog", suppressed)
 }
