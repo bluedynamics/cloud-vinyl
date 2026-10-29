@@ -23,6 +23,10 @@ all caches and therefore carry no labels.
 | `vinyl_invalidation_unknown_host_total` | Counter | none | Invalidation requests rejected with `404 unknown cache` because their `Host` names no registered cache, most often the bare `<cache>-invalidation` Service name without the namespace. Clients such as `plone.cachepurging` do not log failed purges, so a rising counter is the signal that one of them is misconfigured. Unlabelled on purpose: the host is client-controlled. |
 | `vinyl_vcl_versions_loaded` | Gauge | `cache`, `namespace` | Number of VCL versions currently loaded in Varnish (drift indicator). |
 
+```{note}
+varnishd's own `MAIN.n_purges` and `MAIN.n_obj_purged` stay at 0 for cloud-vinyl purges, because `vmod_purge` does not count into them. Whether purges remove anything shows only in `vinyl_objects_purged_total`.
+```
+
 ## Varnish cache metrics (exporter)
 
 Cache hit ratio and backend health are **not** operator-side metrics. They come
