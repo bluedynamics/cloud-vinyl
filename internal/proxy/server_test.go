@@ -3,11 +3,16 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
 )
 
 func TestServerStartStop(t *testing.T) {
@@ -63,4 +68,33 @@ func TestNewServer_Defaults(t *testing.T) {
 	assert.Equal(t, ":8090", srv.addr)
 	assert.NotNil(t, srv.acl)
 	assert.NotNil(t, srv.rateLimiter)
+}
+
+// A bare Service name is rejected with the namespaced host to use, and every
+// rejection is counted: clients like plone.cachepurging do not log failed
+// purges (#132).
+func TestServeHTTP_UnknownHost_NamesHostAndCounts(t *testing.T) {
+	router := NewRegisteredRouter()
+	router.Register("app", "my-cache")
+	srv := NewServer(":8090", router, NewPodMap(), &MockBroadcaster{}, nil)
+	m := monitoring.NewMetrics(prometheus.NewRegistry())
+	srv.SetMetrics(m)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("PURGE", "/page", nil)
+	req.Host = "my-cache-invalidation:8090"
+	srv.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), `unknown cache: my-cache-invalidation:8090`)
+	assert.Contains(t, rec.Body.String(), `use \"my-cache-invalidation.app\"`)
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest("PURGE", "/page", nil)
+	req.Host = "cloud-vinyl.cloud-vinyl-system.svc:8090"
+	srv.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "must include the namespace",
+		"a host that matches no cache gets no guess")
+
+	assert.Equal(t, 2.0, testutil.ToFloat64(m.InvalidationUnknownHostTotal))
 }

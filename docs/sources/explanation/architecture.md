@@ -93,6 +93,8 @@ On each request, the proxy:
 
 Because the discriminator is the FQDN, two caches with the same name in different namespaces (`foo` in `a` vs `foo` in `b`) are unambiguous: `foo-invalidation.a` and `foo-invalidation.b` are distinct hosts.
 
+The bare Service name (`foo-invalidation`) is never routed, not even while only one namespace has a cache of that name. It is the same string from every namespace, so accepting it would let a working client break, or purge the wrong cache, as soon as another namespace creates a `foo`. The proxy rejects it with a `404` that names the namespaced host(s), counts the rejection in `vinyl_invalidation_unknown_host_total`, and the cache's `status.invalidationURL` carries the address to use.
+
 **Gotcha — source IPs after SNAT.** The proxy's source-CIDR ACL (`spec.invalidation.{purge,ban}.allowedSources`) sees the IP of whoever connected to the Service, which for most CNIs means the **kube-proxy SNAT source**, not the original caller. If you want tight source filtering, place it at an ingress/policy layer that preserves the client IP, not in the VinylCache spec.
 
 ## Why a central operator instead of sidecars?
