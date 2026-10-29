@@ -32,6 +32,16 @@ import (
 
 const invalidationPort = 8090
 
+// invalidationURL is the address clients send PURGE, BAN and xkey requests
+// to. The host carries the namespace because the invalidation proxy, shared
+// by all namespaces, routes by Host alone: a bare "<cache>-invalidation" is
+// the same string from every namespace and is rejected (#132). The short
+// "<svc>.<namespace>" form resolves through the pod's DNS search path and
+// does not depend on the cluster domain.
+func invalidationURL(vc *vinylv1.VinylCache) string {
+	return fmt.Sprintf("http://%s-invalidation.%s:%d", vc.Name, vc.Namespace, invalidationPort)
+}
+
 // reconcileServices creates or updates the three services for a VinylCache:
 //  1. Headless service (cluster-internal pod-to-pod communication)
 //  2. Traffic service (main cache ingress)

@@ -73,3 +73,11 @@ func statusFixture(t *testing.T) (*VinylCacheReconciler, *vinylv1.VinylCache) {
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).WithStatusSubresource(vc).Build()
 	return &VinylCacheReconciler{Client: cli, Scheme: sch}, vc
 }
+
+// status.invalidationURL carries the namespace in the host: the invalidation
+// proxy routes by Host alone and rejects the bare Service name (#132).
+func TestUpdateStatus_RecordsInvalidationURL(t *testing.T) {
+	r, vc := statusFixture(t)
+	r.updateStatus(context.Background(), vc, &generator.Result{Hash: "abc123"}, podObservation{}, 0)
+	assert.Equal(t, "http://cache-invalidation.app:8090", vc.Status.InvalidationURL)
+}

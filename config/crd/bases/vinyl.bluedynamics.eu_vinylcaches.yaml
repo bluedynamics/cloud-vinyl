@@ -4618,6 +4618,13 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              invalidationURL:
+                description: |-
+                  invalidationURL is where to send PURGE, BAN and xkey requests for this
+                  cache: its invalidation Service, with the namespace in the host. The
+                  invalidation proxy tells caches apart by the Host header alone, so the
+                  bare Service name is rejected.
+                type: string
               message:
                 description: message provides a human-readable explanation of the
                   current phase.
@@ -9268,6 +9275,13 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              invalidationURL:
+                description: |-
+                  invalidationURL is where to send PURGE, BAN and xkey requests for this
+                  cache: its invalidation Service, with the namespace in the host. The
+                  invalidation proxy tells caches apart by the Host header alone, so the
+                  bare Service name is rejected.
+                type: string
               message:
                 description: message provides a human-readable explanation of the
                   current phase.
