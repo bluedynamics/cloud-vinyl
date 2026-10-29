@@ -27,10 +27,10 @@ spec:
     SUBTLETY (same trap as cache-and-invalidate, see that test's
     description and fetch's doc comment in internal/probe/cache.go for the
     general form): every seed and check below passes -host, pinned to the
-    invalidation service's DNS name (my-cache-invalidation.$NAMESPACE),
-    because Varnish hashes req.http.host into the cache key and a
-    broadcast PURGE carries whatever Host the client used to reach the
-    invalidation service.
+    site host www.example.test, because Varnish hashes req.http.host into
+    the cache key. The purge reaches the proxy through the invalidation
+    host and names the site host in X-Vinyl-Purge-Host (-purge-host), which
+    the proxy forwards it with (#134).
 
     SUBTLETY specific to this test: the after-purge check below runs
     against exactly one entry pod, not all three the way
@@ -107,7 +107,7 @@ spec:
               set -eu
               TOK=$(kubectl exec -n $NAMESPACE probe -- \
                 /vinylprobe -url "http://my-cache-0.my-cache:8080/shard-routing/a" \
-                -host "my-cache-invalidation.$NAMESPACE" -seed)
+                -host "www.example.test" -seed)
               echo "seeded via pod 0 with ${TOK}"
               echo "${TOK}" > "/tmp/shard-routing-${NAMESPACE}-tok"
 
@@ -129,7 +129,7 @@ spec:
               for i in 0 1 2; do
                 kubectl exec -n $NAMESPACE probe -- \
                   /vinylprobe -url "http://my-cache-${i}.my-cache:8080/shard-routing/a" \
-                  -host "my-cache-invalidation.$NAMESPACE" \
+                  -host "www.example.test" \
                   -check "${TOK}" -expect-state cached
               done
 
@@ -148,7 +148,7 @@ spec:
               set -eu
               kubectl exec -n $NAMESPACE probe -- \
                 /vinylprobe -url "http://my-cache-invalidation.$NAMESPACE:8090/shard-routing/a" \
-                -purge -expect-purged 1
+                -purge -purge-host www.example.test -expect-purged 1
 
     - name: not-cached-after-purge
       description: |
@@ -163,7 +163,7 @@ spec:
               TOK=$(cat "/tmp/shard-routing-${NAMESPACE}-tok")
               kubectl exec -n $NAMESPACE probe -- \
                 /vinylprobe -url "http://my-cache-1.my-cache:8080/shard-routing/a" \
-                -host "my-cache-invalidation.$NAMESPACE" \
+                -host "www.example.test" \
                 -check "${TOK}" -expect-state not-cached
 
     - name: cleanup

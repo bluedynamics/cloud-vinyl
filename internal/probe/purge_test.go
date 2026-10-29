@@ -38,7 +38,7 @@ func TestPurgeSendsMethodPurgeNotGet(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := Purge(context.Background(), srv.Client(), srv.URL, ""); err != nil {
+	if _, err := Purge(context.Background(), srv.Client(), srv.URL, "", ""); err != nil {
 		t.Fatalf("Purge returned error: %v", err)
 	}
 	if gotMethod != purgeMethod {
@@ -50,7 +50,7 @@ func TestPurgeReturnsNilErrorOnMatchedPurge(t *testing.T) {
 	srv := statusServer(http.StatusOK)
 	defer srv.Close()
 
-	if _, err := Purge(context.Background(), srv.Client(), srv.URL, ""); err != nil {
+	if _, err := Purge(context.Background(), srv.Client(), srv.URL, "", ""); err != nil {
 		t.Fatalf("Purge returned error on 200: %v", err)
 	}
 }
@@ -59,7 +59,7 @@ func TestPurgeReturnsNilErrorOnNothingToPurge(t *testing.T) {
 	srv := statusServer(http.StatusNotFound)
 	defer srv.Close()
 
-	if _, err := Purge(context.Background(), srv.Client(), srv.URL, ""); err != nil {
+	if _, err := Purge(context.Background(), srv.Client(), srv.URL, "", ""); err != nil {
 		t.Fatalf("Purge returned error on 404: %v", err)
 	}
 }
@@ -71,7 +71,7 @@ func TestPurgeReturnsNilErrorOnPartialSuccess(t *testing.T) {
 	srv := statusServer(http.StatusMultiStatus)
 	defer srv.Close()
 
-	if _, err := Purge(context.Background(), srv.Client(), srv.URL, ""); err != nil {
+	if _, err := Purge(context.Background(), srv.Client(), srv.URL, "", ""); err != nil {
 		t.Fatalf("Purge returned error on 207: %v", err)
 	}
 }
@@ -80,7 +80,7 @@ func TestPurgeReturnsErrorOnMethodNotAllowed(t *testing.T) {
 	srv := statusServer(http.StatusMethodNotAllowed)
 	defer srv.Close()
 
-	_, err := Purge(context.Background(), srv.Client(), srv.URL, "")
+	_, err := Purge(context.Background(), srv.Client(), srv.URL, "", "")
 	if err == nil {
 		t.Fatal("expected an error on 405, got nil")
 	}
@@ -93,7 +93,7 @@ func TestPurgeReturnsErrorOnServerError(t *testing.T) {
 	srv := statusServer(http.StatusInternalServerError)
 	defer srv.Close()
 
-	_, err := Purge(context.Background(), srv.Client(), srv.URL, "")
+	_, err := Purge(context.Background(), srv.Client(), srv.URL, "", "")
 	if err == nil {
 		t.Fatal("expected an error on 500, got nil")
 	}
@@ -109,7 +109,7 @@ func TestPurgeReturnsErrorWhenContextAlreadyCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if _, err := Purge(ctx, srv.Client(), srv.URL, ""); err == nil {
+	if _, err := Purge(ctx, srv.Client(), srv.URL, "", ""); err == nil {
 		t.Fatal("expected an error when the context is already cancelled, got nil")
 	}
 }
@@ -123,7 +123,7 @@ func TestPurgeReturnsErrorWhenContextExpires(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	if _, err := Purge(ctx, srv.Client(), srv.URL, ""); err == nil {
+	if _, err := Purge(ctx, srv.Client(), srv.URL, "", ""); err == nil {
 		t.Fatal("expected an error when the context expires, got nil")
 	}
 }
@@ -140,7 +140,7 @@ func TestPurgeReturnsKnownCountFromJSONBody(t *testing.T) {
 	srv := jsonPurgeServer(http.StatusOK, `{"status":"ok","total":3,"succeeded":3,"objectsPurged":3,"results":[]}`)
 	defer srv.Close()
 
-	n, err := Purge(context.Background(), srv.Client(), srv.URL, "")
+	n, err := Purge(context.Background(), srv.Client(), srv.URL, "", "")
 	if err != nil {
 		t.Fatalf("Purge returned error: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestPurgeReturnsKnownZeroDistinctFromUnknown(t *testing.T) {
 	srv := jsonPurgeServer(http.StatusOK, `{"status":"ok","total":3,"succeeded":3,"objectsPurged":0,"results":[]}`)
 	defer srv.Close()
 
-	n, err := Purge(context.Background(), srv.Client(), srv.URL, "")
+	n, err := Purge(context.Background(), srv.Client(), srv.URL, "", "")
 	if err != nil {
 		t.Fatalf("Purge returned error: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestPurgeReturnsNilCountWhenFieldOmitted(t *testing.T) {
 	srv := jsonPurgeServer(http.StatusOK, `{"status":"ok","total":3,"succeeded":3,"results":[]}`)
 	defer srv.Close()
 
-	n, err := Purge(context.Background(), srv.Client(), srv.URL, "")
+	n, err := Purge(context.Background(), srv.Client(), srv.URL, "", "")
 	if err != nil {
 		t.Fatalf("Purge returned error: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestPurgeReturnsNilCountOnNonJSONBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	n, err := Purge(context.Background(), srv.Client(), srv.URL, "")
+	n, err := Purge(context.Background(), srv.Client(), srv.URL, "", "")
 	if err != nil {
 		t.Fatalf("Purge returned error: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestPurgeReturnsNilCountOnEmptyBody(t *testing.T) {
 	srv := statusServer(http.StatusOK)
 	defer srv.Close()
 
-	n, err := Purge(context.Background(), srv.Client(), srv.URL, "")
+	n, err := Purge(context.Background(), srv.Client(), srv.URL, "", "")
 	if err != nil {
 		t.Fatalf("Purge returned error: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestPurgeSendsExplicitHostWhenGiven(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := Purge(context.Background(), srv.Client(), srv.URL, "pinned-host.example"); err != nil {
+	if _, err := Purge(context.Background(), srv.Client(), srv.URL, "pinned-host.example", ""); err != nil {
 		t.Fatalf("Purge returned error: %v", err)
 	}
 	if gotHost != "pinned-host.example" {
@@ -249,12 +249,30 @@ func TestPurgeLeavesHostAloneWhenNotGiven(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := Purge(context.Background(), srv.Client(), srv.URL, ""); err != nil {
+	if _, err := Purge(context.Background(), srv.Client(), srv.URL, "", ""); err != nil {
 		t.Fatalf("Purge returned error: %v", err)
 	}
 	// srv.URL is http://127.0.0.1:<port>; an empty host override must leave
 	// Go's default (derived from the dialed address) untouched.
 	if gotHost == "" || gotHost == "pinned-host.example" {
 		t.Fatalf("expected the default dialed-address Host, got %q", gotHost)
+	}
+}
+
+// Through the invalidation proxy, Host is the proxy's routing host, so the
+// site host the objects were cached under travels in X-Vinyl-Purge-Host (#134).
+func TestPurgeSendsPurgeHostHeader(t *testing.T) {
+	var gotHost, gotPurgeHost string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost, gotPurgeHost = r.Host, r.Header.Get("X-Vinyl-Purge-Host")
+		_, _ = w.Write([]byte(`{"objectsPurged":1}`))
+	}))
+	defer srv.Close()
+
+	if _, err := Purge(context.Background(), srv.Client(), srv.URL, "my-cache-invalidation.app", "www.example.test"); err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	if gotHost != "my-cache-invalidation.app" || gotPurgeHost != "www.example.test" {
+		t.Fatalf("got Host %q and X-Vinyl-Purge-Host %q", gotHost, gotPurgeHost)
 	}
 }

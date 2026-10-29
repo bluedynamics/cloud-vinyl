@@ -30,6 +30,9 @@ const (
 		"and print the token to stdout"
 	expectPurgedHelp = "expected objectsPurged count after -purge (requires -purge). " +
 		"The operator reporting no count at all is always a failure, never treated as 0."
+	purgeHostHelp = "site host(s) for -purge, sent as X-Vinyl-Purge-Host (comma-separated). " +
+		"The invalidation proxy is reached through its own Host, so this names the Host the " +
+		"objects were cached under, i.e. the -host the matching -seed/-check used (#134)."
 	hostHelp = "override the HTTP Host header sent, independent of the address -url dials " +
 		"(requires -seed, -check, or -purge). Needed because Varnish hashes Host into the " +
 		"cache key: addressing pods individually by their own StatefulSet DNS name (to force " +
@@ -71,6 +74,7 @@ type probeFlags struct {
 	seed         bool
 	expectPurged int
 	host         string
+	purgeHost    string
 
 	// otlp-sink and assert-spans mode flags (see otlpSinkHelp/assertSpansHelp).
 	otlpSink    string
@@ -103,6 +107,7 @@ func parseFlags() probeFlags {
 	seed := flag.Bool("seed", false, seedHelp)
 	expectPurged := flag.Int("expect-purged", 0, expectPurgedHelp)
 	host := flag.String("host", "", hostHelp)
+	purgeHost := flag.String("purge-host", "", purgeHostHelp)
 
 	otlpSink := flag.String("otlp-sink", "", otlpSinkHelp)
 	assertSpans := flag.Bool("assert-spans", false, assertSpansHelp)
@@ -142,6 +147,7 @@ func parseFlags() probeFlags {
 		seed:         *seed,
 		expectPurged: *expectPurged,
 		host:         *host,
+		purgeHost:    *purgeHost,
 		otlpSink:     *otlpSink,
 		assertSpans:  *assertSpans,
 		sink:         *sink,
@@ -234,6 +240,8 @@ func (f probeFlags) validate() error {
 		return errors.New("-expect-purged must not be negative")
 	case f.host != "" && !f.purge && !f.seed && f.check == "" && f.bodyCapture == "":
 		return errors.New("-host only applies to -purge, -seed, -check, or -body-capture")
+	case f.purgeHost != "" && !f.purge:
+		return errors.New("-purge-host only applies to -purge")
 	}
 	return nil
 }
@@ -328,7 +336,7 @@ func decidePurge(n *int, f probeFlags) purgeVerdict {
 // call and the process exit live here; the decision itself is in
 // decidePurge so it can be tested without either.
 func runPurge(ctx context.Context, client *http.Client, f probeFlags) {
-	n, err := probe.Purge(ctx, client, f.url, f.host)
+	n, err := probe.Purge(ctx, client, f.url, f.host, f.purgeHost)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
