@@ -42,5 +42,9 @@ spec:
     purge:
       enabled: true
       soft: false
+      # cache-and-invalidate purges this host without X-Vinyl-Purge-Host,
+      # the way plone.cachepurging does (#134).
+      hosts:
+        - spec.example.test
   debounce:
     duration: 2s

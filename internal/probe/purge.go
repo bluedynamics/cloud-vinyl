@@ -42,13 +42,21 @@ type purgeResponse struct {
 // doc comment in cache.go for why: a broadcast PURGE reaches every pod with
 // one Host, so it only invalidates objects that were cached under that same
 // Host. Pass whatever Host the matching Seed/Check calls used.
-func Purge(ctx context.Context, c *http.Client, url, host string) (*int, error) {
+//
+// purgeHost, when non-empty, is sent as X-Vinyl-Purge-Host: the site host(s)
+// the invalidation proxy forwards the purge with. Through the proxy, Host is
+// the invalidation host, so the objects' own Host has to travel separately
+// (#134).
+func Purge(ctx context.Context, c *http.Client, url, host, purgeHost string) (*int, error) {
 	req, err := http.NewRequestWithContext(ctx, purgeMethod, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("building purge request: %w", err)
 	}
 	if host != "" {
 		req.Host = host
+	}
+	if purgeHost != "" {
+		req.Header.Set("X-Vinyl-Purge-Host", purgeHost)
 	}
 
 	resp, err := c.Do(req)

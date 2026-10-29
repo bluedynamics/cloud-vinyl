@@ -26,15 +26,42 @@ rejection in `vinyl_invalidation_unknown_host_total`.
 
 ## PURGE a URL
 
+Varnish keys a cached page by its URL and its site host, e.g. `example.org`. The request
+to the proxy carries the invalidation host instead, so the proxy has to be told the site
+host to purge under. Name it in the `X-Vinyl-Purge-Host` header, comma-separated for
+several hosts:
+
 ```bash
-curl -X PURGE http://my-cache-invalidation.app:8090/path/to/resource
+curl -X PURGE -H "X-Vinyl-Purge-Host: example.org" \
+  http://my-cache-invalidation.app:8090/path/to/resource
 ```
+
+Clients that cannot set headers, such as `plone.cachepurging`, rely on
+`spec.invalidation.purge.hosts` instead. For a purge without the header, the proxy sends
+one purge per listed host:
+
+```yaml
+spec:
+  invalidation:
+    purge:
+      enabled: true
+      hosts:
+        - example.org
+        - www.example.org
+```
+
+The header wins over the list. With neither, the proxy purges under the invalidation host
+itself, which matches nothing that real traffic cached, and says so in a `warning` field
+of the response and in the operator log.
 
 Response:
 
 ```
 {"status":"ok","total":3,"succeeded":3,"objectsPurged":1,"results":[...]}
 ```
+
+With several hosts, every pod result carries the `host` it purged, and `total`,
+`succeeded` and `objectsPurged` cover all of them.
 
 `status` is one of:
 - `ok` — all pods purged successfully.

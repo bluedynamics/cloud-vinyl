@@ -20,22 +20,20 @@ spec:
     independence is what makes "one broadcast purge, three pods cleared" a
     meaningful assertion rather than a foregone one.
 
-    SUBTLETY — every seed and check below passes -host, pinned to the
-    invalidation service's own DNS name
-    (my-cache-invalidation.$NAMESPACE), even though each request is dialed
-    directly at one pod's own StatefulSet DNS name
+    SUBTLETY — every seed and check below passes -host with a site host
+    (www.example.test, spec.example.test), even though each request is
+    dialed directly at one pod's own StatefulSet DNS name
     (my-cache-<i>.my-cache). Varnish hashes req.http.host into the cache
-    key (vcl_hash.vcl.tmpl), and a PURGE broadcast through the invalidation
-    service carries exactly one Host — whatever the client used to reach
-    that service. Measured directly while building this test: seeding each
-    pod through its own address with no -host override gives each pod a
-    *different* cache key (its own DNS name), and a single broadcast PURGE
-    can then match at most one of them — objectsPurged came back 0, and a
-    follow-up check found the object still cached everywhere. Pinning
-    -host to the same value the PURGE will use is what makes seeding
-    "directly" and invalidating "through the service" agree on one key. See
-    fetch's doc comment in internal/probe/cache.go for the general form of
-    this trap.
+    key (vcl_hash.vcl.tmpl), so pinning one Host makes all three pods cache
+    the same key, the way real traffic arrives with the site's Host.
+
+    The purge, in contrast, reaches the proxy through the invalidation
+    host, which the proxy routes by. It forwards the purge with the site
+    host instead (#134): from X-Vinyl-Purge-Host (-purge-host) in the first
+    round, from spec.invalidation.purge.hosts in the second, which is what
+    a client that cannot set headers (plone.cachepurging) relies on. This
+    test used to seed under the invalidation host itself, a Host no real
+    client sends, and so passed while purges in production matched nothing.
 
     What cache-per-pod actually proved, and why this isn't just that test
     plus a purge: cache-per-pod seeded each pod through its own DNS name
@@ -143,7 +141,7 @@ spec:
               for i in 0 1 2; do
                 TOK=$(kubectl exec -n $NAMESPACE probe -- \
                   /vinylprobe -url "http://my-cache-${i}.my-cache:8080/cache-and-invalidate/a" \
-                  -host "my-cache-invalidation.$NAMESPACE" -seed)
+                  -host "www.example.test" -seed)
                 echo "pod ${i} seeded with ${TOK}"
                 echo "${TOK}" > "/tmp/cache-and-invalidate-${NAMESPACE}-tok${i}"
               done
@@ -162,7 +160,7 @@ spec:
                 TOK=$(cat "/tmp/cache-and-invalidate-${NAMESPACE}-tok${i}")
                 kubectl exec -n $NAMESPACE probe -- \
                   /vinylprobe -url "http://my-cache-${i}.my-cache:8080/cache-and-invalidate/a" \
-                  -host "my-cache-invalidation.$NAMESPACE" \
+                  -host "www.example.test" \
                   -check "${TOK}" -expect-state cached
               done
 
@@ -180,7 +178,7 @@ spec:
               set -eu
               kubectl exec -n $NAMESPACE probe -- \
                 /vinylprobe -url "http://my-cache-invalidation.$NAMESPACE:8090/cache-and-invalidate/a" \
-                -purge -expect-purged 3
+                -purge -purge-host www.example.test -expect-purged 3
 
     - name: not-cached-on-each-pod
       description: |
@@ -199,8 +197,46 @@ spec:
                 TOK=$(cat "/tmp/cache-and-invalidate-${NAMESPACE}-tok${i}")
                 kubectl exec -n $NAMESPACE probe -- \
                   /vinylprobe -url "http://my-cache-${i}.my-cache:8080/cache-and-invalidate/a" \
-                  -host "my-cache-invalidation.$NAMESPACE" \
+                  -host "www.example.test" \
                   -check "${TOK}" -expect-state not-cached
+              done
+
+    - name: seed-under-a-configured-site-host
+      description: |
+        Second round, for clients that cannot send X-Vinyl-Purge-Host:
+        cache a second URL under spec.example.test, the host listed in the
+        fixture's spec.invalidation.purge.hosts.
+      try:
+        - script:
+            content: |
+              set -eu
+              for i in 0 1 2; do
+                TOK=$(kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://my-cache-${i}.my-cache:8080/cache-and-invalidate/b" \
+                  -host "spec.example.test" -seed)
+                echo "${TOK}" > "/tmp/cache-and-invalidate-${NAMESPACE}-btok${i}"
+                kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://my-cache-${i}.my-cache:8080/cache-and-invalidate/b" \
+                  -host "spec.example.test" -check "${TOK}" -expect-state cached
+              done
+
+    - name: purge-with-configured-site-hosts
+      description: |
+        A purge with no X-Vinyl-Purge-Host: the proxy sends it with the
+        hosts from spec.invalidation.purge.hosts and must remove the object
+        on all three pods.
+      try:
+        - script:
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://my-cache-invalidation.$NAMESPACE:8090/cache-and-invalidate/b" \
+                -purge -expect-purged 3
+              for i in 0 1 2; do
+                TOK=$(cat "/tmp/cache-and-invalidate-${NAMESPACE}-btok${i}")
+                kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://my-cache-${i}.my-cache:8080/cache-and-invalidate/b" \
+                  -host "spec.example.test" -check "${TOK}" -expect-state not-cached
               done
 
     - name: cleanup
@@ -215,4 +251,7 @@ spec:
             content: |
               rm -f "/tmp/cache-and-invalidate-${NAMESPACE}-tok0" \
                     "/tmp/cache-and-invalidate-${NAMESPACE}-tok1" \
-                    "/tmp/cache-and-invalidate-${NAMESPACE}-tok2"
+                    "/tmp/cache-and-invalidate-${NAMESPACE}-tok2" \
+                    "/tmp/cache-and-invalidate-${NAMESPACE}-btok0" \
+                    "/tmp/cache-and-invalidate-${NAMESPACE}-btok1" \
+                    "/tmp/cache-and-invalidate-${NAMESPACE}-btok2"

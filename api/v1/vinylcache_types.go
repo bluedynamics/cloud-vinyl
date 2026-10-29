@@ -490,6 +490,22 @@ type PurgeSpec struct {
 	// If empty, no source restriction is applied.
 	// +optional
 	AllowedSources []string `json:"allowedSources,omitempty"`
+
+	// hosts are the site hostnames a PURGE through the invalidation proxy
+	// applies to, e.g. ["example.org"]. Varnish keys cached objects by URL
+	// and site host, while a client reaches the proxy through the cache's
+	// invalidation host, so the proxy has to forward the purge with the site
+	// host. A request may name its hosts in an X-Vinyl-Purge-Host header;
+	// without one, the proxy sends one purge per host listed here. Needed for
+	// clients that cannot set headers, such as plone.cachepurging. If both
+	// are absent, the purge matches only objects cached under the
+	// invalidation host itself.
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:items:Pattern=`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`
+	// +kubebuilder:validation:items:MaxLength=253
+	Hosts []string `json:"hosts,omitempty"`
 }
 
 // BANSpec configures BAN-based cache invalidation.

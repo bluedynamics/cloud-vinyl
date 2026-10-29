@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
+
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
@@ -89,23 +92,129 @@ func (s *Server) recordInvalidation(namespace, cacheName, typ string, start time
 	}
 }
 
-// handlePurge broadcasts a PURGE request to all Varnish pod IPs on varnishPort.
+// handlePurge broadcasts a PURGE request to all Varnish pod IPs on varnishPort,
+// once per site host (see purgeHosts).
 func (s *Server) handlePurge(w http.ResponseWriter, r *http.Request, namespace, cacheName string, pods []string) {
 	start := time.Now()
-	podAddrs := withPort(pods, varnishPort)
-	req := BroadcastRequest{
-		Method:  methodPurge,
-		Path:    r.URL.RequestURI(),
-		Host:    r.Host,
-		Headers: cloneHeaders(r.Header),
+	hosts, fromRouting, err := s.purgeHosts(r, namespace, cacheName)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
 	}
+	podAddrs := withPort(pods, varnishPort)
+	headers := cloneHeaders(r.Header)
+	delete(headers, purgeHostHeader)
 
 	ctx, cancel := context.WithTimeout(r.Context(), broadcastTimeout)
 	defer cancel()
 
-	result := s.broadcaster.Broadcast(ctx, podAddrs, req)
+	perHost := make([]BroadcastResult, 0, len(hosts))
+	for _, host := range hosts {
+		perHost = append(perHost, s.broadcaster.Broadcast(ctx, podAddrs, BroadcastRequest{
+			Method:  methodPurge,
+			Path:    r.URL.RequestURI(),
+			Host:    host,
+			Headers: headers,
+		}))
+	}
+	result := mergeResults(hosts, perHost)
+	if fromRouting {
+		result.Warning = noPurgeHostWarning
+		s.logNoPurgeHost(namespace, cacheName)
+	}
 	s.recordInvalidation(namespace, cacheName, "purge", start, result)
 	WriteResult(w, result)
+}
+
+// purgeHostHeader names the site hosts a PURGE applies to, comma-separated.
+// The proxy routes by Host, so the client cannot put the site host there.
+const purgeHostHeader = "X-Vinyl-Purge-Host"
+
+// maxPurgeHosts bounds the purges one request fans out to; each host is a
+// broadcast to every pod. spec.invalidation.purge.hosts has the same limit.
+const maxPurgeHosts = 16
+
+// noPurgeHostWarning is returned with a purge that fell back to the routing
+// host. Varnish keys objects by the site host, so such a purge only matches
+// objects cached under the invalidation host itself (#134).
+const noPurgeHostWarning = "no site host given: purged only objects cached under the invalidation host; " +
+	"send " + purgeHostHeader + " or set spec.invalidation.purge.hosts"
+
+// purgeHostRE accepts a hostname with an optional port; varnishd's vcl_recv
+// lowercases the host and strips the port before hashing.
+var purgeHostRE = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]+)?$`)
+
+// purgeHosts returns the Host values to send the PURGE with: Varnish keys
+// cached objects by URL and site host, while the client reaches the proxy
+// through the invalidation host (#134). In order, the X-Vinyl-Purge-Host
+// header, then spec.invalidation.purge.hosts, then the routing host itself,
+// which fromRouting reports.
+func (s *Server) purgeHosts(r *http.Request, namespace, cacheName string) (hosts []string, fromRouting bool, err error) {
+	if raw := r.Header.Get(purgeHostHeader); raw != "" {
+		seen := map[string]bool{}
+		for h := range strings.SplitSeq(raw, ",") {
+			h = strings.TrimSpace(h)
+			if h == "" || seen[h] {
+				continue
+			}
+			if !purgeHostRE.MatchString(h) {
+				return nil, false, fmt.Errorf("invalid host in %s: %q", purgeHostHeader, h)
+			}
+			seen[h] = true
+			hosts = append(hosts, h)
+		}
+		if len(hosts) > maxPurgeHosts {
+			return nil, false, fmt.Errorf("%s names %d hosts, at most %d are allowed", purgeHostHeader, len(hosts), maxPurgeHosts)
+		}
+		if len(hosts) > 0 {
+			return hosts, false, nil
+		}
+	}
+	if p, ok := s.router.(purgeHostProvider); ok {
+		if hosts = p.PurgeHosts(namespace, cacheName); len(hosts) > 0 {
+			return hosts, false, nil
+		}
+	}
+	return []string{r.Host}, true, nil
+}
+
+// purgeHostProvider is implemented by routers that know a cache's
+// spec.invalidation.purge.hosts (RegisteredRouter).
+type purgeHostProvider interface {
+	PurgeHosts(namespace, cacheName string) []string
+}
+
+// mergeResults combines the broadcasts of one purge, one per host, into one
+// result. Each pod result records its host, and status and objectsPurged are
+// computed over all of them, as for a single broadcast.
+func mergeResults(hosts []string, perHost []BroadcastResult) BroadcastResult {
+	if len(perHost) == 1 {
+		return perHost[0]
+	}
+	var merged BroadcastResult
+	for i, res := range perHost {
+		merged.Total += res.Total
+		merged.Succeeded += res.Succeeded
+		for _, pr := range res.Results {
+			pr.Host = hosts[i]
+			merged.Results = append(merged.Results, pr)
+		}
+	}
+	merged.Status = statusString(merged.Total, merged.Succeeded)
+	merged.ObjectsPurged = aggregateObjectsPurged(merged.Results)
+	return merged
+}
+
+// logNoPurgeHost warns, throttled, that a purge fell back to the routing host.
+func (s *Server) logNoPurgeHost(namespace, cacheName string) {
+	ok, suppressed := s.noPurgeHostLog.allow()
+	if !ok {
+		return
+	}
+	logf.Log.WithName("invalidation-proxy").Info(
+		"PURGE without a site host only matches objects cached under the invalidation host",
+		"cache", namespace+"/"+cacheName, "fix", "send "+purgeHostHeader+" or set spec.invalidation.purge.hosts",
+		"suppressedSinceLastLog", suppressed)
 }
 
 // handleBAN handles BAN requests (both BAN method and POST /ban).

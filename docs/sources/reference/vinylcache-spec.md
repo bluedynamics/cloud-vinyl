@@ -167,6 +167,7 @@ varnishParameters:
 |-------|------|---------|-------------|
 | `purge.soft` | boolean | `true` | Use soft purge (stale-while-revalidate). |
 | `purge.allowedSources` | list | `[]` | CIDRs permitted to send `PURGE`. `127.0.0.1` and the operator pod IP are always included. |
+| `purge.hosts` | list | `[]` | Site hostnames a `PURGE` through the invalidation proxy applies to when the request has no `X-Vinyl-Purge-Host` header; one purge is sent per host. Needed for clients that cannot set headers, such as `plone.cachepurging`. At most 16, lowercase hostnames. See [Purge and BAN the cache](../how-to/purge-ban.md). |
 | `xkey` | object | nil | Xkey (surrogate key) configuration. |
 | `xkey.enabled` | boolean | `false` | Loads `vmod_xkey` and handles xkey `PURGE` requests. The operator's invalidation API purges keys hard. |
 | `ban.enabled` | boolean | `false` | When `true`, emit a `vinyl_ban_allowed` ACL and a `BAN` handler in `vcl_recv` that dispatches `std.ban(req.http.X-Vinyl-Ban)`. Also emits ban-lurker-friendly `x-url`/`x-host` headers on stored objects. |

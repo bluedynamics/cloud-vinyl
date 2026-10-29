@@ -46,13 +46,19 @@ type BroadcastResult struct {
 	// a systemic "we stopped hearing the count" is the exact blindness #103
 	// exists to make visible, and collapsing it to 0 would hide it again
 	// behind #92's legitimate all-zero broadcasts.
-	ObjectsPurged *int        `json:"objectsPurged,omitempty"`
-	Results       []PodResult `json:"results"`
+	ObjectsPurged *int `json:"objectsPurged,omitempty"`
+	// Warning flags a request that succeeded but probably did not do what
+	// the client meant, e.g. a purge without a site host (#134).
+	Warning string      `json:"warning,omitempty"`
+	Results []PodResult `json:"results"`
 }
 
 // PodResult holds the result of a single pod call.
 type PodResult struct {
-	Pod    string `json:"pod"`
+	Pod string `json:"pod"`
+	// Host is the site host this call purged, set when one purge fanned out
+	// to several hosts.
+	Host   string `json:"host,omitempty"`
 	Status int    `json:"status,omitempty"`
 	Error  string `json:"error,omitempty"`
 	// ObjectsPurged is the count parsed from this pod's X-Vinyl-Purged
