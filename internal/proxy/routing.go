@@ -51,12 +51,15 @@ func (r *StaticRouter) Lookup(host string) (string, string, bool) {
 type RegisteredRouter struct {
 	mu     sync.RWMutex
 	routes map[string]routeEntry
+	// purgeHosts holds spec.invalidation.purge.hosts per "namespace/cacheName".
+	purgeHosts map[string][]string
 }
 
 // NewRegisteredRouter creates an empty RegisteredRouter.
 func NewRegisteredRouter() *RegisteredRouter {
 	return &RegisteredRouter{
-		routes: make(map[string]routeEntry),
+		routes:     make(map[string]routeEntry),
+		purgeHosts: make(map[string][]string),
 	}
 }
 
@@ -83,6 +86,27 @@ func (r *RegisteredRouter) Unregister(namespace, cacheName string) {
 	defer r.mu.Unlock()
 	delete(r.routes, shortHost)
 	delete(r.routes, fqdnHost)
+	delete(r.purgeHosts, namespace+"/"+cacheName)
+}
+
+// SetPurgeHosts records the site hosts a PURGE for this cache applies to
+// (spec.invalidation.purge.hosts). An empty list clears them.
+func (r *RegisteredRouter) SetPurgeHosts(namespace, cacheName string, hosts []string) {
+	key := namespace + "/" + cacheName
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(hosts) == 0 {
+		delete(r.purgeHosts, key)
+		return
+	}
+	r.purgeHosts[key] = append([]string(nil), hosts...)
+}
+
+// PurgeHosts returns the site hosts set by SetPurgeHosts, or nil.
+func (r *RegisteredRouter) PurgeHosts(namespace, cacheName string) []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]string(nil), r.purgeHosts[namespace+"/"+cacheName]...)
 }
 
 // Suggest returns the short hosts of all registered caches whose bare

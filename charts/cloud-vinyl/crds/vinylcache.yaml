@@ -434,6 +434,24 @@ spec:
                       enabled:
                         description: enabled activates the PURGE invalidation handler.
                         type: boolean
+                      hosts:
+                        description: |-
+                          hosts are the site hostnames a PURGE through the invalidation proxy
+                          applies to, e.g. ["example.org"]. Varnish keys cached objects by URL
+                          and site host, while a client reaches the proxy through the cache's
+                          invalidation host, so the proxy has to forward the purge with the site
+                          host. A request may name its hosts in an X-Vinyl-Purge-Host header;
+                          without one, the proxy sends one purge per host listed here. Needed for
+                          clients that cannot set headers, such as plone.cachepurging. If both
+                          are absent, the purge matches only objects cached under the
+                          invalidation host itself.
+                        items:
+                          maxLength: 253
+                          pattern: ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$
+                          type: string
+                        maxItems: 16
+                        type: array
+                        x-kubernetes-list-type: set
                       soft:
                         default: true
                         description: |-
@@ -5091,6 +5109,24 @@ spec:
                       enabled:
                         description: enabled activates the PURGE invalidation handler.
                         type: boolean
+                      hosts:
+                        description: |-
+                          hosts are the site hostnames a PURGE through the invalidation proxy
+                          applies to, e.g. ["example.org"]. Varnish keys cached objects by URL
+                          and site host, while a client reaches the proxy through the cache's
+                          invalidation host, so the proxy has to forward the purge with the site
+                          host. A request may name its hosts in an X-Vinyl-Purge-Host header;
+                          without one, the proxy sends one purge per host listed here. Needed for
+                          clients that cannot set headers, such as plone.cachepurging. If both
+                          are absent, the purge matches only objects cached under the
+                          invalidation host itself.
+                        items:
+                          maxLength: 253
+                          pattern: ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$
+                          type: string
+                        maxItems: 16
+                        type: array
+                        x-kubernetes-list-type: set
                       soft:
                         default: true
                         description: |-

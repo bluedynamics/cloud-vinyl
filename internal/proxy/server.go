@@ -45,9 +45,31 @@ type Server struct {
 	rateLimiter   RateLimiter
 	metrics       *monitoring.Metrics // nil-safe
 
-	unknownHostMu         sync.Mutex
-	unknownHostLoggedAt   time.Time
-	unknownHostSuppressed int
+	unknownHostLog throttle
+	noPurgeHostLog throttle
+}
+
+// throttle lets one log line through per unknownHostLogInterval and counts
+// the ones it held back, since the logged values are client-controlled.
+type throttle struct {
+	mu         sync.Mutex
+	loggedAt   time.Time
+	suppressed int
+}
+
+// allow reports whether to log now and how many calls it suppressed since
+// the last line.
+func (t *throttle) allow() (bool, int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := time.Now()
+	if now.Sub(t.loggedAt) < unknownHostLogInterval {
+		t.suppressed++
+		return false, 0
+	}
+	suppressed := t.suppressed
+	t.loggedAt, t.suppressed = now, 0
+	return true, suppressed
 }
 
 // SetMetrics installs a nil-safe metrics recorder.
@@ -183,17 +205,10 @@ func (s *Server) rejectUnknownHost(w http.ResponseWriter, host string) {
 // logUnknownHost warns at most once per unknownHostLogInterval and reports
 // how many rejections it skipped in between.
 func (s *Server) logUnknownHost(host string, hints []string) {
-	s.unknownHostMu.Lock()
-	now := time.Now()
-	if now.Sub(s.unknownHostLoggedAt) < unknownHostLogInterval {
-		s.unknownHostSuppressed++
-		s.unknownHostMu.Unlock()
+	ok, suppressed := s.unknownHostLog.allow()
+	if !ok {
 		return
 	}
-	suppressed := s.unknownHostSuppressed
-	s.unknownHostLoggedAt, s.unknownHostSuppressed = now, 0
-	s.unknownHostMu.Unlock()
-
 	logf.Log.WithName("invalidation-proxy").Info(
 		"rejected invalidation request: Host names no registered cache",
 		"host", host, "useHost", hints, "suppressedSinceLastLog", suppressed)

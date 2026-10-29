@@ -168,17 +168,7 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 	peers := obs.ready
 
-	// Update proxy routing and pod map.
-	if r.ProxyRouter != nil {
-		r.ProxyRouter.Register(vc.Namespace, vc.Name)
-	}
-	if r.ProxyPodMap != nil {
-		var podIPs []string
-		for _, p := range peers {
-			podIPs = append(podIPs, p.IP)
-		}
-		r.ProxyPodMap.Update(vc.Namespace, vc.Name, podIPs)
-	}
+	r.updateProxy(vc, peers)
 
 	// Resolve backend endpoints from Kubernetes Services.
 	endpoints, err := r.resolveBackendEndpoints(ctx, vc)
@@ -333,4 +323,25 @@ func (r *VinylCacheReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		).
 		Named("vinylcache").
 		Complete(r)
+}
+
+// updateProxy publishes the cache to the invalidation proxy: its routing
+// hosts, the site hosts a purge applies to (spec.invalidation.purge.hosts,
+// #134), and the IPs of the pods that may take traffic.
+func (r *VinylCacheReconciler) updateProxy(vc *vinylv1.VinylCache, peers []generator.PeerBackend) {
+	if r.ProxyRouter != nil {
+		r.ProxyRouter.Register(vc.Namespace, vc.Name)
+		var purgeHosts []string
+		if p := vc.Spec.Invalidation.Purge; p != nil {
+			purgeHosts = p.Hosts
+		}
+		r.ProxyRouter.SetPurgeHosts(vc.Namespace, vc.Name, purgeHosts)
+	}
+	if r.ProxyPodMap != nil {
+		podIPs := make([]string, 0, len(peers))
+		for _, p := range peers {
+			podIPs = append(podIPs, p.IP)
+		}
+		r.ProxyPodMap.Update(vc.Namespace, vc.Name, podIPs)
+	}
 }
