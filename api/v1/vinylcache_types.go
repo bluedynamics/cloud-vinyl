@@ -295,11 +295,6 @@ type ConnectionParameters struct {
 	// +optional
 	BetweenBytesTimeout metav1.Duration `json:"betweenBytesTimeout,omitempty"`
 
-	// idleTimeout is the maximum time an idle connection may be reused. Should be less
-	// than the backend's keep-alive timeout to avoid 503 races.
-	// +optional
-	IdleTimeout metav1.Duration `json:"idleTimeout,omitempty"`
-
 	// maxConnections is the maximum number of concurrent connections to the backend.
 	// +optional
 	// +kubebuilder:validation:Minimum=1

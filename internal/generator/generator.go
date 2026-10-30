@@ -124,7 +124,6 @@ type BackendDef struct {
 	ConnectTimeout        string
 	FirstByteTimeout      string
 	BetweenBytesTimeout   string
-	IdleTimeout           string
 	MaxConnections        int32
 }
 
@@ -345,9 +344,6 @@ func buildTemplateData(input Input) TemplateData {
 				}
 				if cp.BetweenBytesTimeout.Duration > 0 {
 					def.BetweenBytesTimeout = fmtDuration(cp.BetweenBytesTimeout.Duration)
-				}
-				if cp.IdleTimeout.Duration > 0 {
-					def.IdleTimeout = fmtDuration(cp.IdleTimeout.Duration)
 				}
 				def.MaxConnections = cp.MaxConnections
 			}

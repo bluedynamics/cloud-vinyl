@@ -818,7 +818,6 @@ func TestGenerate_BackendWithAllConnectionParameters(t *testing.T) {
 		ConnectTimeout:      metav1.Duration{Duration: 2 * time.Second},
 		FirstByteTimeout:    metav1.Duration{Duration: 60 * time.Second},
 		BetweenBytesTimeout: metav1.Duration{Duration: 30 * time.Second},
-		IdleTimeout:         metav1.Duration{Duration: 55 * time.Second},
 		MaxConnections:      200,
 	}
 	r, err := g.Generate(input)
