@@ -193,8 +193,9 @@ spec:
                         threshold:
                           description: |-
                             threshold is the minimum number of successful probes within the window for the backend
-                            to be considered healthy.
+                            to be considered healthy. Defaults to 3; must not exceed window.
                           format: int32
+                          maximum: 64
                           minimum: 1
                           type: integer
                         timeout:
@@ -206,12 +207,19 @@ spec:
                             root path is used.
                           type: string
                         window:
-                          description: window is the number of most recent probes
-                            to consider for threshold evaluation.
+                          description: |-
+                            window is the number of most recent probes to consider for threshold
+                            evaluation. Defaults to 5; varnishd allows at most 64.
                           format: int32
+                          maximum: 64
                           minimum: 1
                           type: integer
                       type: object
+                      x-kubernetes-validations:
+                      - message: probe threshold must not exceed window (an unset
+                          window is 5, an unset threshold is 3)
+                        rule: '(has(self.threshold) ? self.threshold : 3) <= (has(self.window)
+                          ? self.window : 5)'
                     retry:
                       description: |-
                         retry configures retrying a fetch on another backend of this group
@@ -4868,8 +4876,9 @@ spec:
                         threshold:
                           description: |-
                             threshold is the minimum number of successful probes within the window for the backend
-                            to be considered healthy.
+                            to be considered healthy. Defaults to 3; must not exceed window.
                           format: int32
+                          maximum: 64
                           minimum: 1
                           type: integer
                         timeout:
@@ -4881,12 +4890,19 @@ spec:
                             root path is used.
                           type: string
                         window:
-                          description: window is the number of most recent probes
-                            to consider for threshold evaluation.
+                          description: |-
+                            window is the number of most recent probes to consider for threshold
+                            evaluation. Defaults to 5; varnishd allows at most 64.
                           format: int32
+                          maximum: 64
                           minimum: 1
                           type: integer
                       type: object
+                      x-kubernetes-validations:
+                      - message: probe threshold must not exceed window (an unset
+                          window is 5, an unset threshold is 3)
+                        rule: '(has(self.threshold) ? self.threshold : 3) <= (has(self.window)
+                          ? self.window : 5)'
                     retry:
                       description: |-
                         retry configures retrying a fetch on another backend of this group

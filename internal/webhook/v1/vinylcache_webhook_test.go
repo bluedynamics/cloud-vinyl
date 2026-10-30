@@ -29,6 +29,7 @@ import (
 
 	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 )
 
 // minimalAdmissibleVC returns a VinylCache that passes CRD schema and
@@ -122,6 +123,51 @@ var _ = Describe("VinylCache Webhook", func() {
 			Expect(asV1.Spec.Backends).To(HaveLen(1))
 			Expect(asV1.Spec.Director).NotTo(BeNil(), "the mutating webhook must have run")
 			Expect(asV1.Spec.Director.Type).To(Equal("shard"))
+		})
+	})
+
+	// varnishd refuses a probe with threshold > window or window > 64, and
+	// every VCL push then fails (#137). The CRD rejects both, comparing the
+	// effective values, so the CEL rule's defaults must match the
+	// generator's: these cases fail if either side changes alone.
+	Context("When a backend probe would not compile in varnishd", func() {
+		probeVC := func(name string, probe vinylv1.BackendProbeSpec) *vinylv1.VinylCache {
+			vc := minimalAdmissibleVC(name)
+			vc.Spec.Backends[0].Probe = &probe
+			return vc
+		}
+		rejected := func(vc *vinylv1.VinylCache, msg string) {
+			err := k8sClient.Create(ctx, vc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(msg))
+		}
+		admitted := func(vc *vinylv1.VinylCache) {
+			Expect(k8sClient.Create(ctx, vc)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, vc))).To(Succeed())
+			})
+		}
+
+		It("rejects a threshold above the window", func() {
+			rejected(probeVC("probe-t-gt-w", vinylv1.BackendProbeSpec{Window: 8, Threshold: 9}),
+				"probe threshold must not exceed window")
+		})
+		It("rejects a window above 64", func() {
+			rejected(probeVC("probe-w-65", vinylv1.BackendProbeSpec{Window: 65, Threshold: 8}),
+				"should be less than or equal to 64")
+		})
+		It("compares a lone threshold with the generator's default window", func() {
+			rejected(probeVC("probe-t-over-default", vinylv1.BackendProbeSpec{Threshold: generator.DefaultProbeWindow + 1}),
+				"probe threshold must not exceed window")
+			admitted(probeVC("probe-t-at-default", vinylv1.BackendProbeSpec{Threshold: generator.DefaultProbeWindow}))
+		})
+		It("compares a lone window with the generator's default threshold", func() {
+			rejected(probeVC("probe-w-under-default", vinylv1.BackendProbeSpec{Window: generator.DefaultProbeThreshold - 1}),
+				"probe threshold must not exceed window")
+			admitted(probeVC("probe-w-at-default", vinylv1.BackendProbeSpec{Window: generator.DefaultProbeThreshold}))
+		})
+		It("admits the largest probe varnishd accepts", func() {
+			admitted(probeVC("probe-64-64", vinylv1.BackendProbeSpec{Window: 64, Threshold: 64}))
 		})
 	})
 
