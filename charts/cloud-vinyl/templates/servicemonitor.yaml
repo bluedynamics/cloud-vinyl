@@ -1,4 +1,6 @@
 {{- if .Values.monitoring.serviceMonitor.enabled -}}
+{{- $sm := .Values.monitoring.serviceMonitor -}}
+{{- $metrics := .Values.monitoring.metrics -}}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -6,7 +8,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "cloud-vinyl.labels" . | nindent 4 }}
-    {{- with .Values.monitoring.serviceMonitor.additionalLabels }}
+    {{- with $sm.additionalLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
@@ -15,7 +17,32 @@ spec:
       {{- include "cloud-vinyl.selectorLabels" . | nindent 6 }}
   endpoints:
     - port: metrics
-      interval: {{ .Values.monitoring.serviceMonitor.interval }}
-      scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout }}
+      interval: {{ $sm.interval }}
+      scrapeTimeout: {{ $sm.scrapeTimeout }}
       path: /metrics
+      {{- if $metrics.secure }}
+      # The operator serves /metrics over HTTPS and authorizes each scrape
+      # (monitoring.metrics.secure); the scheme must follow the operator.
+      scheme: https
+      {{- if not (or (hasKey $sm.endpointConfig "authorization") (hasKey $sm.endpointConfig "bearerTokenSecret") (hasKey $sm.endpointConfig "oauth2") (hasKey $sm.endpointConfig "basicAuth")) }}
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      {{- end }}
+      tlsConfig:
+        {{- if $sm.tlsConfig }}
+        {{- toYaml $sm.tlsConfig | nindent 8 }}
+        {{- else if and $metrics.tls.certManager (not $metrics.tls.secretName) }}
+        serverName: {{ include "cloud-vinyl.metricsServiceHost" . }}
+        ca:
+          secret:
+            name: {{ include "cloud-vinyl.metricsTLSSecret" . }}
+            key: ca.crt
+        {{- else }}
+        insecureSkipVerify: true
+        {{- end }}
+      {{- else }}
+      scheme: http
+      {{- end }}
+      {{- with $sm.endpointConfig }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
 {{- end }}

@@ -1,4 +1,4 @@
-{{- if .Values.webhook.certManager.enabled -}}
+{{- if or .Values.webhook.certManager.enabled .Values.monitoring.metrics.tls.certManager -}}
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:

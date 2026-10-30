@@ -78,6 +78,31 @@ webhook:
 
 # Monitoring opt-in.
 monitoring:
+  # The operator's own /metrics endpoint (vinyl_* metrics), on the "metrics"
+  # port of the chart's Service.
+  metrics:
+    # true: HTTPS with Kubernetes authentication and authorization; a scraper
+    # needs a token whose subject may "get" the /metrics non-resource URL.
+    # false: plain HTTP without authentication, e.g. when network policy
+    # already limits who reaches the operator.
+    secure: true
+    # Subjects bound to the chart's "<release>-metrics-reader" ClusterRole
+    # when secure, typically the Prometheus service account:
+    #   - kind: ServiceAccount
+    #     name: kube-prometheus-stack-prometheus
+    #     namespace: monitoring
+    # Leave empty if Prometheus' own ClusterRole already grants
+    # nonResourceURLs ["/metrics"].
+    readerSubjects: []
+    # Serving certificate when secure. With neither option, the operator
+    # generates a self-signed certificate at startup and the ServiceMonitor
+    # skips verification.
+    tls:
+      # Issue the certificate from the chart's cert-manager issuer; the
+      # ServiceMonitor then verifies it. Requires cert-manager.
+      certManager: false
+      # Or use an existing kubernetes.io/tls Secret (tls.crt, tls.key).
+      secretName: ""
   prometheusRules:
     # Deploy a PrometheusRule with 10 pre-defined alerts (architektur.md §8.5).
     enabled: false
@@ -91,6 +116,13 @@ monitoring:
     interval: "30s"
     scrapeTimeout: "10s"
     additionalLabels: {}
+    # TLS settings for a secure scrape. Empty: verify against the chart's
+    # certificate with metrics.tls.certManager, otherwise skip verification.
+    tlsConfig: {}
+    # Merged into the scrape endpoint as is, e.g. relabelings,
+    # metricRelabelings, or an "authorization" block that replaces the
+    # default Prometheus service account token.
+    endpointConfig: {}
 
 # The VinylCache CRD ships in crds/. Helm installs it with the chart but never
 # upgrades or deletes it. To manage it yourself, e.g. in GitOps, install or

@@ -1,0 +1,28 @@
+{{- if .Values.monitoring.metrics.secure -}}
+# Read access to the operator's secure /metrics endpoint. Bind it to the
+# scraper, e.g. through monitoring.metrics.readerSubjects.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "cloud-vinyl.fullname" . }}-metrics-reader
+  labels:
+    {{- include "cloud-vinyl.labels" . | nindent 4 }}
+rules:
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+{{- with .Values.monitoring.metrics.readerSubjects }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "cloud-vinyl.fullname" $ }}-metrics-reader
+  labels:
+    {{- include "cloud-vinyl.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "cloud-vinyl.fullname" $ }}-metrics-reader
+subjects:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
