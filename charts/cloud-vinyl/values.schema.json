@@ -122,6 +122,34 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "secure": {"type": "boolean"},
+            "readerSubjects": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["kind", "name"],
+                "properties": {
+                  "kind": {"type": "string", "enum": ["ServiceAccount", "User", "Group"]},
+                  "name": {"type": "string", "minLength": 1},
+                  "namespace": {"type": "string"},
+                  "apiGroup": {"type": "string"}
+                }
+              }
+            },
+            "tls": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "certManager": {"type": "boolean"},
+                "secretName": {"type": "string"}
+              }
+            }
+          }
+        },
         "prometheusRules": {
           "type": "object",
           "additionalProperties": false,
@@ -143,7 +171,9 @@
               "type": "string",
               "pattern": "^[0-9]+(s|m|h)$"
             },
-            "additionalLabels": {"type": "object"}
+            "additionalLabels": {"type": "object"},
+            "tlsConfig": {"type": "object"},
+            "endpointConfig": {"type": "object"}
           }
         }
       }

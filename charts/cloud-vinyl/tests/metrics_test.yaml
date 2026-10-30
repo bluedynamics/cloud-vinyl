@@ -1,0 +1,183 @@
+suite: Operator Metrics Tests
+# The operator serves /metrics over HTTPS with authn/authz unless
+# monitoring.metrics.secure is false, and the ServiceMonitor, the Deployment
+# flags and the RBAC must agree on the mode (#138): a mismatch scrapes nothing.
+templates:
+  - deployment.yaml
+  - servicemonitor.yaml
+  - clusterrole.yaml
+  - metrics-reader-rbac.yaml
+  - certificate.yaml
+  - issuer.yaml
+set:
+  monitoring.serviceMonitor.enabled: true
+tests:
+  - it: secure by default, on every side
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics-secure=true
+        template: deployment.yaml
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: https
+        template: servicemonitor.yaml
+      - equal:
+          path: spec.endpoints[0].bearerTokenFile
+          value: /var/run/secrets/kubernetes.io/serviceaccount/token
+        template: servicemonitor.yaml
+      - equal:
+          path: spec.endpoints[0].tlsConfig.insecureSkipVerify
+          value: true
+        template: servicemonitor.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["authentication.k8s.io"]
+            resources: ["tokenreviews"]
+            verbs: ["create"]
+        template: clusterrole.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["authorization.k8s.io"]
+            resources: ["subjectaccessreviews"]
+            verbs: ["create"]
+        template: clusterrole.yaml
+      - hasDocuments:
+          count: 1
+        template: metrics-reader-rbac.yaml
+      - isKind:
+          of: ClusterRole
+        template: metrics-reader-rbac.yaml
+
+  - it: plain HTTP without auth when secure is false
+    set:
+      monitoring.metrics.secure: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics-secure=false
+        template: deployment.yaml
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: http
+        template: servicemonitor.yaml
+      - notExists:
+          path: spec.endpoints[0].bearerTokenFile
+        template: servicemonitor.yaml
+      - notExists:
+          path: spec.endpoints[0].tlsConfig
+        template: servicemonitor.yaml
+      - notContains:
+          path: rules
+          content:
+            apiGroups: ["authentication.k8s.io"]
+            resources: ["tokenreviews"]
+            verbs: ["create"]
+        template: clusterrole.yaml
+      - hasDocuments:
+          count: 0
+        template: metrics-reader-rbac.yaml
+
+  - it: binds the reader role to readerSubjects
+    set:
+      monitoring.metrics.readerSubjects:
+        - kind: ServiceAccount
+          name: prometheus
+          namespace: monitoring
+    asserts:
+      - hasDocuments:
+          count: 2
+        template: metrics-reader-rbac.yaml
+      - documentIndex: 1
+        equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: prometheus
+              namespace: monitoring
+        template: metrics-reader-rbac.yaml
+      - documentIndex: 1
+        equal:
+          path: roleRef.name
+          value: RELEASE-NAME-cloud-vinyl-metrics-reader
+        template: metrics-reader-rbac.yaml
+
+  - it: a cert-manager certificate is mounted and verified by the scrape
+    set:
+      monitoring.metrics.tls.certManager: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics-cert-path=/tmp/k8s-metrics-server/metrics-certs
+        template: deployment.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: metrics-certs
+            secret:
+              secretName: RELEASE-NAME-cloud-vinyl-metrics-tls
+        template: deployment.yaml
+      - documentIndex: 1
+        equal:
+          path: spec.dnsNames[0]
+          value: RELEASE-NAME-cloud-vinyl.NAMESPACE.svc
+        template: certificate.yaml
+      - equal:
+          path: spec.endpoints[0].tlsConfig
+          value:
+            serverName: RELEASE-NAME-cloud-vinyl.NAMESPACE.svc
+            ca:
+              secret:
+                name: RELEASE-NAME-cloud-vinyl-metrics-tls
+                key: ca.crt
+        template: servicemonitor.yaml
+
+  - it: an existing TLS secret is mounted, no certificate is issued
+    set:
+      monitoring.metrics.tls.secretName: my-metrics-tls
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: metrics-certs
+            secret:
+              secretName: my-metrics-tls
+        template: deployment.yaml
+      - hasDocuments:
+          count: 1
+        template: certificate.yaml
+
+  - it: tlsConfig and endpointConfig override the defaults
+    set:
+      monitoring.serviceMonitor.tlsConfig:
+        insecureSkipVerify: false
+        serverName: metrics.example
+      monitoring.serviceMonitor.endpointConfig:
+        authorization:
+          credentials:
+            name: scrape-token
+            key: token
+        metricRelabelings:
+          - action: keep
+            regex: vinyl_.*
+            sourceLabels: [__name__]
+    asserts:
+      - equal:
+          path: spec.endpoints[0].tlsConfig
+          value:
+            insecureSkipVerify: false
+            serverName: metrics.example
+        template: servicemonitor.yaml
+      - notExists:
+          path: spec.endpoints[0].bearerTokenFile
+        template: servicemonitor.yaml
+      - equal:
+          path: spec.endpoints[0].authorization.credentials.name
+          value: scrape-token
+        template: servicemonitor.yaml
+      - equal:
+          path: spec.endpoints[0].metricRelabelings[0].regex
+          value: vinyl_.*
+        template: servicemonitor.yaml

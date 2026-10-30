@@ -12,6 +12,53 @@ sidecar that surfaces the cache hit rate.
   `PrometheusRule`). Without these CRDs the operator skips creating those objects
   (it logs and continues — it does not error).
 
+## Scrape the operator's own metrics
+
+The operator exports `vinyl_*` metrics: VCL pushes, invalidations, objects purged,
+rejected invalidation hosts. The chart scrapes them with a `ServiceMonitor` when
+`monitoring.serviceMonitor.enabled` is set.
+
+By default the operator serves `/metrics` over HTTPS and checks every scrape: the
+scraper presents a service account token, and that account needs permission to `get`
+the `/metrics` URL. Bind the Prometheus service account to the chart's reader role:
+
+```yaml
+monitoring:
+  serviceMonitor:
+    enabled: true
+    additionalLabels:
+      release: kube-prometheus-stack   # match your Prometheus' serviceMonitorSelector
+  metrics:
+    readerSubjects:
+      - kind: ServiceAccount
+        name: kube-prometheus-stack-prometheus
+        namespace: monitoring
+```
+
+The ServiceMonitor then scrapes `https` with Prometheus' own token. The operator
+generates a self-signed certificate, so the scrape skips verification. To verify it,
+set `monitoring.metrics.tls.certManager: true`: the chart issues the certificate
+through cert-manager and the ServiceMonitor checks it against the issuer's CA. An
+existing TLS Secret works too, through `monitoring.metrics.tls.secretName` and your
+own `monitoring.serviceMonitor.tlsConfig`.
+
+If network policy already limits who reaches the operator, plain HTTP without
+authentication is simpler:
+
+```yaml
+monitoring:
+  metrics:
+    secure: false
+```
+
+The ServiceMonitor follows that setting. Extra scrape settings, such as
+`metricRelabelings` or a different `authorization`, go into
+`monitoring.serviceMonitor.endpointConfig`.
+
+To check, query `up` for the operator's target: its `job` is the chart's Service
+name, `cloud-vinyl` for a release of that name, and the value must be `1`. A `401` or
+`403` on Prometheus' target page means the token or the reader binding is missing.
+
 ## Enable monitoring on a VinylCache
 
 Add a `monitoring` section to the spec:

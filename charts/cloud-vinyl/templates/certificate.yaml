@@ -30,3 +30,21 @@ data:
   ca.crt: {{ .Values.webhook.tls.caCert }}
   {{- end }}
 {{- end }}
+{{- if and .Values.monitoring.metrics.secure .Values.monitoring.metrics.tls.certManager (not .Values.monitoring.metrics.tls.secretName) }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "cloud-vinyl.fullname" . }}-metrics-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cloud-vinyl.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "cloud-vinyl.metricsTLSSecret" . }}
+  issuerRef:
+    name: {{ include "cloud-vinyl.fullname" . }}-selfsigned
+    kind: Issuer
+  dnsNames:
+    - {{ include "cloud-vinyl.metricsServiceHost" . }}
+    - {{ include "cloud-vinyl.metricsServiceHost" . }}.cluster.local
+{{- end }}

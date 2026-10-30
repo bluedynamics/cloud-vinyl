@@ -74,3 +74,23 @@ Webhook TLS secret name.
 {{- define "cloud-vinyl.webhookTLSSecret" -}}
 {{- printf "%s-webhook-tls" (include "cloud-vinyl.fullname" .) }}
 {{- end }}
+
+{{/*
+Metrics serving certificate Secret, or empty when the operator generates a
+self-signed certificate itself.
+*/}}
+{{- define "cloud-vinyl.metricsTLSSecret" -}}
+{{- $tls := .Values.monitoring.metrics.tls -}}
+{{- if $tls.secretName -}}
+{{- $tls.secretName -}}
+{{- else if $tls.certManager -}}
+{{- printf "%s-metrics-tls" (include "cloud-vinyl.fullname" .) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+In-cluster DNS name of the Service carrying the metrics port.
+*/}}
+{{- define "cloud-vinyl.metricsServiceHost" -}}
+{{- printf "%s.%s.svc" (include "cloud-vinyl.fullname" .) .Release.Namespace -}}
+{{- end }}

@@ -77,6 +77,12 @@ value never had an effect; it is still accepted, and ignored, until 2.0.
 | `monitoring.serviceMonitor.interval` | string | `30s` | Prometheus scrape interval. Format: `[0-9]+(s\|m\|h)`. |
 | `monitoring.serviceMonitor.scrapeTimeout` | string | `10s` | Prometheus scrape timeout. |
 | `monitoring.serviceMonitor.additionalLabels` | object | `{}` | Extra labels on the ServiceMonitor (for label selectors). |
+| `monitoring.serviceMonitor.tlsConfig` | object | `{}` | TLS settings for a secure scrape. Empty: verify against the chart's certificate with `monitoring.metrics.tls.certManager`, otherwise skip verification. |
+| `monitoring.serviceMonitor.endpointConfig` | object | `{}` | Merged into the scrape endpoint as is, e.g. `relabelings`, `metricRelabelings`, or an `authorization` block that replaces the default service account token. |
+| `monitoring.metrics.secure` | boolean | `true` | Serve the operator's `/metrics` over HTTPS with Kubernetes authentication and authorization. `false` serves plain HTTP without auth. The ServiceMonitor and the operator's RBAC follow the setting. |
+| `monitoring.metrics.readerSubjects` | list | `[]` | RBAC subjects bound to the `<release>-metrics-reader` ClusterRole when secure, e.g. the Prometheus service account. |
+| `monitoring.metrics.tls.certManager` | boolean | `false` | Issue the metrics serving certificate from the chart's cert-manager issuer; the ServiceMonitor then verifies it. |
+| `monitoring.metrics.tls.secretName` | string | `""` | Use an existing `kubernetes.io/tls` Secret as the metrics serving certificate. |
 
 ## Security contexts
 

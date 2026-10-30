@@ -30,6 +30,10 @@ spec:
           args:
             - --health-probe-bind-address={{ .Values.operatorFlags.probeAddr }}
             - --metrics-bind-address={{ .Values.operatorFlags.metricsAddr }}
+            - --metrics-secure={{ .Values.monitoring.metrics.secure }}
+            {{- if and .Values.monitoring.metrics.secure (include "cloud-vinyl.metricsTLSSecret" .) }}
+            - --metrics-cert-path=/tmp/k8s-metrics-server/metrics-certs
+            {{- end }}
             {{- if .Values.leaderElection.enabled }}
             - --leader-elect=true
             {{- end }}
@@ -75,10 +79,20 @@ spec:
             - name: webhook-certs
               mountPath: /tmp/k8s-webhook-server/serving-certs
               readOnly: true
+            {{- if and .Values.monitoring.metrics.secure (include "cloud-vinyl.metricsTLSSecret" .) }}
+            - name: metrics-certs
+              mountPath: /tmp/k8s-metrics-server/metrics-certs
+              readOnly: true
+            {{- end }}
       volumes:
         - name: webhook-certs
           secret:
             secretName: {{ include "cloud-vinyl.webhookTLSSecret" . }}
+        {{- if and .Values.monitoring.metrics.secure (include "cloud-vinyl.metricsTLSSecret" .) }}
+        - name: metrics-certs
+          secret:
+            secretName: {{ include "cloud-vinyl.metricsTLSSecret" . }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
