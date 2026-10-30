@@ -243,6 +243,12 @@ type ServiceRef struct {
 }
 
 // BackendProbeSpec configures the Varnish backend health probe.
+//
+// varnishd refuses to compile a probe whose threshold exceeds its window, or
+// whose window exceeds 64, and every VCL push then fails (#137). The rule
+// compares the effective values: an unset window or threshold is rendered
+// as 5 and 3 (generator.DefaultProbeWindow, generator.DefaultProbeThreshold).
+// +kubebuilder:validation:XValidation:rule="(has(self.threshold) ? self.threshold : 3) <= (has(self.window) ? self.window : 5)",message="probe threshold must not exceed window (an unset window is 5, an unset threshold is 3)"
 type BackendProbeSpec struct {
 	// url is the URL to probe. If empty, the backend's root path is used.
 	// +optional
@@ -256,15 +262,18 @@ type BackendProbeSpec struct {
 	// +optional
 	Timeout metav1.Duration `json:"timeout,omitempty"`
 
-	// window is the number of most recent probes to consider for threshold evaluation.
+	// window is the number of most recent probes to consider for threshold
+	// evaluation. Defaults to 5; varnishd allows at most 64.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=64
 	Window int32 `json:"window,omitempty"`
 
 	// threshold is the minimum number of successful probes within the window for the backend
-	// to be considered healthy.
+	// to be considered healthy. Defaults to 3; must not exceed window.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=64
 	Threshold int32 `json:"threshold,omitempty"`
 
 	// expectedResponse is the expected HTTP response status code. Defaults to 200.

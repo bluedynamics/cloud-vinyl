@@ -48,15 +48,16 @@ Each entry in `spec.backends` defines an upstream service:
 | `name` | string | yes | Unique backend identifier (used in VCL). |
 | `serviceRef.name` | string | yes | Kubernetes Service name in the same namespace. |
 | `port` | integer | no | Overrides the Service port; defaults to the Service's first port. |
-| `connectTimeout` | duration | no | Connection timeout (default: `1s`). |
-| `firstByteTimeout` | duration | no | Time-to-first-byte timeout (default: `60s`). |
-| `betweenBytesTimeout` | duration | no | Between-bytes timeout (default: `60s`). |
-| `maxConnections` | integer | no | Maximum concurrent connections to this backend. |
-| `healthCheck.url` | string | no | Health probe URL (e.g. `/healthz`). |
-| `healthCheck.interval` | duration | no | Health probe interval (default: `5s`). |
-| `healthCheck.timeout` | duration | no | Health probe timeout (default: `1s`). |
-| `healthCheck.threshold` | integer | no | Consecutive successes required to mark healthy. |
-| `healthCheck.window` | integer | no | Rolling window for health evaluation. |
+| `connectionParameters.connectTimeout` | duration | no | Connection timeout. Unset: varnishd's `connect_timeout` parameter. |
+| `connectionParameters.firstByteTimeout` | duration | no | Time-to-first-byte timeout. Unset: varnishd's `first_byte_timeout`. |
+| `connectionParameters.betweenBytesTimeout` | duration | no | Between-bytes timeout. Unset: varnishd's `between_bytes_timeout`. |
+| `connectionParameters.maxConnections` | integer | no | Maximum concurrent connections to this backend. |
+| `probe.url` | string | no | Health probe URL (e.g. `/healthz`). Without `probe`, the backend is not probed. |
+| `probe.interval` | duration | no | Health probe interval (default: `5s`). |
+| `probe.timeout` | duration | no | Health probe timeout (default: `2s`). |
+| `probe.window` | integer | no | Number of recent probes evaluated (default: `5`, at most `64`). |
+| `probe.threshold` | integer | no | Successful probes within the window required to mark the backend healthy (default: `3`). Must not exceed the effective window; varnishd would refuse the VCL. |
+| `probe.expectedResponse` | integer | no | Expected HTTP status of the probe (default: `200`). |
 | `retry.maxRetries` | integer | no | Retries of a `GET`/`HEAD` fetch on another backend when no response arrived (default: `1`, `0` disables, maximum `3`). Not allowed above `0` for `hash` and `fallback` directors. See [Per-backend directors](../how-to/per-backend-directors.md). |
 
 ### `backends[].director`

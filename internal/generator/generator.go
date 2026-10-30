@@ -20,6 +20,15 @@ type Generator interface {
 	Generate(input Input) (*Result, error)
 }
 
+// DefaultProbeWindow and DefaultProbeThreshold are rendered for a backend
+// probe that leaves window or threshold unset. The CRD's CEL rule on
+// BackendProbeSpec repeats them to reject a threshold above the effective
+// window (#137); the webhook envtest keeps the two in step.
+const (
+	DefaultProbeWindow    = 5
+	DefaultProbeThreshold = 3
+)
+
 // Input contains everything the generator needs to produce VCL.
 type Input struct {
 	Spec      *vinylv1.VinylCacheSpec
@@ -315,12 +324,12 @@ func buildTemplateData(input Input) TemplateData {
 				if b.Probe.Window > 0 {
 					def.ProbeWindow = b.Probe.Window
 				} else {
-					def.ProbeWindow = 5
+					def.ProbeWindow = DefaultProbeWindow
 				}
 				if b.Probe.Threshold > 0 {
 					def.ProbeThreshold = b.Probe.Threshold
 				} else {
-					def.ProbeThreshold = 3
+					def.ProbeThreshold = DefaultProbeThreshold
 				}
 				if b.Probe.ExpectedResponse != nil {
 					def.ProbeExpectedResponse = *b.Probe.ExpectedResponse
