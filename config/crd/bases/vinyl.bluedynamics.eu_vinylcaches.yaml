@@ -87,11 +87,6 @@ spec:
                           description: firstByteTimeout is the maximum time to wait
                             for the first byte of the response.
                           type: string
-                        idleTimeout:
-                          description: |-
-                            idleTimeout is the maximum time an idle connection may be reused. Should be less
-                            than the backend's keep-alive timeout to avoid 503 races.
-                          type: string
                         maxConnections:
                           description: maxConnections is the maximum number of concurrent
                             connections to the backend.
@@ -4769,11 +4764,6 @@ spec:
                         firstByteTimeout:
                           description: firstByteTimeout is the maximum time to wait
                             for the first byte of the response.
-                          type: string
-                        idleTimeout:
-                          description: |-
-                            idleTimeout is the maximum time an idle connection may be reused. Should be less
-                            than the backend's keep-alive timeout to avoid 503 races.
                           type: string
                         maxConnections:
                           description: maxConnections is the maximum number of concurrent

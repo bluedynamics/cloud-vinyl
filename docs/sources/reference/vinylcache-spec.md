@@ -60,6 +60,10 @@ Each entry in `spec.backends` defines an upstream service:
 | `probe.expectedResponse` | integer | no | Expected HTTP status of the probe (default: `200`). |
 | `retry.maxRetries` | integer | no | Retries of a `GET`/`HEAD` fetch on another backend when no response arrived (default: `1`, `0` disables, maximum `3`). Not allowed above `0` for `hash` and `fallback` directors. See [Per-backend directors](../how-to/per-backend-directors.md). |
 
+How long idle backend connections are kept is varnishd's global `backend_idle_timeout`; set
+it through `varnishParameters`, e.g. `{backend_idle_timeout: "50s"}`. varnishd has no
+per-backend setting for it.
+
 ### `backends[].director`
 
 Per-backend director override. If unset, the generator emits a `shard` director with default parameters, grouping all resolved per-pod backends for this `serviceRef`.
