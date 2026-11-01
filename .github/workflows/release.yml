@@ -144,6 +144,11 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A final release is usually tagged on the commit of its last rc,
+          # so that commit carries two tags. Without this, goreleaser picks
+          # the current tag itself and took v1.0.0-rc.3 for v1.0.0, failing
+          # on assets that already existed.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
   helm-chart:
     needs: docker-manifest
