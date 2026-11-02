@@ -31,6 +31,7 @@ spec:
             - --health-probe-bind-address={{ .Values.operatorFlags.probeAddr }}
             - --metrics-bind-address={{ .Values.operatorFlags.metricsAddr }}
             - --metrics-secure={{ .Values.monitoring.metrics.secure }}
+            - --agent-client-timeout={{ .Values.operatorFlags.agentClientTimeout }}
             - --default-pod-anti-affinity={{ .Values.defaults.podAntiAffinity.type }}
             - --default-pod-anti-affinity-topology-key={{ .Values.defaults.podAntiAffinity.topologyKey }}
             - --default-pod-anti-affinity-weight={{ .Values.defaults.podAntiAffinity.weight }}

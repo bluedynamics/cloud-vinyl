@@ -130,3 +130,18 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --default-pod-anti-affinity-topology-key=topology.kubernetes.io/zone
+
+  # The value was never rendered before #149, so changing it had no effect.
+  - it: should pass the agent client timeout to the operator
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --agent-client-timeout=30s
+
+  - it: should pass a custom agent client timeout to the operator
+    set:
+      operatorFlags.agentClientTimeout: 1m30s
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --agent-client-timeout=1m30s

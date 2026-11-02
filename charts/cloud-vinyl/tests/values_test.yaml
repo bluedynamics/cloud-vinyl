@@ -23,3 +23,10 @@ tests:
       defaults.podAntiAffinity.weight: 101
     asserts:
       - failedTemplate: {}
+
+  # A malformed duration would crash-loop the operator on flag parsing.
+  - it: rejects an agent client timeout that is not a duration
+    set:
+      operatorFlags.agentClientTimeout: 30sec
+    asserts:
+      - failedTemplate: {}
