@@ -122,3 +122,31 @@ func TestCollectPeers_SkipsNonRunningPods(t *testing.T) {
 	require.Len(t, reachable, 1)
 	assert.Equal(t, "10.0.0.3", reachable[0].IP)
 }
+
+// A replaced pod is Running before its agent listens. Until the agent's
+// startup probe passes, the pod is not a push target, or every push logs
+// "connection refused" (#136).
+func TestCollectPeers_WaitsForAgentStarted(t *testing.T) {
+	withAgent := func(p *corev1.Pod, started *bool) *corev1.Pod {
+		p.Status.ContainerStatuses = []corev1.ContainerStatus{
+			{Name: "varnish", Started: new(true)},
+			{Name: agentContainerName, Started: started},
+		}
+		return p
+	}
+	r, vc := peersFixture(t,
+		withAgent(pod("cache-0", "10.0.0.1", corev1.PodRunning, false), new(false)),
+		withAgent(pod("cache-1", "10.0.0.2", corev1.PodRunning, false), nil),
+		withAgent(pod("cache-2", "10.0.0.3", corev1.PodRunning, false), new(true)),
+		pod("cache-3", "10.0.0.4", corev1.PodRunning, false),
+	)
+
+	obs, err := r.collectPeers(context.Background(), vc)
+	require.NoError(t, err)
+	ips := make([]string, 0, len(obs.reachable))
+	for _, p := range obs.reachable {
+		ips = append(ips, p.IP)
+	}
+	assert.ElementsMatch(t, []string{"10.0.0.3", "10.0.0.4"}, ips,
+		"agents not started yet are skipped; a pod without an agent status is not held back")
+}

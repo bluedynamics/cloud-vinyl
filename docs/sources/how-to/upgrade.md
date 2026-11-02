@@ -13,6 +13,13 @@ The operator Deployment is updated with a rolling strategy. Existing VinylCache 
 continue to serve traffic during the upgrade — the operator pushes new VCL only when the
 spec changes or a pod restarts.
 
+Each operator release also restarts every cache pod once. The agent sidecar image (and,
+with `spec.tracing`, the tracer image) follows the release, so the StatefulSets roll. The
+pods restart one at a time, but each one comes back with an empty cache, and a storage
+on an `emptyDir` starts cold. Plan upgrades for a quiet period. Pinning
+`image.agent.tag` avoids the roll, but leaves the agent on a different version than the
+operator, which is not supported.
+
 ## Upgrade the CRD
 
 CRDs in `charts/cloud-vinyl/crds/` are installed on `helm install` but are **not** updated

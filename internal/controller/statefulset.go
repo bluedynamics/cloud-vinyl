@@ -64,6 +64,8 @@ const (
 	bootstrapVCLPath = "/etc/varnish/default.vcl"
 	// varnishAdminAddr is the -T admin CLI listener the agent connects to.
 	varnishAdminAddr = "127.0.0.1:6082"
+	// agentContainerName is the vinyl-agent sidecar's container name.
+	agentContainerName = "vinyl-agent"
 	// defaultProxyProtocolPort is the PROXY listener's port when
 	// spec.proxyProtocol is enabled without a port.
 	defaultProxyProtocolPort = int32(8081)
@@ -200,7 +202,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vin
 			agentImage = vc.Spec.Image
 		}
 		agentContainer := corev1.Container{
-			Name:  "vinyl-agent",
+			Name:  agentContainerName,
 			Image: agentImage,
 			Ports: []corev1.ContainerPort{
 				{Name: "agent", ContainerPort: agentPort, Protocol: corev1.ProtocolTCP},
@@ -221,6 +223,18 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vin
 					SubPath:   varnishSecretKey,
 					ReadOnly:  true,
 				},
+			},
+			// started flips only once the agent listens; collectPeers waits
+			// for it before pushing VCL (#136). Up to a minute to start.
+			StartupProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					HTTPGet: &corev1.HTTPGetAction{
+						Path: "/livez",
+						Port: intstr.FromInt32(agentPort),
+					},
+				},
+				PeriodSeconds:    1,
+				FailureThreshold: 60,
 			},
 			ReadinessProbe: &corev1.Probe{
 				ProbeHandler: corev1.ProbeHandler{

@@ -640,3 +640,21 @@ func TestReconcileStatefulSet_PodEnvOverridesMallocConf(t *testing.T) {
 		})
 	}
 }
+
+// The agent's startup probe on /livez sets its container to started as soon
+// as the agent listens; collectPeers pushes only then (#136).
+func TestReconcileStatefulSet_AgentStartupProbe(t *testing.T) {
+	ss := getStatefulSet(t, exporterBaseVC())
+	for _, c := range ss.Spec.Template.Spec.Containers {
+		if c.Name != agentContainerName {
+			continue
+		}
+		require.NotNil(t, c.StartupProbe)
+		assert.Equal(t, "/livez", c.StartupProbe.HTTPGet.Path)
+		assert.Equal(t, int32(agentPort), c.StartupProbe.HTTPGet.Port.IntVal)
+		require.NotNil(t, c.ReadinessProbe)
+		assert.Equal(t, "/health", c.ReadinessProbe.HTTPGet.Path, "readiness stays gated on the pushed VCL")
+		return
+	}
+	require.Fail(t, "vinyl-agent container missing")
+}
