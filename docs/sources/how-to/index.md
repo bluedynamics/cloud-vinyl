@@ -9,6 +9,7 @@ install
 create-cache
 ssd-backed-storage
 size-memory
+spread-pods
 per-backend-directors
 purge-ban
 setup-monitoring

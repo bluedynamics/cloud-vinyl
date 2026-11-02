@@ -292,6 +292,40 @@ var _ = Describe("VinylCache Webhook", func() {
 			})
 		})
 
+		It("rejects an unknown spec.pod.podAntiAffinity type via the CRD", func() {
+			vc := minimalAdmissibleVC("anti-affinity-unknown")
+			vc.Spec.Pod.PodAntiAffinity = &vinylv1.PodAntiAffinitySpec{Type: "soft"}
+			err := k8sClient.Create(ctx, vc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("spec.pod.podAntiAffinity.type"))
+		})
+
+		It("rejects spec.pod.podAntiAffinity together with affinity.podAntiAffinity", func() {
+			vc := minimalAdmissibleVC("anti-affinity-both")
+			vc.Spec.Pod.PodAntiAffinity = &vinylv1.PodAntiAffinitySpec{Type: vinylv1.PodAntiAffinityNone}
+			vc.Spec.Pod.Affinity = &corev1.Affinity{PodAntiAffinity: &corev1.PodAntiAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
+					{TopologyKey: corev1.LabelHostname},
+				},
+			}}
+			err := k8sClient.Create(ctx, vc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("admission webhook"))
+			Expect(err.Error()).To(ContainSubstring("mutually exclusive"))
+		})
+
+		It("admits a spec.pod.podAntiAffinity override", func() {
+			vc := minimalAdmissibleVC("anti-affinity-zone")
+			vc.Spec.Pod.PodAntiAffinity = &vinylv1.PodAntiAffinitySpec{
+				Type:        vinylv1.PodAntiAffinityRequired,
+				TopologyKey: corev1.LabelTopologyZone,
+			}
+			Expect(k8sClient.Create(ctx, vc)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, vc))).To(Succeed())
+			})
+		})
+
 		It("admits a MALLOC_CONF override in spec.pod.env", func() {
 			vc := minimalAdmissibleVC("env-malloc-conf")
 			vc.Spec.Pod.Env = []corev1.EnvVar{{Name: "MALLOC_CONF", Value: ""}}

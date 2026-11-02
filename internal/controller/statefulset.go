@@ -317,7 +317,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vin
 			Volumes:                       volumes,
 			NodeSelector:                  vc.Spec.Pod.NodeSelector,
 			Tolerations:                   vc.Spec.Pod.Tolerations,
-			Affinity:                      vc.Spec.Pod.Affinity,
+			Affinity:                      podAffinity(vc, r.PodAntiAffinity),
 			PriorityClassName:             vc.Spec.Pod.PriorityClass,
 			TerminationGracePeriodSeconds: &grace,
 			SecurityContext: &corev1.PodSecurityContext{

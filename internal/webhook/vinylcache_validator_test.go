@@ -789,3 +789,22 @@ func TestValidateUpdate_StillRunsTheCommonChecks(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `varnishParameters key "cc_command" is not allowed`)
 }
+
+// --- spec.pod.podAntiAffinity (#147) ---
+
+func TestValidate_PodAntiAffinity_ExclusiveWithFullPodAntiAffinity(t *testing.T) {
+	vc := minimalValidVC()
+	vc.Spec.Pod.PodAntiAffinity = &vinylv1.PodAntiAffinitySpec{Type: vinylv1.PodAntiAffinityRequired}
+	vc.Spec.Pod.Affinity = &corev1.Affinity{PodAntiAffinity: &corev1.PodAntiAffinity{}}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mutually exclusive")
+}
+
+func TestValidate_PodAntiAffinity_CombinesWithNodeAffinity(t *testing.T) {
+	vc := minimalValidVC()
+	vc.Spec.Pod.PodAntiAffinity = &vinylv1.PodAntiAffinitySpec{Type: vinylv1.PodAntiAffinityRequired}
+	vc.Spec.Pod.Affinity = &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{}}
+	_, err := webhook.ValidateVinylCache(vc)
+	assert.NoError(t, err)
+}

@@ -95,6 +95,21 @@
         "agentClientTimeout": {"type": "string"}
       }
     },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "podAntiAffinity": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {"type": "string", "enum": ["preferred", "required", "none"]},
+            "topologyKey": {"type": "string", "minLength": 1},
+            "weight": {"type": "integer", "minimum": 1, "maximum": 100}
+          }
+        }
+      }
+    },
     "webhook": {
       "type": "object",
       "additionalProperties": false,
