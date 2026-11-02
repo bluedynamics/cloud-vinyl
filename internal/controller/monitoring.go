@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -44,17 +45,35 @@ func (r *VinylCacheReconciler) reconcileMonitoring(ctx context.Context, vc *viny
 		if !r.crdInstalled(prometheusRuleGVK) {
 			log.Info("PrometheusRule requested but monitoring.coreos.com CRD not installed; skipping")
 		} else {
-			obj, err := toUnstructured(monitoring.GeneratePrometheusRule(vc.Namespace), prometheusRuleGVK)
+			obj, err := toUnstructured(monitoring.GeneratePrometheusRule(vc.Name, vc.Namespace), prometheusRuleGVK)
 			if err != nil {
 				return err
 			}
-			obj.SetNamespace(vc.Namespace)
 			if err := r.applyOwned(ctx, vc, obj); err != nil {
+				return err
+			}
+			if err := r.deleteLegacyPrometheusRule(ctx, vc); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// deleteLegacyPrometheusRule removes the rule every VinylCache shared before
+// #143 under one fixed name, if this cache controls it. When two caches in a
+// namespace fought over it, the other one deletes it on its next reconcile.
+func (r *VinylCacheReconciler) deleteLegacyPrometheusRule(ctx context.Context, vc *vinylv1.VinylCache) error {
+	legacy := &unstructured.Unstructured{}
+	legacy.SetGroupVersionKind(prometheusRuleGVK)
+	key := client.ObjectKey{Namespace: vc.Namespace, Name: monitoring.LegacyPrometheusRuleName}
+	if err := r.Get(ctx, key, legacy); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if !metav1.IsControlledBy(legacy, vc) {
+		return nil
+	}
+	return client.IgnoreNotFound(r.Delete(ctx, legacy))
 }
 
 // crdInstalled reports whether the cluster knows the given GVK.

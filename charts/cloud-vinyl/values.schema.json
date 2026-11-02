@@ -170,7 +170,21 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {"type": "boolean"},
-            "additionalLabels": {"type": "object"}
+            "additionalLabels": {"type": "object"},
+            "lowHitRatio": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "threshold": {
+                  "description": "Hit ratio between 0 and 1. A string is accepted because helm --set passes decimals as strings.",
+                  "oneOf": [
+                    {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+                    {"type": "string", "pattern": "^(0?\\.[0-9]*[1-9][0-9]*|1(\\.0*)?)$"}
+                  ]
+                },
+                "for": {"type": "string", "pattern": "^([0-9]+(ms|s|m|h|d|w|y))+$"}
+              }
+            }
           }
         },
         "serviceMonitor": {

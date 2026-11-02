@@ -39,21 +39,27 @@ spec:
             summary: "All Varnish pods unreachable for {{ "{{" }} $labels.cache {{ "}}" }}"
             description: "Cannot reach any Varnish pod in cache {{ "{{" }} $labels.cache {{ "}}" }}. Cache is not serving requests correctly."
         - alert: VinylCacheBackendUnhealthy
-          expr: 'varnish_backend_happy == 0'
+          # The exporter knows nothing about VinylCaches; the cache label is
+          # derived from the StatefulSet pod name (#143).
+          expr: 'label_replace(varnish_backend_happy, "cache", "$1", "pod", "(.+)-[0-9]+") == 0'
           for: 5m
           labels:
             severity: warning
           annotations:
             summary: "Backend {{ "{{" }} $labels.backend {{ "}}" }} unhealthy"
             description: "Backend {{ "{{" }} $labels.backend {{ "}}" }} for cache {{ "{{" }} $labels.cache {{ "}}" }} is reporting unhealthy."
+        {{- with .Values.monitoring.prometheusRules.lowHitRatio }}
+        # Per pod, as each pod holds its own shard. The cache label is derived
+        # from the StatefulSet pod name (#143).
         - alert: VinylCacheLowHitRatio
-          expr: '(sum(rate(varnish_main_cache_hit[5m])) by (namespace, pod)) / (sum(rate(varnish_main_cache_hit[5m])) by (namespace, pod) + sum(rate(varnish_main_cache_miss[5m])) by (namespace, pod)) < 0.5'
-          for: 15m
+          expr: 'label_replace(sum by (namespace, pod) (rate(varnish_main_cache_hit[5m])) / (sum by (namespace, pod) (rate(varnish_main_cache_hit[5m])) + sum by (namespace, pod) (rate(varnish_main_cache_miss[5m]))), "cache", "$1", "pod", "(.+)-[0-9]+") < {{ .threshold }}'
+          for: {{ .for }}
           labels:
             severity: warning
           annotations:
             summary: "Low cache hit ratio on {{ "{{" }} $labels.cache {{ "}}" }}"
-            description: "Cache hit ratio for {{ "{{" }} $labels.cache {{ "}}" }} has been below 50% for 15 minutes."
+            description: "Cache hit ratio of pod {{ "{{" }} $labels.pod {{ "}}" }} of cache {{ "{{" }} $labels.cache {{ "}}" }} in namespace {{ "{{" }} $labels.namespace {{ "}}" }} has been below {{ mulf .threshold 100 }}% for {{ .for }}."
+        {{- end }}
         - alert: VinylCacheHighInvalidationRate
           expr: 'rate(vinyl_invalidation_total[5m]) > 100'
           for: 5m
