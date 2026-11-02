@@ -63,8 +63,11 @@ type VinylCacheReconciler struct {
 	ProxyRouter *proxy.RegisteredRouter
 	ProxyPodMap *proxy.PodMap
 	// Metrics is nil-safe; nil disables metric recording (used in tests).
-	Metrics   *monitoring.Metrics
-	debouncer *debouncer // lazy-init in SetupWithManager
+	Metrics *monitoring.Metrics
+	// PodAntiAffinity is the operator-wide anti-affinity default; the zero
+	// value means BuiltinAntiAffinityDefaults.
+	PodAntiAffinity AntiAffinityDefaults
+	debouncer       *debouncer // lazy-init in SetupWithManager
 }
 
 // +kubebuilder:rbac:groups=vinyl.bluedynamics.eu,resources=vinylcaches,verbs=get;list;watch;create;update;patch;delete

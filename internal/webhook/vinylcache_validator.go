@@ -251,6 +251,8 @@ func ValidateVinylCache(vc *vinylv1.VinylCache) (admission.Warnings, error) {
 
 	errs = append(errs, validatePodEnv(vc.Spec.Pod.Env)...)
 
+	errs = append(errs, validatePodAntiAffinity(vc.Spec.Pod)...)
+
 	errs = append(errs, validateProxyProtocolPort(vc)...)
 
 	// Validate spec.storage[].path does not write into a reserved mount.
@@ -314,6 +316,17 @@ func validateProxyProtocolPort(vc *vinylv1.VinylCache) []string {
 	}
 	if exp := vc.Spec.Monitoring.Exporter; exp != nil && exp.Enabled && exp.Port == pp.Port {
 		return []string{fmt.Sprintf("spec.proxyProtocol.port %d is taken by the metrics exporter", pp.Port)}
+	}
+	return nil
+}
+
+// validatePodAntiAffinity rejects spec.pod.podAntiAffinity next to a full
+// affinity.podAntiAffinity. The operator only generates its rule when the
+// latter is empty, so the shorthand would be ignored without a word (#147).
+func validatePodAntiAffinity(pod vinylv1.PodSpec) []string {
+	if pod.PodAntiAffinity != nil && pod.Affinity != nil && pod.Affinity.PodAntiAffinity != nil {
+		return []string{"spec.pod.podAntiAffinity and spec.pod.affinity.podAntiAffinity are mutually exclusive: " +
+			"set the shorthand or a full podAntiAffinity, not both"}
 	}
 	return nil
 }

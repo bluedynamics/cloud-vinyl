@@ -50,6 +50,24 @@ operatorFlags:
   probeAddr: ":8081"
   agentClientTimeout: "30s"
 
+# Defaults the operator applies to every VinylCache.
+defaults:
+  # Pod anti-affinity that keeps the pods of one VinylCache apart. The operator
+  # builds the rule per cache, selecting on its own cache-name label, and only
+  # when the VinylCache leaves spec.pod.affinity.podAntiAffinity empty. A
+  # VinylCache overrides single fields with spec.pod.podAntiAffinity.
+  # Not to be confused with `affinity` below, which schedules the operator.
+  podAntiAffinity:
+    # preferred: spread when possible, co-locate when not.
+    # required: leave a pod Pending rather than co-locate it.
+    # none: no rule.
+    type: preferred
+    # Node label whose values are the domains to spread across, e.g.
+    # topology.kubernetes.io/zone.
+    topologyKey: kubernetes.io/hostname
+    # Weight of a preferred rule, 1-100.
+    weight: 100
+
 # Webhook TLS configuration.
 # Exactly one of certManager.enabled or manual TLS must be configured.
 webhook:

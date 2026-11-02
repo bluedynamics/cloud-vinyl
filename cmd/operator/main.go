@@ -69,6 +69,8 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var agentClientTimeout time.Duration
+	var antiAffinity controller.AntiAffinityDefaults
+	var antiAffinityWeight int
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -89,6 +91,15 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.DurationVar(&agentClientTimeout, "agent-client-timeout", 30*time.Second,
 		"HTTP timeout for requests to the vinyl-agent sidecar")
+	flag.StringVar(&antiAffinity.Type, "default-pod-anti-affinity",
+		controller.BuiltinAntiAffinityDefaults.Type,
+		"Pod anti-affinity for VinylCaches that set none: preferred, required or none")
+	flag.StringVar(&antiAffinity.TopologyKey, "default-pod-anti-affinity-topology-key",
+		controller.BuiltinAntiAffinityDefaults.TopologyKey,
+		"Node label the default pod anti-affinity spreads across")
+	flag.IntVar(&antiAffinityWeight, "default-pod-anti-affinity-weight",
+		int(controller.BuiltinAntiAffinityDefaults.Weight),
+		"Weight of the default pod anti-affinity when it is preferred (1-100)")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -96,6 +107,17 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	if antiAffinityWeight < 1 || antiAffinityWeight > 100 {
+		setupLog.Error(nil, "--default-pod-anti-affinity-weight must be between 1 and 100",
+			"weight", antiAffinityWeight)
+		os.Exit(1)
+	}
+	antiAffinity.Weight = int32(antiAffinityWeight)
+	if err := antiAffinity.Validate(); err != nil {
+		setupLog.Error(err, "Invalid default pod anti-affinity")
+		os.Exit(1)
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -234,9 +256,10 @@ func main() {
 			HTTPClient: &http.Client{Timeout: agentClientTimeout},
 			K8sClient:  mgr.GetClient(),
 		},
-		OperatorIP:  operatorIP,
-		ProxyRouter: proxyRouter,
-		ProxyPodMap: proxyPodMap,
+		OperatorIP:      operatorIP,
+		ProxyRouter:     proxyRouter,
+		ProxyPodMap:     proxyPodMap,
+		PodAntiAffinity: antiAffinity,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "VinylCache")
 		os.Exit(1)

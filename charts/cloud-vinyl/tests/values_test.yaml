@@ -11,3 +11,15 @@ tests:
     asserts:
       - isKind:
           of: Deployment
+
+  - it: rejects an unknown default pod anti-affinity type
+    set:
+      defaults.podAntiAffinity.type: soft
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a default pod anti-affinity weight above 100
+    set:
+      defaults.podAntiAffinity.weight: 101
+    asserts:
+      - failedTemplate: {}

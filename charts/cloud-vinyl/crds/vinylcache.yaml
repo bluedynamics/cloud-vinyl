@@ -598,8 +598,11 @@ spec:
                 description: pod configures pod-level scheduling and metadata.
                 properties:
                   affinity:
-                    description: affinity configures pod affinity and anti-affinity
-                      scheduling rules.
+                    description: |-
+                      affinity configures pod affinity and anti-affinity scheduling rules.
+                      When affinity.podAntiAffinity is unset, the operator fills it in from
+                      spec.pod.podAntiAffinity and the operator-wide default; nodeAffinity and
+                      podAffinity are passed through as given.
                     properties:
                       nodeAffinity:
                         description: Describes node affinity scheduling rules for
@@ -1701,6 +1704,40 @@ spec:
                       type: string
                     description: nodeSelector constrains pods to nodes matching all
                       specified labels.
+                    type: object
+                  podAntiAffinity:
+                    description: |-
+                      podAntiAffinity overrides the operator-wide default that spreads the
+                      pods of this VinylCache across topology domains. Each field that is set
+                      replaces the operator default; unset fields fall back to it. It has no
+                      effect when affinity.podAntiAffinity is set, and the admission webhook
+                      rejects setting both.
+                    properties:
+                      topologyKey:
+                        description: |-
+                          topologyKey is the node label whose values define the domains to spread
+                          across, e.g. kubernetes.io/hostname or topology.kubernetes.io/zone.
+                        maxLength: 317
+                        type: string
+                      type:
+                        description: |-
+                          type selects the rule. "preferred" asks the scheduler to spread the pods
+                          but still schedules them together when it has to; "required" leaves a
+                          pod Pending rather than placing it next to another one of the same
+                          cache; "none" generates no rule.
+                        enum:
+                        - preferred
+                        - required
+                        - none
+                        type: string
+                      weight:
+                        description: |-
+                          weight is the scheduling weight of a preferred rule, 1 to 100. It is
+                          ignored for the other types.
+                        format: int32
+                        maximum: 100
+                        minimum: 1
+                        type: integer
                     type: object
                   priorityClassName:
                     description: priorityClassName is the name of the PriorityClass
@@ -5276,8 +5313,11 @@ spec:
                 description: pod configures pod-level scheduling and metadata.
                 properties:
                   affinity:
-                    description: affinity configures pod affinity and anti-affinity
-                      scheduling rules.
+                    description: |-
+                      affinity configures pod affinity and anti-affinity scheduling rules.
+                      When affinity.podAntiAffinity is unset, the operator fills it in from
+                      spec.pod.podAntiAffinity and the operator-wide default; nodeAffinity and
+                      podAffinity are passed through as given.
                     properties:
                       nodeAffinity:
                         description: Describes node affinity scheduling rules for
@@ -6379,6 +6419,40 @@ spec:
                       type: string
                     description: nodeSelector constrains pods to nodes matching all
                       specified labels.
+                    type: object
+                  podAntiAffinity:
+                    description: |-
+                      podAntiAffinity overrides the operator-wide default that spreads the
+                      pods of this VinylCache across topology domains. Each field that is set
+                      replaces the operator default; unset fields fall back to it. It has no
+                      effect when affinity.podAntiAffinity is set, and the admission webhook
+                      rejects setting both.
+                    properties:
+                      topologyKey:
+                        description: |-
+                          topologyKey is the node label whose values define the domains to spread
+                          across, e.g. kubernetes.io/hostname or topology.kubernetes.io/zone.
+                        maxLength: 317
+                        type: string
+                      type:
+                        description: |-
+                          type selects the rule. "preferred" asks the scheduler to spread the pods
+                          but still schedules them together when it has to; "required" leaves a
+                          pod Pending rather than placing it next to another one of the same
+                          cache; "none" generates no rule.
+                        enum:
+                        - preferred
+                        - required
+                        - none
+                        type: string
+                      weight:
+                        description: |-
+                          weight is the scheduling weight of a preferred rule, 1 to 100. It is
+                          ignored for the other types.
+                        format: int32
+                        maximum: 100
+                        minimum: 1
+                        type: integer
                     type: object
                   priorityClassName:
                     description: priorityClassName is the name of the PriorityClass

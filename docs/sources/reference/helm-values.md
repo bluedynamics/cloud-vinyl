@@ -59,6 +59,17 @@ value never had an effect; it is still accepted, and ignored, until 2.0.
 | `operatorFlags.probeAddr` | string | `:8081` | Health probe bind address. |
 | `operatorFlags.agentClientTimeout` | string | `30s` | HTTP timeout for vinyl-agent API calls. |
 
+## defaults
+
+Defaults the operator applies to every VinylCache. See
+[Spread cache pods across nodes](../how-to/spread-pods.md).
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `defaults.podAntiAffinity.type` | string | `preferred` | Pod anti-affinity between the pods of one VinylCache: `preferred`, `required` or `none`. |
+| `defaults.podAntiAffinity.topologyKey` | string | `kubernetes.io/hostname` | Node label whose values are the domains to spread across. |
+| `defaults.podAntiAffinity.weight` | integer | `100` | Weight of a preferred rule, 1 to 100. |
+
 ## webhook
 
 | Key | Type | Default | Description |

@@ -639,8 +639,19 @@ type PodSpec struct {
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 
 	// affinity configures pod affinity and anti-affinity scheduling rules.
+	// When affinity.podAntiAffinity is unset, the operator fills it in from
+	// spec.pod.podAntiAffinity and the operator-wide default; nodeAffinity and
+	// podAffinity are passed through as given.
 	// +optional
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+
+	// podAntiAffinity overrides the operator-wide default that spreads the
+	// pods of this VinylCache across topology domains. Each field that is set
+	// replaces the operator default; unset fields fall back to it. It has no
+	// effect when affinity.podAntiAffinity is set, and the admission webhook
+	// rejects setting both.
+	// +optional
+	PodAntiAffinity *PodAntiAffinitySpec `json:"podAntiAffinity,omitempty"`
 
 	// priorityClassName is the name of the PriorityClass for Varnish pods.
 	// +optional
@@ -675,6 +686,38 @@ type PodSpec struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=64
 	Env []corev1.EnvVar `json:"env,omitempty"`
+}
+
+// Pod anti-affinity types for PodAntiAffinitySpec.Type.
+const (
+	PodAntiAffinityPreferred = "preferred"
+	PodAntiAffinityRequired  = "required"
+	PodAntiAffinityNone      = "none"
+)
+
+// PodAntiAffinitySpec configures the pod anti-affinity the operator generates
+// to keep the pods of one VinylCache apart.
+type PodAntiAffinitySpec struct {
+	// type selects the rule. "preferred" asks the scheduler to spread the pods
+	// but still schedules them together when it has to; "required" leaves a
+	// pod Pending rather than placing it next to another one of the same
+	// cache; "none" generates no rule.
+	// +optional
+	// +kubebuilder:validation:Enum=preferred;required;none
+	Type string `json:"type,omitempty"`
+
+	// topologyKey is the node label whose values define the domains to spread
+	// across, e.g. kubernetes.io/hostname or topology.kubernetes.io/zone.
+	// +optional
+	// +kubebuilder:validation:MaxLength=317
+	TopologyKey string `json:"topologyKey,omitempty"`
+
+	// weight is the scheduling weight of a preferred rule, 1 to 100. It is
+	// ignored for the other types.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	Weight int32 `json:"weight,omitempty"`
 }
 
 // MonitoringSpec configures Prometheus monitoring for the Varnish cluster.
