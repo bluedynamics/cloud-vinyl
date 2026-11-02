@@ -128,6 +128,12 @@ monitoring:
     # such as {release: kube-prometheus-stack}. Without a matching label the rule
     # is created but never loaded by Prometheus.
     additionalLabels: {}
+    # VinylCacheLowHitRatio fires when a pod's hit ratio stays below threshold
+    # (0 to 1) for the given duration. Sites with a lot of uncacheable traffic
+    # sit well below 0.5 without any fault; lower the threshold for them.
+    lowHitRatio:
+      threshold: 0.5
+      for: 15m
   serviceMonitor:
     # Deploy a ServiceMonitor for Prometheus Operator scraping.
     enabled: false

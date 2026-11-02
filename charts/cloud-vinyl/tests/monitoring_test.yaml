@@ -55,7 +55,52 @@ tests:
           pattern: varnish_main_cache_hit
       - equal:
           path: spec.groups[0].rules[3].expr
-          value: "varnish_backend_happy == 0"
+          value: 'label_replace(varnish_backend_happy, "cache", "$1", "pod", "(.+)-[0-9]+") == 0'
+
+  # The exporter has no cache label; the alerts derive it from the pod name so
+  # the annotations can name the cache (#143).
+  - it: PrometheusRule low hit ratio derives the cache label and uses the defaults
+    template: prometheusrule.yaml
+    set:
+      monitoring.prometheusRules.enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[4].alert
+          value: VinylCacheLowHitRatio
+      - matchRegex:
+          path: spec.groups[0].rules[4].expr
+          pattern: '^label_replace\(.*, "cache", "\$1", "pod", "\(\.\+\)-\[0-9\]\+"\) < 0\.5$'
+      - equal:
+          path: spec.groups[0].rules[4].for
+          value: 15m
+      - matchRegex:
+          path: spec.groups[0].rules[4].annotations.description
+          pattern: 'below 50% for 15m\.$'
+
+  - it: PrometheusRule low hit ratio takes threshold and duration from values
+    template: prometheusrule.yaml
+    set:
+      monitoring.prometheusRules.enabled: true
+      monitoring.prometheusRules.lowHitRatio.threshold: 0.2
+      monitoring.prometheusRules.lowHitRatio.for: 1h
+    asserts:
+      - matchRegex:
+          path: spec.groups[0].rules[4].expr
+          pattern: ' < 0\.2$'
+      - equal:
+          path: spec.groups[0].rules[4].for
+          value: 1h
+      - matchRegex:
+          path: spec.groups[0].rules[4].annotations.description
+          pattern: 'below 20% for 1h\.$'
+
+  - it: PrometheusRule rejects a low hit ratio threshold above 1
+    template: prometheusrule.yaml
+    set:
+      monitoring.prometheusRules.enabled: true
+      monitoring.prometheusRules.lowHitRatio.threshold: 1.5
+    asserts:
+      - failedTemplate: {}
 
   - it: ServiceMonitor should not be rendered when disabled
     template: servicemonitor.yaml

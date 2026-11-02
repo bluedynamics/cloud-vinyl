@@ -84,8 +84,11 @@ What each toggle does:
 - **`serviceMonitor.enabled`** — the operator creates a `ServiceMonitor` (owned by
   the `VinylCache`, so it is garbage-collected with it) targeting the cache's
   `exporter` service port.
-- **`prometheusRules.enabled`** — the operator creates a `PrometheusRule` with the
-  default cloud-vinyl alerts (see [metrics reference](../reference/metrics.md)).
+- **`prometheusRules.enabled`** — the operator creates a `PrometheusRule` named
+  `<cache>-alerts` with the default cloud-vinyl alerts for this cache (see
+  [metrics reference](../reference/metrics.md)). The chart value
+  `monitoring.prometheusRules.enabled` deploys the same alerts for all caches at
+  once; enable one of the two.
 - **`exporter.enabled`** — adds the `prometheus_varnish_exporter` sidecar to each
   Varnish pod. It mounts the Varnish working directory read-only and exposes
   native `varnish_*` metrics (cache hit/miss, backend health) on port `9131`.

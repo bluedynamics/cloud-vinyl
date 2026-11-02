@@ -84,6 +84,8 @@ Defaults the operator applies to every VinylCache. See
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `monitoring.prometheusRules.enabled` | boolean | `false` | Deploy a `PrometheusRule` with 10 pre-defined alerts. |
+| `monitoring.prometheusRules.lowHitRatio.threshold` | number | `0.5` | `VinylCacheLowHitRatio` fires when a pod's hit ratio stays below this value (above 0, at most 1). Lower it for sites with a lot of uncacheable traffic. |
+| `monitoring.prometheusRules.lowHitRatio.for` | string | `15m` | How long the hit ratio has to stay below the threshold. Prometheus duration. |
 | `monitoring.serviceMonitor.enabled` | boolean | `false` | Deploy a `ServiceMonitor` for Prometheus Operator. |
 | `monitoring.serviceMonitor.interval` | string | `30s` | Prometheus scrape interval. Format: `[0-9]+(s\|m\|h)`. |
 | `monitoring.serviceMonitor.scrapeTimeout` | string | `10s` | Prometheus scrape timeout. |

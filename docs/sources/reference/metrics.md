@@ -51,7 +51,23 @@ sum(rate(varnish_main_cache_hit[5m])) by (namespace)
 
 ## Alerts
 
-When `monitoring.prometheusRules.enabled: true`, the following alerts are deployed:
+The same ten alerts come from two places:
+
+- the chart, with `monitoring.prometheusRules.enabled: true`: one `PrometheusRule` in
+  the operator namespace that covers every cache in the cluster;
+- the operator, with `spec.monitoring.prometheusRules.enabled: true` on a VinylCache:
+  a `PrometheusRule` named `<cache>-alerts` next to the cache that covers only that
+  cache. `VinylCacheOperatorDown` and `VinylCacheBroadcastFailures` watch the
+  operator as a whole and are not filtered. Before 1.0.2 every cache's rule was
+  named `cloud-vinyl-alerts`; the operator deletes that rule.
+
+Enable one of the two, or the alerts fire twice.
+
+The exporter's metrics carry no cache name. `VinylCacheLowHitRatio` and
+`VinylCacheBackendUnhealthy` derive a `cache` label from the pod name, so the
+alerts name the cache and Alertmanager can route on it. The hit ratio is
+evaluated per pod, as each pod holds its own shard.
+
 
 | Alert | Severity | Condition |
 |-------|----------|-----------|
@@ -59,7 +75,7 @@ When `monitoring.prometheusRules.enabled: true`, the following alerts are deploy
 | `VinylCachePartialVCLSync` | warning | Partial failure counter > 0 for 2 m |
 | `VinylCacheAllPodsUnreachable` | critical | Push errors and reconcile errors both > 0 for 1 m |
 | `VinylCacheBackendUnhealthy` | warning | `varnish_backend_happy == 0` for 5 m |
-| `VinylCacheLowHitRatio` | warning | exporter-derived hit ratio < 50% for 15 m |
+| `VinylCacheLowHitRatio` | warning | exporter-derived hit ratio of a pod < 50% for 15 m; the chart takes threshold and duration from `monitoring.prometheusRules.lowHitRatio` |
 | `VinylCacheHighInvalidationRate` | warning | >100 invalidations/s for 5 m |
 | `VinylCacheReconcileErrors` | warning | Reconcile error rate > 0 for 5 m |
 | `VinylCacheOperatorDown` | critical | No reconcile metrics present for 5 m |

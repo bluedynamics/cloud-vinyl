@@ -1,6 +1,10 @@
 package monitoring
 
 import (
+	"fmt"
+	"regexp"
+	"strings"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
@@ -48,15 +52,65 @@ type Rule struct {
 	Annotations map[string]string  `json:"annotations,omitempty"`
 }
 
-// GeneratePrometheusRule generates a PrometheusRule with all 10 alerts from architektur.md §8.5.
-func GeneratePrometheusRule(namespace string) *PrometheusRule {
+// LegacyPrometheusRuleName is the name every VinylCache's rule had before
+// #143, when two caches in one namespace overwrote each other's rule.
+const LegacyPrometheusRuleName = "cloud-vinyl-alerts"
+
+// PrometheusRuleName is the name of the rule generated for one VinylCache.
+func PrometheusRuleName(cache string) string {
+	return cache + "-alerts"
+}
+
+// lowHitRatioExpr returns the VinylCacheLowHitRatio expression. The ratio is
+// per pod, as each pod holds its own shard; label_replace adds the cache name
+// from the StatefulSet pod name, so the alert can name the cache (#143).
+// podSelector is a PromQL label matcher list without braces, or "".
+func lowHitRatioExpr(podSelector, threshold string) string {
+	hit := fmt.Sprintf("sum by (namespace, pod) (rate(varnish_main_cache_hit%s[5m]))", braces(podSelector))
+	miss := fmt.Sprintf("sum by (namespace, pod) (rate(varnish_main_cache_miss%s[5m]))", braces(podSelector))
+	return fmt.Sprintf(`%s < %s`, withCacheLabel(fmt.Sprintf("%s / (%s + %s)", hit, hit, miss)), threshold)
+}
+
+// withCacheLabel derives the cache label of an exporter series from its pod
+// label: the exporter knows nothing about VinylCaches.
+func withCacheLabel(expr string) string {
+	return fmt.Sprintf(`label_replace(%s, "cache", "$1", "pod", "(.+)-[0-9]+")`, expr)
+}
+
+// braces wraps a non-empty matcher list in braces.
+func braces(matchers string) string {
+	if matchers == "" {
+		return ""
+	}
+	return "{" + matchers + "}"
+}
+
+// join combines the non-empty matcher lists into one.
+func join(matchers ...string) string {
+	var out []string
+	for _, m := range matchers {
+		if m != "" {
+			out = append(out, m)
+		}
+	}
+	return strings.Join(out, ",")
+}
+
+// GeneratePrometheusRule generates the PrometheusRule for one VinylCache: all
+// ten alerts from architektur.md §8.5, each selecting only that cache's series.
+// The operator's metrics carry a cache label; the exporter's are selected by
+// the cache's namespace and StatefulSet pod names. VinylCacheOperatorDown and
+// VinylCacheBroadcastFailures watch the operator as a whole and stay
+// unfiltered; identical alerts from several caches' rules are deduplicated by
+// Alertmanager.
+func GeneratePrometheusRule(cache, namespace string) *PrometheusRule {
 	return &PrometheusRule{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "monitoring.coreos.com/v1",
 			Kind:       "PrometheusRule",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cloud-vinyl-alerts",
+			Name:      PrometheusRuleName(cache),
 			Namespace: namespace,
 			Labels: map[string]string{
 				"app.kubernetes.io/name":    appName,
@@ -66,19 +120,24 @@ func GeneratePrometheusRule(namespace string) *PrometheusRule {
 		Spec: PrometheusRuleSpec{
 			Groups: []RuleGroup{
 				{
-					Name:  appName,
-					Rules: allAlerts(),
+					Name: appName,
+					Rules: allAlerts(
+						fmt.Sprintf(`cache=%q`, cache),
+						fmt.Sprintf(`namespace=%q,pod=~%q`, namespace, regexp.QuoteMeta(cache)+"-[0-9]+"),
+					),
 				},
 			},
 		},
 	}
 }
 
-func allAlerts() []Rule {
+// allAlerts returns the alerts. cacheSel selects the operator's series of one
+// cache, podSel the exporter's series of its pods.
+func allAlerts(cacheSel, podSel string) []Rule {
 	return []Rule{
 		{
 			Alert:  "VinylCacheVCLSyncFailed",
-			Expr:   intstr.FromString(`rate(vinyl_vcl_push_total{result="error"}[5m]) > 0`),
+			Expr:   intstr.FromString(fmt.Sprintf(`rate(vinyl_vcl_push_total{%s}[5m]) > 0`, join(`result="error"`, cacheSel))),
 			For:    "5m",
 			Labels: map[string]string{labelSeverity: severityWarning},
 			Annotations: map[string]string{
@@ -88,7 +147,7 @@ func allAlerts() []Rule {
 		},
 		{
 			Alert:  "VinylCachePartialVCLSync",
-			Expr:   intstr.FromString(`vinyl_partial_failure_total > 0`),
+			Expr:   intstr.FromString(fmt.Sprintf(`vinyl_partial_failure_total%s > 0`, braces(cacheSel))),
 			For:    "2m",
 			Labels: map[string]string{labelSeverity: severityWarning},
 			Annotations: map[string]string{
@@ -98,7 +157,7 @@ func allAlerts() []Rule {
 		},
 		{
 			Alert:  "VinylCacheAllPodsUnreachable",
-			Expr:   intstr.FromString(`rate(vinyl_vcl_push_total{result="error"}[5m]) > 0 and vinyl_reconcile_total{result="error"} > 0`),
+			Expr:   intstr.FromString(fmt.Sprintf(`rate(vinyl_vcl_push_total{%[1]s}[5m]) > 0 and vinyl_reconcile_total{%[1]s} > 0`, join(`result="error"`, cacheSel))),
 			For:    "1m",
 			Labels: map[string]string{labelSeverity: "critical"},
 			Annotations: map[string]string{
@@ -108,7 +167,7 @@ func allAlerts() []Rule {
 		},
 		{
 			Alert:  "VinylCacheBackendUnhealthy",
-			Expr:   intstr.FromString(`varnish_backend_happy == 0`),
+			Expr:   intstr.FromString(withCacheLabel(fmt.Sprintf(`varnish_backend_happy%s`, braces(podSel))) + ` == 0`),
 			For:    "5m",
 			Labels: map[string]string{labelSeverity: severityWarning},
 			Annotations: map[string]string{
@@ -118,7 +177,7 @@ func allAlerts() []Rule {
 		},
 		{
 			Alert:  "VinylCacheLowHitRatio",
-			Expr:   intstr.FromString(`(sum(rate(varnish_main_cache_hit[5m])) by (namespace, pod)) / (sum(rate(varnish_main_cache_hit[5m])) by (namespace, pod) + sum(rate(varnish_main_cache_miss[5m])) by (namespace, pod)) < 0.5`),
+			Expr:   intstr.FromString(lowHitRatioExpr(podSel, "0.5")),
 			For:    "15m",
 			Labels: map[string]string{labelSeverity: severityWarning},
 			Annotations: map[string]string{
@@ -128,7 +187,7 @@ func allAlerts() []Rule {
 		},
 		{
 			Alert:  "VinylCacheHighInvalidationRate",
-			Expr:   intstr.FromString(`rate(vinyl_invalidation_total[5m]) > 100`),
+			Expr:   intstr.FromString(fmt.Sprintf(`rate(vinyl_invalidation_total%s[5m]) > 100`, braces(cacheSel))),
 			For:    "5m",
 			Labels: map[string]string{labelSeverity: severityWarning},
 			Annotations: map[string]string{
@@ -138,7 +197,7 @@ func allAlerts() []Rule {
 		},
 		{
 			Alert:  "VinylCacheReconcileErrors",
-			Expr:   intstr.FromString(`rate(vinyl_reconcile_total{result="error"}[5m]) > 0`),
+			Expr:   intstr.FromString(fmt.Sprintf(`rate(vinyl_reconcile_total{%s}[5m]) > 0`, join(`result="error"`, cacheSel))),
 			For:    "5m",
 			Labels: map[string]string{labelSeverity: severityWarning},
 			Annotations: map[string]string{
@@ -158,7 +217,7 @@ func allAlerts() []Rule {
 		},
 		{
 			Alert:  "VinylCacheVCLDrift",
-			Expr:   intstr.FromString(`vinyl_vcl_versions_loaded > 2`),
+			Expr:   intstr.FromString(fmt.Sprintf(`vinyl_vcl_versions_loaded%s > 2`, braces(cacheSel))),
 			For:    "10m",
 			Labels: map[string]string{labelSeverity: severityWarning},
 			Annotations: map[string]string{
