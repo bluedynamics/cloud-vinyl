@@ -57,6 +57,11 @@ The workflow treats such a tag differently in three places:
 The final `v1.0.0` then gets release notes against the previous final release, not
 against the last rc. The workflow sets `GORELEASER_PREVIOUS_TAG` for that.
 
+Tag the final release on the commit of the last rc when nothing changed since. That
+commit then carries two tags, so the workflow also sets `GORELEASER_CURRENT_TAG` to the
+pushed tag; otherwise goreleaser may pick the rc tag and fail on its existing assets, as
+it did for v1.0.0.
+
 ```bash
 git tag v1.0.0-rc.1
 git push origin v1.0.0-rc.1
