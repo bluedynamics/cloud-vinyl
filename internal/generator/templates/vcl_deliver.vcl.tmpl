@@ -5,10 +5,18 @@ sub vcl_deliver {
     unset resp.http.x-url;
     unset resp.http.x-host;
 {{- end }}
-{{ if .Spec.VCL.Snippets.VCLDeliver }}
+{{ if .Spec.VCL.Snippets.VCLDeliver }}{{ if .HasCluster }}
+    # Cluster mode: run the snippet on the owner hop only (#150). On the
+    # relay hop it would overwrite what the owner set, such as an x-cache
+    # header from obj.hits. The owner removes X-Vinyl-Shard in vcl_recv.
+    if (!req.http.X-Vinyl-Shard) {
+{{- end }}
     # --- custom vcl_deliver snippet ---
     {{ .Spec.VCL.Snippets.VCLDeliver }}
     # --- end custom vcl_deliver snippet ---
+{{- if .HasCluster }}
+    }
+{{- end }}
 {{ end }}
     return(deliver);
 }

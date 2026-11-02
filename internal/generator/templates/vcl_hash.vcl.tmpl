@@ -6,10 +6,18 @@ sub vcl_hash {
     } else {
         hash_data(server.ip);
     }
-{{ if .Spec.VCL.Snippets.VCLHash }}
+{{ if .Spec.VCL.Snippets.VCLHash }}{{ if .HasCluster }}
+    # Cluster mode: run the snippet on the owner hop only (#150). The
+    # relay hop passes the request to the owner, which does the lookup;
+    # the owner removed X-Vinyl-Shard in vcl_recv.
+    if (!req.http.X-Vinyl-Shard) {
+{{- end }}
     # --- custom vcl_hash snippet ---
     {{ .Spec.VCL.Snippets.VCLHash }}
     # --- end custom vcl_hash snippet ---
+{{- if .HasCluster }}
+    }
+{{- end }}
 {{ end }}
     return(lookup);
 }

@@ -19,10 +19,18 @@ sub vcl_backend_fetch {
 {{- end }}
     }
 {{- end }}
-{{ if .Spec.VCL.Snippets.VCLBackendFetch }}
+{{ if .Spec.VCL.Snippets.VCLBackendFetch }}{{ if .HasCluster }}
+    # Cluster mode: run the snippet on the owner hop only (#150). On the
+    # relay hop it would rewrite the request to the owner, which then
+    # rewrites it again. Only the relay forwards X-Vinyl-Shard.
+    if (!bereq.http.X-Vinyl-Shard) {
+{{- end }}
     # --- custom vcl_backend_fetch snippet ---
     {{ .Spec.VCL.Snippets.VCLBackendFetch }}
     # --- end custom vcl_backend_fetch snippet ---
+{{- if .HasCluster }}
+    }
+{{- end }}
 {{ end }}
 {{- if .HasTracing }}
     # Tracing: the span id minted here becomes the "varnish fetch" span's

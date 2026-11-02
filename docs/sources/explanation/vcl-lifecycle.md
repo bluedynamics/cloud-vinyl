@@ -16,6 +16,37 @@ When the operator reconciles a `VinylCache`, it feeds the spec into the VCL gene
    `vcl_backend_response`, `vcl_backend_error`, `vcl_deliver`, `vcl_fini`).
 4. **Hash** — SHA-256 of the rendered VCL is used as a content-addressable identifier.
 
+(cluster-snippets)=
+
+## Custom snippets in cluster mode
+
+With `spec.cluster.enabled`, each client request passes through Varnish twice.
+The pod that receives it (the relay hop) sends it with `return(pass)` to the pod
+that owns the URL's shard, and that pod (the owner hop) does the cache lookup and,
+on a miss, the backend fetch. Both hops run the same VCL, so the generator decides
+which custom snippets run on which hop:
+
+| Snippet | Relay hop | Owner hop |
+|---|---|---|
+| `vclRecv` | no | yes |
+| `vclHash`, `vclPass`, `vclDeliver` | no | yes |
+| `vclBackendFetch`, `vclBackendResponse` | no | yes |
+| `vclHit`, `vclMiss`, `vclPurge` | never reached | yes |
+| `vclBackendError`, `vclSynth` | yes | yes |
+
+Snippets that belong to the lookup and the fetch run on the owner hop only. On
+the relay hop they would undo the owner's work: a `vclDeliver` snippet that sets
+`x-cache` from `obj.hits` would overwrite the owner's `HIT` with `MISS`, because
+a passed request has no hits, and a URL rewrite in `vclBackendFetch` would be
+applied twice. `vclBackendError` and `vclSynth` run on both hops, because when
+the owner pod fails, the relay hop builds the error page.
+
+The relay hop marks the request with the `X-Vinyl-Shard` header and forwards it
+to the owner, which removes it in `vcl_recv`. The generator wraps the owner-only
+snippets in `if (!req.http.X-Vinyl-Shard) { ... }`, or `bereq.http` on the
+backend side. A `return` inside a snippet still works. Without cluster mode,
+there is only one hop and the snippets are rendered without the guard.
+
 ## Push
 
 For each ready pod the operator:
