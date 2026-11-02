@@ -1632,3 +1632,93 @@ func TestGenerate_ESI_VarnishParamsFeatureIgnored(t *testing.T) {
 	assert.NotContains(t, r.VCL, `Surrogate-Control ~ "ESI/1.0"`,
 		"varnishParameters[\"feature\"] must not enable the Surrogate-Control gate")
 }
+
+// allSnippets sets a distinct marker in every request-scoped snippet slot.
+func allSnippets() vinylv1.VCLSnippets {
+	return vinylv1.VCLSnippets{
+		VCLRecv: "# s recv", VCLHash: "# s hash", VCLHit: "# s hit", VCLMiss: "# s miss",
+		VCLPass: "# s pass", VCLPurge: "# s purge", VCLPipe: "# s pipe",
+		VCLBackendFetch: "# s bfetch", VCLBackendResponse: "# s bresp", VCLDeliver: "# s deliver",
+		VCLSynth: "# s synth", VCLBackendError: "# s berr",
+	}
+}
+
+func clusterInput() generator.Input {
+	input := makeMinimalInput()
+	input.Spec.Cluster = vinylv1.ClusterSpec{Enabled: true}
+	input.Peers = []generator.PeerBackend{
+		{Name: "my_cache_0", IP: "10.0.2.1", Port: 8080},
+		{Name: "my_cache_1", IP: "10.0.2.2", Port: 8080},
+	}
+	return input
+}
+
+// TestGenerate_Cluster_SnippetsOnOwnerHopOnly guards #150: in cluster mode a
+// request passes through two pods, and snippets that belong to the lookup
+// and the backend fetch must run on the owner hop only. On the relay hop a
+// vcl_deliver snippet overwrote the owner's x-cache HIT with MISS.
+func TestGenerate_Cluster_SnippetsOnOwnerHopOnly(t *testing.T) {
+	g := newGenerator(t)
+	input := clusterInput()
+	input.Spec.VCL.Snippets = allSnippets()
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+
+	for _, c := range []struct{ sub, guard, marker string }{
+		{"vcl_hash", "if (!req.http.X-Vinyl-Shard) {", "# s hash"},
+		{"vcl_pass", "if (!req.http.X-Vinyl-Shard) {", "# s pass"},
+		{"vcl_deliver", "if (!req.http.X-Vinyl-Shard) {", "# s deliver"},
+		{"vcl_backend_fetch", "if (!bereq.http.X-Vinyl-Shard) {", "# s bfetch"},
+		{"vcl_backend_response", "if (!bereq.http.X-Vinyl-Shard) {", "# s bresp"},
+	} {
+		body := subBody(t, r.VCL, c.sub)
+		guard := strings.Index(body, c.guard)
+		marker := strings.Index(body, c.marker)
+		require.GreaterOrEqual(t, guard, 0, "%s: the snippet must be guarded", c.sub)
+		require.Greater(t, marker, guard, "%s: the snippet must sit inside the guard", c.sub)
+		assert.Contains(t, body[marker:], "# --- end custom "+c.sub+" snippet ---\n    }",
+			"%s: the guard must close right after the snippet", c.sub)
+	}
+
+	// The relay hop builds the error page when the peer fails, so these run
+	// on both hops; vcl_hit and vcl_miss are never reached on the relay hop.
+	for _, c := range []struct{ sub, marker string }{
+		{"vcl_backend_error", "# s berr"},
+		{"vcl_synth", "# s synth"},
+		{"vcl_hit", "# s hit"},
+		{"vcl_miss", "# s miss"},
+	} {
+		body := subBody(t, r.VCL, c.sub)
+		assert.Contains(t, body, c.marker, "%s: snippet must be rendered", c.sub)
+		assert.NotContains(t, body, "X-Vinyl-Shard", "%s: snippet must not be guarded", c.sub)
+	}
+}
+
+// Without cluster mode there is only one hop, so the snippets render exactly
+// as before #150, without a guard.
+func TestGenerate_NoCluster_SnippetsUnguarded(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.VCL.Snippets = allSnippets()
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.NotContains(t, r.VCL, "X-Vinyl-Shard")
+	for sub, marker := range map[string]string{
+		"vcl_hash": "# s hash", "vcl_pass": "# s pass", "vcl_deliver": "# s deliver",
+		"vcl_backend_fetch": "# s bfetch", "vcl_backend_response": "# s bresp",
+	} {
+		assert.Contains(t, subBody(t, r.VCL, sub),
+			"    # --- custom "+sub+" snippet ---\n    "+marker+"\n    # --- end custom "+sub+" snippet ---\n",
+			"%s: snippet block must be unchanged", sub)
+	}
+}
+
+// Cluster mode without snippets must not leave an empty guard behind.
+func TestGenerate_Cluster_NoSnippets_NoGuard(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(clusterInput())
+	require.NoError(t, err)
+	for _, sub := range []string{"vcl_hash", "vcl_pass", "vcl_deliver", "vcl_backend_fetch", "vcl_backend_response"} {
+		assert.NotContains(t, subBody(t, r.VCL, sub), "X-Vinyl-Shard", "%s: no guard without a snippet", sub)
+	}
+}

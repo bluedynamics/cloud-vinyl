@@ -27,10 +27,18 @@ sub vcl_backend_response {
         set beresp.do_esi = true;
     }
 {{- end }}
-{{ if .Spec.VCL.Snippets.VCLBackendResponse }}
+{{ if .Spec.VCL.Snippets.VCLBackendResponse }}{{ if .HasCluster }}
+    # Cluster mode: run the snippet on the owner hop only (#150). On the
+    # relay hop it would rework the owner's response a second time.
+    # Only the relay forwards X-Vinyl-Shard.
+    if (!bereq.http.X-Vinyl-Shard) {
+{{- end }}
     # --- custom vcl_backend_response snippet ---
     {{ .Spec.VCL.Snippets.VCLBackendResponse }}
     # --- end custom vcl_backend_response snippet ---
+{{- if .HasCluster }}
+    }
+{{- end }}
 {{ end }}
     return(deliver);
 }

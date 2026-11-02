@@ -108,6 +108,10 @@ See the [per-backend directors how-to](../how-to/per-backend-directors.md) for w
 | `peerRouting.type` | string | `shard` | Director type for peer-to-peer routing. |
 | `retry.maxRetries` | integer | `1` | Retries on another Varnish peer when the peer sent no response; `0` disables, maximum `3`. |
 
+In cluster mode a request passes through two pods, and most custom VCL snippets
+run on the owning pod only. See
+[Custom snippets in cluster mode](cluster-snippets).
+
 ### varnishParameters
 
 A `map[string]string`. Each entry becomes one `-p` flag on `varnishd`: the key
