@@ -23,6 +23,7 @@ func NewServer(addr, token string, admin AdminClient, xkey *XkeyPurger) *Server 
 	mux := http.NewServeMux()
 
 	// Unauthenticated endpoints
+	mux.HandleFunc("/livez", Livez)
 	mux.HandleFunc("/health", h.Health)
 	mux.Handle("/metrics", promhttp.Handler())
 
@@ -55,4 +56,14 @@ func (s *Server) Start() error {
 // Shutdown gracefully shuts down the server.
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
+}
+
+// Livez answers 200 as soon as the agent's HTTP server runs, independent of
+// varnishd and of the active VCL. The agent container's startup probe uses
+// it, and the operator pushes VCL only to pods whose agent has started, so
+// a rollout no longer meets "connection refused" (#136). /health is the
+// readiness check and stays red until a VCL has been pushed, so it cannot
+// gate the push itself.
+func Livez(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
 }

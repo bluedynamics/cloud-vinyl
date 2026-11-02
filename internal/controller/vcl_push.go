@@ -18,9 +18,11 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -104,7 +106,13 @@ func (r *VinylCacheReconciler) pushVCL(
 		if pr.err != nil {
 			res = "error"
 			failCount++
-			log.Error(pr.err, "VCL push failed for pod", "pod", pr.peer.Name)
+			if errors.Is(pr.err, syscall.ECONNREFUSED) {
+				// The agent restarted after its startup probe passed; the
+				// next reconcile pushes again (#136).
+				log.Info("agent not listening yet, will retry", "pod", pr.peer.Name)
+			} else {
+				log.Error(pr.err, "VCL push failed for pod", "pod", pr.peer.Name)
+			}
 		} else {
 			pushed = append(pushed, pr.peer)
 		}
@@ -169,6 +177,13 @@ func (r *VinylCacheReconciler) collectPeers(
 		if pod.Status.Phase != corev1.PodRunning || pod.Status.PodIP == "" {
 			continue
 		}
+		// A replaced pod is Running before its agent listens. Pushing then
+		// only logs "connection refused" until the agent is up (#136). The
+		// startup probe flips started once it is; that status change
+		// triggers the next reconcile through the pod watch.
+		if !agentStarted(&pod) {
+			continue
+		}
 		peer := generator.PeerBackend{
 			Name: strings.ReplaceAll(pod.Name, "-", "_"),
 			IP:   pod.Status.PodIP,
@@ -180,6 +195,18 @@ func (r *VinylCacheReconciler) collectPeers(
 		}
 	}
 	return podObservation{reachable: reachable, ready: ready}, nil
+}
+
+// agentStarted reports whether the pod's agent container has started, i.e.
+// passed its startup probe. A pod without a status for the agent container
+// counts as started, so the push never waits on a status that cannot come.
+func agentStarted(pod *corev1.Pod) bool {
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.Name == agentContainerName {
+			return cs.Started != nil && *cs.Started
+		}
+	}
+	return true
 }
 
 // isPodReady returns true if the pod has a Ready condition with status True.

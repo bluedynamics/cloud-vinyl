@@ -57,3 +57,12 @@ func TestServer_AuthMiddleware_ProtectsVCLEndpoints(t *testing.T) {
 	middleware.ServeHTTP(rr2, req2)
 	assert.Equal(t, http.StatusOK, rr2.Code)
 }
+
+// /livez answers as soon as the server runs, even while varnishd still serves
+// the bootstrap VCL and /health is red: the startup probe and the operator's
+// push gate rely on that (#136).
+func TestServer_Livez_IndependentOfVCL(t *testing.T) {
+	rr := httptest.NewRecorder()
+	agent.Livez(rr, httptest.NewRequest(http.MethodGet, "/livez", nil))
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
