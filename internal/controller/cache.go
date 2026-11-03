@@ -19,7 +19,6 @@ package controller
 import (
 	"strings"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -42,10 +41,16 @@ const (
 // Pod, Secret, ConfigMap, Service, StatefulSet and NetworkPolicy of the
 // cluster in memory.
 //
-// Every type the operator creates is cached only if it carries the label the
-// operator sets on it. A cached Get of an object outside its selector returns
-// NotFound, so every object the operator reads must keep carrying that label;
-// all of them have since 1.0.0.
+// The types the operator creates are cached only if they carry the label the
+// operator sets on them. A cached Get of an object outside its selector
+// returns NotFound, and CreateOrUpdate then fails with AlreadyExists on every
+// reconcile, so a type may only be scoped once every existing object of it
+// carries the label. Services, ConfigMaps, NetworkPolicies and the cache Pods
+// have since 1.0.0.
+//
+// StatefulSets are the exception: before 1.1 only their pod template was
+// labelled, not the StatefulSet itself, so they stay unscoped until a later
+// release, after 1.1 has labelled every StatefulSet it reconciled.
 //
 // EndpointSlices are not label-scoped: the operator reads the slices of the
 // users' backend Services, which do not carry our labels. watchNamespaces,
@@ -60,7 +65,6 @@ func CacheOptions(watchNamespaces []string) cache.Options {
 	opts := cache.Options{
 		DefaultTransform: cache.TransformStripManagedFields(),
 		ByObject: map[client.Object]cache.ByObject{
-			&appsv1.StatefulSet{}:         owned,
 			&corev1.Service{}:             owned,
 			&corev1.ConfigMap{}:           owned,
 			&corev1.Pod{}:                 owned,

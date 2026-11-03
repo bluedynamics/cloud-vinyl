@@ -116,6 +116,15 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vin
 		if err := ctrl.SetControllerReference(vc, sts, r.Scheme); err != nil {
 			return err
 		}
+		// Before 1.1 the StatefulSet itself carried no labels, only its
+		// pod template. The label lets a later release scope the
+		// StatefulSet informer like the other owned types (see
+		// CacheOptions); until every StatefulSet has been reconciled once
+		// with it, that would hide the existing ones.
+		if sts.Labels == nil {
+			sts.Labels = map[string]string{}
+		}
+		sts.Labels[labelVinylCacheName] = vc.Name
 
 		parallel := appsv1.ParallelPodManagement
 		replicas := vc.Spec.Replicas
