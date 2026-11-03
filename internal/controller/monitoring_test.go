@@ -82,3 +82,44 @@ func TestDeleteLegacyPrometheusRule(t *testing.T) {
 		require.NoError(t, r.deleteLegacyPrometheusRule(context.Background(), mine))
 	})
 }
+
+// Changing spec.monitoring.prometheusRules.lowHitRatio must reach the rule
+// that already exists, not only the first one created.
+func TestApplyOwned_UpdatesPrometheusRuleOnLowHitRatioChange(t *testing.T) {
+	sch := newScheme(t)
+	vc := &vinylv1.VinylCache{ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: "ns1", UID: "uid-c1"}}
+	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).Build()
+	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
+	ctx := context.Background()
+
+	apply := func(pr *vinylv1.PrometheusRulesSpec) {
+		obj, err := toUnstructured(monitoring.GeneratePrometheusRule(vc.Name, vc.Namespace, ruleOptions(pr)), prometheusRuleGVK)
+		require.NoError(t, err)
+		require.NoError(t, r.applyOwned(ctx, vc, obj))
+	}
+	lowHitRule := func() (expr, forDur string) {
+		got := &unstructured.Unstructured{}
+		got.SetGroupVersionKind(prometheusRuleGVK)
+		require.NoError(t, cli.Get(ctx, client.ObjectKey{Namespace: "ns1", Name: monitoring.PrometheusRuleName("c1")}, got))
+		groups, _, _ := unstructured.NestedSlice(got.Object, "spec", "groups")
+		for _, rule := range groups[0].(map[string]any)["rules"].([]any) {
+			m := rule.(map[string]any)
+			if m["alert"] == "VinylCacheLowHitRatio" {
+				return m["expr"].(string), m["for"].(string)
+			}
+		}
+		require.Fail(t, "VinylCacheLowHitRatio missing")
+		return "", ""
+	}
+
+	apply(&vinylv1.PrometheusRulesSpec{Enabled: true})
+	expr, forDur := lowHitRule()
+	require.Contains(t, expr, "< 0.5")
+	require.Equal(t, "15m", forDur)
+
+	threshold := 0.2
+	apply(&vinylv1.PrometheusRulesSpec{Enabled: true, LowHitRatio: &vinylv1.LowHitRatioSpec{Threshold: &threshold, For: "1h"}})
+	expr, forDur = lowHitRule()
+	require.Contains(t, expr, "< 0.2")
+	require.Equal(t, "1h", forDur)
+}

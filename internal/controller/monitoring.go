@@ -45,7 +45,7 @@ func (r *VinylCacheReconciler) reconcileMonitoring(ctx context.Context, vc *viny
 		if !r.crdInstalled(prometheusRuleGVK) {
 			log.Info("PrometheusRule requested but monitoring.coreos.com CRD not installed; skipping")
 		} else {
-			obj, err := toUnstructured(monitoring.GeneratePrometheusRule(vc.Name, vc.Namespace), prometheusRuleGVK)
+			obj, err := toUnstructured(monitoring.GeneratePrometheusRule(vc.Name, vc.Namespace, ruleOptions(pr)), prometheusRuleGVK)
 			if err != nil {
 				return err
 			}
@@ -58,6 +58,18 @@ func (r *VinylCacheReconciler) reconcileMonitoring(ctx context.Context, vc *viny
 		}
 	}
 	return nil
+}
+
+// ruleOptions maps the optional spec tuning to the generator's options.
+func ruleOptions(pr *vinylv1.PrometheusRulesSpec) monitoring.Options {
+	var opts monitoring.Options
+	if lhr := pr.LowHitRatio; lhr != nil {
+		if lhr.Threshold != nil {
+			opts.LowHitRatioThreshold = *lhr.Threshold
+		}
+		opts.LowHitRatioFor = lhr.For
+	}
+	return opts
 }
 
 // deleteLegacyPrometheusRule removes the rule every VinylCache shared before

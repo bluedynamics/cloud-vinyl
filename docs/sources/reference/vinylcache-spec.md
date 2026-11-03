@@ -41,6 +41,7 @@ changing `apiVersion` only.
 | `pod.volumes` | list | no | Additional pod volumes appended to operator-managed defaults. Reserved names rejected by webhook. See [SSD-backed storage how-to](../how-to/ssd-backed-storage.md). |
 | `pod.volumeMounts` | list | no | Additional mounts on the varnish container. Each `name` must reference a `spec.pod.volumes` entry or a `spec.volumeClaimTemplates` claim name. Reserved mount paths rejected by webhook. |
 | `pod.env` | list | no | Environment variables on the varnish container (`value` or `valueFrom`). An entry named like an operator default replaces it; `MALLOC_CONF` replaces the operator's jemalloc tuning, an empty value restores jemalloc's defaults. See [Size memory for malloc storage](../how-to/size-memory.md). |
+| `monitoring` | object | no | Metrics scraping and alerting. See the `monitoring` section below. |
 | `volumeClaimTemplates` | list | no | StatefulSet-native per-replica PVC templates. Reference the claim `name` from `spec.pod.volumeMounts`. Immutable after creation. |
 
 ### backends
@@ -207,6 +208,18 @@ varnishParameters:
 > ```bash
 > curl -X BAN -H 'X-Vinyl-Ban: obj.http.x-url ~ "^/news/"' http://varnish.svc/
 > ```
+
+### monitoring
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `false` | Activates Prometheus metrics scraping. |
+| `serviceMonitor.enabled` | boolean | `false` | Creates a `ServiceMonitor` for this cache. |
+| `prometheusRules.enabled` | boolean | `false` | Creates a `PrometheusRule` named `<cache>-alerts` with the alerts for this cache. |
+| `prometheusRules.lowHitRatio.threshold` | float | `0.5` | Hit ratio of a pod below which `VinylCacheLowHitRatio` fires. Greater than `0` and at most `1`. |
+| `prometheusRules.lowHitRatio.for` | string | `15m` | How long the ratio must stay below the threshold. A Prometheus duration such as `30s`, `15m`, `1h30m` or `1d`; Go-style fractions like `1.5h` are rejected. |
+
+See [Set up monitoring](../how-to/setup-monitoring.md) for the alerts.
 
 ## Status fields
 

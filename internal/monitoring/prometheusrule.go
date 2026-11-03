@@ -2,7 +2,9 @@ package monitoring
 
 import (
 	"fmt"
+	"math"
 	"regexp"
+	"strconv"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,6 +58,42 @@ type Rule struct {
 // #143, when two caches in one namespace overwrote each other's rule.
 const LegacyPrometheusRuleName = "cloud-vinyl-alerts"
 
+const (
+	// DefaultLowHitRatioThreshold is the default hit ratio of
+	// VinylCacheLowHitRatio; the chart's monitoring.prometheusRules.lowHitRatio
+	// uses the same value.
+	DefaultLowHitRatioThreshold = 0.5
+	// DefaultLowHitRatioFor is the default duration of VinylCacheLowHitRatio.
+	DefaultLowHitRatioFor = "15m"
+)
+
+// Options tunes the generated rule. The zero value yields the defaults.
+type Options struct {
+	// LowHitRatioThreshold is the hit ratio (0 to 1) below which
+	// VinylCacheLowHitRatio fires. Zero means the default.
+	LowHitRatioThreshold float64
+	// LowHitRatioFor is the Prometheus duration the ratio must stay below the
+	// threshold. Empty means the default.
+	LowHitRatioFor string
+}
+
+// lowHitRatio resolves the threshold as a PromQL number, the threshold as a
+// percentage for the description, and the for duration, applying defaults.
+func (o Options) lowHitRatio() (threshold, percent, duration string) {
+	t := o.LowHitRatioThreshold
+	if t <= 0 {
+		t = DefaultLowHitRatioThreshold
+	}
+	duration = o.LowHitRatioFor
+	if duration == "" {
+		duration = DefaultLowHitRatioFor
+	}
+	threshold = strconv.FormatFloat(t, 'f', -1, 64)
+	// Rounded, so 0.07 reads 7% and not 7.000000000000001%.
+	percent = strconv.FormatFloat(math.Round(t*1e6)/1e4, 'f', -1, 64)
+	return threshold, percent, duration
+}
+
 // PrometheusRuleName is the name of the rule generated for one VinylCache.
 func PrometheusRuleName(cache string) string {
 	return cache + "-alerts"
@@ -102,8 +140,8 @@ func join(matchers ...string) string {
 // the cache's namespace and StatefulSet pod names. VinylCacheOperatorDown and
 // VinylCacheBroadcastFailures watch the operator as a whole and stay
 // unfiltered; identical alerts from several caches' rules are deduplicated by
-// Alertmanager.
-func GeneratePrometheusRule(cache, namespace string) *PrometheusRule {
+// Alertmanager. opts tunes VinylCacheLowHitRatio.
+func GeneratePrometheusRule(cache, namespace string, opts Options) *PrometheusRule {
 	return &PrometheusRule{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "monitoring.coreos.com/v1",
@@ -124,6 +162,7 @@ func GeneratePrometheusRule(cache, namespace string) *PrometheusRule {
 					Rules: allAlerts(
 						fmt.Sprintf(`cache=%q`, cache),
 						fmt.Sprintf(`namespace=%q,pod=~%q`, namespace, regexp.QuoteMeta(cache)+"-[0-9]+"),
+						opts,
 					),
 				},
 			},
@@ -133,7 +172,8 @@ func GeneratePrometheusRule(cache, namespace string) *PrometheusRule {
 
 // allAlerts returns the alerts. cacheSel selects the operator's series of one
 // cache, podSel the exporter's series of its pods.
-func allAlerts(cacheSel, podSel string) []Rule {
+func allAlerts(cacheSel, podSel string, opts Options) []Rule {
+	threshold, percent, lowHitFor := opts.lowHitRatio()
 	return []Rule{
 		{
 			Alert:  "VinylCacheVCLSyncFailed",
@@ -177,12 +217,12 @@ func allAlerts(cacheSel, podSel string) []Rule {
 		},
 		{
 			Alert:  "VinylCacheLowHitRatio",
-			Expr:   intstr.FromString(lowHitRatioExpr(podSel, "0.5")),
-			For:    "15m",
+			Expr:   intstr.FromString(lowHitRatioExpr(podSel, threshold)),
+			For:    lowHitFor,
 			Labels: map[string]string{labelSeverity: severityWarning},
 			Annotations: map[string]string{
 				annotationSummary:     "Low cache hit ratio on {{ $labels.cache }}",
-				annotationDescription: "Cache hit ratio for {{ $labels.cache }} has been below 50% for 15 minutes.",
+				annotationDescription: fmt.Sprintf("Cache hit ratio of pod {{ $labels.pod }} of cache {{ $labels.cache }} in namespace {{ $labels.namespace }} has been below %s%% for %s.", percent, lowHitFor),
 			},
 		},
 		{

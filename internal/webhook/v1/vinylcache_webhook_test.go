@@ -349,6 +349,35 @@ var _ = Describe("VinylCache Webhook", func() {
 			})
 		})
 
+		// The CRD schema is the only validator of the per-cache low hit ratio
+		// alert: the values end up verbatim in a PromQL expression.
+		DescribeTable("validates spec.monitoring.prometheusRules.lowHitRatio via the CRD",
+			func(name string, threshold *float64, forDur string, wantErr string) {
+				vc := minimalAdmissibleVC(name)
+				vc.Spec.Monitoring.PrometheusRules = &vinylv1.PrometheusRulesSpec{
+					Enabled:     true,
+					LowHitRatio: &vinylv1.LowHitRatioSpec{Threshold: threshold, For: forDur},
+				}
+				err := k8sClient.Create(ctx, vc)
+				if wantErr == "" {
+					Expect(err).NotTo(HaveOccurred())
+					DeferCleanup(func() {
+						Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, vc))).To(Succeed())
+					})
+					return
+				}
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(wantErr))
+			},
+			Entry("admits a threshold and duration", "lhr-ok", new(0.2), "1h30m", ""),
+			Entry("admits a threshold of exactly 1", "lhr-one", new(1.0), "", ""),
+			Entry("rejects a threshold of 0", "lhr-zero", new(0.0), "", "threshold"),
+			Entry("rejects a threshold above 1", "lhr-high", new(1.5), "", "threshold"),
+			Entry("rejects a negative threshold", "lhr-neg", new(-0.1), "", "threshold"),
+			Entry("rejects a Go-style fractional duration", "lhr-frac", nil, "1.5h", "lowHitRatio.for"),
+			Entry("rejects an expression in for", "lhr-inject", nil, "5m or vector(1)", "lowHitRatio.for"),
+		)
+
 		It("admits a MALLOC_CONF override in spec.pod.env", func() {
 			vc := minimalAdmissibleVC("env-malloc-conf")
 			vc.Spec.Pod.Env = []corev1.EnvVar{{Name: "MALLOC_CONF", Value: ""}}
