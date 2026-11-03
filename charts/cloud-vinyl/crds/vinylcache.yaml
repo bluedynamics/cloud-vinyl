@@ -579,6 +579,27 @@ spec:
                         description: enabled creates a PrometheusRule with default
                           alerting rules.
                         type: boolean
+                      lowHitRatio:
+                        description: lowHitRatio tunes the VinylCacheLowHitRatio alert
+                          of this cache's rule.
+                        properties:
+                          for:
+                            description: |-
+                              for is how long the ratio must stay below the threshold before the
+                              alert fires, as a Prometheus duration (e.g. "30s", "15m", "1h30m", "1d").
+                              Not a Go duration: Prometheus also knows d, w and y. Default: 15m.
+                            maxLength: 64
+                            pattern: ^([0-9]+(ms|s|m|h|d|w|y))+$
+                            type: string
+                          threshold:
+                            description: |-
+                              threshold is the hit ratio below which the alert fires, evaluated per
+                              pod. Greater than 0 and at most 1. Default: 0.5.
+                            exclusiveMinimum: true
+                            maximum: 1
+                            minimum: 0
+                            type: number
+                        type: object
                     type: object
                   serviceMonitor:
                     description: serviceMonitor configures a ServiceMonitor for Prometheus
@@ -5294,6 +5315,27 @@ spec:
                         description: enabled creates a PrometheusRule with default
                           alerting rules.
                         type: boolean
+                      lowHitRatio:
+                        description: lowHitRatio tunes the VinylCacheLowHitRatio alert
+                          of this cache's rule.
+                        properties:
+                          for:
+                            description: |-
+                              for is how long the ratio must stay below the threshold before the
+                              alert fires, as a Prometheus duration (e.g. "30s", "15m", "1h30m", "1d").
+                              Not a Go duration: Prometheus also knows d, w and y. Default: 15m.
+                            maxLength: 64
+                            pattern: ^([0-9]+(ms|s|m|h|d|w|y))+$
+                            type: string
+                          threshold:
+                            description: |-
+                              threshold is the hit ratio below which the alert fires, evaluated per
+                              pod. Greater than 0 and at most 1. Default: 0.5.
+                            exclusiveMinimum: true
+                            maximum: 1
+                            minimum: 0
+                            type: number
+                        type: object
                     type: object
                   serviceMonitor:
                     description: serviceMonitor configures a ServiceMonitor for Prometheus

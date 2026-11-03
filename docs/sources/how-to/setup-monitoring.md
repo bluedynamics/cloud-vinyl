@@ -88,10 +88,37 @@ What each toggle does:
   `<cache>-alerts` with the default cloud-vinyl alerts for this cache (see
   [metrics reference](../reference/metrics.md)). The chart value
   `monitoring.prometheusRules.enabled` deploys the same alerts for all caches at
-  once; enable one of the two.
+  once; see [Tune the hit ratio alert](#tune-the-hit-ratio-alert) before enabling both.
 - **`exporter.enabled`** — adds the `prometheus_varnish_exporter` sidecar to each
   Varnish pod. It mounts the Varnish working directory read-only and exposes
   native `varnish_*` metrics (cache hit/miss, backend health) on port `9131`.
+
+### Tune the hit ratio alert
+
+The right hit ratio depends on the site. One with a lot of uncacheable traffic sits
+well below 0.5 without any fault, while another should stay far above it. Set the
+threshold and duration of `VinylCacheLowHitRatio` for one cache in its own rule:
+
+```yaml
+spec:
+  monitoring:
+    prometheusRules:
+      enabled: true
+      lowHitRatio:
+        threshold: 0.2   # alert below 20% (default 0.5)
+        for: 1h          # for this long (default 15m)
+```
+
+`threshold` is a hit ratio above 0 and at most 1. `for` is a Prometheus duration
+(`30s`, `15m`, `1h30m`, `1d`); the API server rejects anything else. Changing either
+updates the existing rule on the next reconcile.
+
+The chart's cluster-wide rule has the same two settings in
+`monitoring.prometheusRules.lowHitRatio`, one value for every cache. Use one of the
+two per cache: the chart rule when a uniform threshold fits, the per-cache rule when
+a site needs its own. The chart rule does not skip caches that have their own rule,
+so enabling both fires `VinylCacheLowHitRatio` twice for such a cache, once per
+threshold.
 
 The exporter image and resources can be overridden:
 

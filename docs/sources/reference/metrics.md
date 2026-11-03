@@ -61,7 +61,8 @@ The same ten alerts come from two places:
   operator as a whole and are not filtered. Before 1.0.2 every cache's rule was
   named `cloud-vinyl-alerts`; the operator deletes that rule.
 
-Enable one of the two, or the alerts fire twice.
+Enable one of the two per cache, or the alerts fire twice. See
+[Tune the hit ratio alert](../how-to/setup-monitoring.md#tune-the-hit-ratio-alert).
 
 The exporter's metrics carry no cache name. `VinylCacheLowHitRatio` and
 `VinylCacheBackendUnhealthy` derive a `cache` label from the pod name, so the
@@ -75,7 +76,7 @@ evaluated per pod, as each pod holds its own shard.
 | `VinylCachePartialVCLSync` | warning | Partial failure counter > 0 for 2 m |
 | `VinylCacheAllPodsUnreachable` | critical | Push errors and reconcile errors both > 0 for 1 m |
 | `VinylCacheBackendUnhealthy` | warning | `varnish_backend_happy == 0` for 5 m |
-| `VinylCacheLowHitRatio` | warning | exporter-derived hit ratio of a pod < 50% for 15 m; the chart takes threshold and duration from `monitoring.prometheusRules.lowHitRatio` |
+| `VinylCacheLowHitRatio` | warning | exporter-derived hit ratio of a pod < 50% for 15 m by default; the chart takes threshold and duration from `monitoring.prometheusRules.lowHitRatio`, the operator's per-cache rule from `spec.monitoring.prometheusRules.lowHitRatio` |
 | `VinylCacheHighInvalidationRate` | warning | >100 invalidations/s for 5 m |
 | `VinylCacheReconcileErrors` | warning | Reconcile error rate > 0 for 5 m |
 | `VinylCacheOperatorDown` | critical | No reconcile metrics present for 5 m |

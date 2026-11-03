@@ -810,6 +810,31 @@ type PrometheusRulesSpec struct {
 	// enabled creates a PrometheusRule with default alerting rules.
 	// +optional
 	Enabled bool `json:"enabled,omitempty"`
+
+	// lowHitRatio tunes the VinylCacheLowHitRatio alert of this cache's rule.
+	// +optional
+	LowHitRatio *LowHitRatioSpec `json:"lowHitRatio,omitempty"`
+}
+
+// LowHitRatioSpec tunes the VinylCacheLowHitRatio alert. The right hit ratio
+// depends on the site: one with a lot of uncacheable traffic sits well below
+// the default without any fault.
+type LowHitRatioSpec struct {
+	// threshold is the hit ratio below which the alert fires, evaluated per
+	// pod. Greater than 0 and at most 1. Default: 0.5.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:ExclusiveMinimum=true
+	// +kubebuilder:validation:Maximum=1
+	// +optional
+	Threshold *float64 `json:"threshold,omitempty"`
+
+	// for is how long the ratio must stay below the threshold before the
+	// alert fires, as a Prometheus duration (e.g. "30s", "15m", "1h30m", "1d").
+	// Not a Go duration: Prometheus also knows d, w and y. Default: 15m.
+	// +kubebuilder:validation:Pattern=`^([0-9]+(ms|s|m|h|d|w|y))+$`
+	// +kubebuilder:validation:MaxLength=64
+	// +optional
+	For string `json:"for,omitempty"`
 }
 
 // ServiceMonitorSpec configures a ServiceMonitor for Prometheus Operator.
