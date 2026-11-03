@@ -44,6 +44,14 @@ help: ## Display this help.
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd:allowDangerousTypes=true webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	@# The chart ships its own copy of the CRD (#34).
+	cp config/crd/bases/vinyl.bluedynamics.eu_vinylcaches.yaml charts/cloud-vinyl/crds/vinylcache.yaml
+
+.PHONY: check-generated
+check-generated: manifests generate ## Fail if generated files are out of date with the Go types.
+	@git diff --exit-code -- api config charts/cloud-vinyl/crds || { \
+		echo "Generated files are out of date. Run 'make manifests generate' and commit the result."; \
+		exit 1; }
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.

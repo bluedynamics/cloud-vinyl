@@ -73,3 +73,10 @@ budget time to break your own check on purpose before relying on it.
   refuses to run when it was built with an older Go than the module targets.
 
 See #87 for the general problem.
+
+## Generated files
+
+After changing anything under `api/` or a `+kubebuilder` marker, run
+`make manifests generate` and commit the result. `manifests` also copies the CRD
+into `charts/cloud-vinyl/crds/vinylcache.yaml`, which the chart ships on its own.
+CI runs `make check-generated` and fails on any difference (#34).
