@@ -88,10 +88,12 @@ What each toggle does:
   `<cache>-alerts` with the default cloud-vinyl alerts for this cache (see
   [metrics reference](../reference/metrics.md)). The chart value
   `monitoring.prometheusRules.enabled` deploys the same alerts for all caches at
-  once; see [Tune the hit ratio alert](#tune-the-hit-ratio-alert) before enabling both.
+  once; see {ref}`tune-hit-ratio-alert` before enabling both.
 - **`exporter.enabled`** — adds the `prometheus_varnish_exporter` sidecar to each
   Varnish pod. It mounts the Varnish working directory read-only and exposes
   native `varnish_*` metrics (cache hit/miss, backend health) on port `9131`.
+
+(tune-hit-ratio-alert)=
 
 ### Tune the hit ratio alert
 

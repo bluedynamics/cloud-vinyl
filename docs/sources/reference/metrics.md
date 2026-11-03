@@ -62,7 +62,7 @@ The same ten alerts come from two places:
   named `cloud-vinyl-alerts`; the operator deletes that rule.
 
 Enable one of the two per cache, or the alerts fire twice. See
-[Tune the hit ratio alert](../how-to/setup-monitoring.md#tune-the-hit-ratio-alert).
+{ref}`tune-hit-ratio-alert`.
 
 The exporter's metrics carry no cache name. `VinylCacheLowHitRatio` and
 `VinylCacheBackendUnhealthy` derive a `cache` label from the pod name, so the
