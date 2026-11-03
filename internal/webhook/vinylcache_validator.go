@@ -22,6 +22,7 @@ package webhook
 import (
 	"fmt"
 	"net"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -275,10 +276,66 @@ func ValidateVinylCache(vc *vinylv1.VinylCache) (admission.Warnings, error) {
 		}
 	}
 
+	warnings := legacyBackendWarnings(vc)
+
 	if len(errs) > 0 {
-		return nil, fmt.Errorf("%s", strings.Join(errs, "; "))
+		return warnings, fmt.Errorf("%s", strings.Join(errs, "; "))
 	}
-	return nil, nil
+	return warnings, nil
+}
+
+// snippetField pairs a spec.vcl.snippets field path with its VCL text.
+type snippetField struct {
+	path string
+	vcl  string
+}
+
+// snippetFields lists every spec.vcl.snippets field in a stable order.
+func snippetFields(s vinylv1.VCLSnippets) []snippetField {
+	const p = "spec.vcl.snippets."
+	return []snippetField{
+		{p + "header", s.Header},
+		{p + "vclInit", s.VCLInit},
+		{p + "vclRecv", s.VCLRecv},
+		{p + "vclHash", s.VCLHash},
+		{p + "vclHit", s.VCLHit},
+		{p + "vclMiss", s.VCLMiss},
+		{p + "vclPass", s.VCLPass},
+		{p + "vclPurge", s.VCLPurge},
+		{p + "vclPipe", s.VCLPipe},
+		{p + "vclBackendFetch", s.VCLBackendFetch},
+		{p + "vclBackendResponse", s.VCLBackendResponse},
+		{p + "vclDeliver", s.VCLDeliver},
+		{p + "vclSynth", s.VCLSynth},
+		{p + "vclBackendError", s.VCLBackendError},
+		{p + "vclFini", s.VCLFini},
+	}
+}
+
+// legacyBackendWarnings reports snippets that reference per-pod backend names
+// like "plone_0". Per-pod names are renumbered whenever the endpoints change,
+// so such a snippet breaks on the next rollout (#35). It is a warning, not an
+// error, to stay compatible with existing resources.
+func legacyBackendWarnings(vc *vinylv1.VinylCache) admission.Warnings {
+	var warnings admission.Warnings
+	fields := snippetFields(vc.Spec.VCL.Snippets)
+	for _, b := range vc.Spec.Backends {
+		if b.Name == "" {
+			continue
+		}
+		pat, err := regexp.Compile(`\b` + regexp.QuoteMeta(b.Name) + `_\d+\b`)
+		if err != nil {
+			continue
+		}
+		for _, f := range fields {
+			if m := pat.FindString(f.vcl); m != "" {
+				warnings = append(warnings, fmt.Sprintf(
+					"%s references the per-pod backend %q; per-pod names are renumbered on every endpoint change. Use '%s.backend()' instead",
+					f.path, m, b.Name))
+			}
+		}
+	}
+	return warnings
 }
 
 // ValidateVinylCacheUpdate validates an update: everything ValidateVinylCache

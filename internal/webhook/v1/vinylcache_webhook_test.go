@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
@@ -123,6 +124,28 @@ var _ = Describe("VinylCache Webhook", func() {
 			Expect(asV1.Spec.Backends).To(HaveLen(1))
 			Expect(asV1.Spec.Director).NotTo(BeNil(), "the mutating webhook must have run")
 			Expect(asV1.Spec.Director.Type).To(Equal("shard"))
+		})
+	})
+
+	// Snippets that hardcode per-pod backend names break on the next rollout
+	// (#35). The webhook admits them but returns a warning, which must reach
+	// the API response.
+	Context("When a snippet references a legacy per-pod backend name", func() {
+		It("admits the resource and returns an admission warning", func() {
+			collector := &warningCollector{}
+			cfgCopy := rest.CopyConfig(cfg)
+			cfgCopy.WarningHandler = collector
+			c, err := client.New(cfgCopy, client.Options{Scheme: k8sClient.Scheme()})
+			Expect(err).NotTo(HaveOccurred())
+
+			vc := minimalAdmissibleVC("legacy-backend-ref")
+			vc.Spec.VCL.Snippets.VCLRecv = "set req.backend_hint = app_0;"
+			Expect(c.Create(ctx, vc)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, vc))).To(Succeed())
+			})
+			Expect(collector.messages).To(ContainElement(
+				And(ContainSubstring("spec.vcl.snippets.vclRecv"), ContainSubstring("app.backend()"))))
 		})
 	})
 
@@ -337,3 +360,10 @@ var _ = Describe("VinylCache Webhook", func() {
 	})
 
 })
+
+// warningCollector records API server warnings returned with a response.
+type warningCollector struct{ messages []string }
+
+func (w *warningCollector) HandleWarningHeader(_ int, _ string, text string) {
+	w.messages = append(w.messages, text)
+}

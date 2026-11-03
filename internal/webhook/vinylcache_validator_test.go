@@ -808,3 +808,80 @@ func TestValidate_PodAntiAffinity_CombinesWithNodeAffinity(t *testing.T) {
 	_, err := webhook.ValidateVinylCache(vc)
 	assert.NoError(t, err)
 }
+
+func TestValidate_LegacyBackendReferences_Warns(t *testing.T) {
+	vc := minimalValidVC()
+	name := vc.Spec.Backends[0].Name
+	vc.Spec.VCL.Snippets.VCLRecv = "set req.backend_hint = " + name + "_0;"
+	warnings, err := webhook.ValidateVinylCache(vc)
+	require.NoError(t, err)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "spec.vcl.snippets.vclRecv")
+	assert.Contains(t, warnings[0], name+"_0")
+	assert.Contains(t, warnings[0], name+".backend()")
+}
+
+func TestValidate_LegacyBackendReferences_NoMatch(t *testing.T) {
+	vc := minimalValidVC()
+	name := vc.Spec.Backends[0].Name
+	vc.Spec.VCL.Snippets.VCLRecv = "set req.backend_hint = " + name + ".backend();"
+	vc.Spec.VCL.Snippets.VCLDeliver = "set resp.http.X = \"" + name + "_x\";"
+	warnings, err := webhook.ValidateVinylCache(vc)
+	require.NoError(t, err)
+	assert.Empty(t, warnings)
+}
+
+func TestValidate_LegacyBackendReferences_WordBoundary(t *testing.T) {
+	vc := minimalValidVC()
+	name := vc.Spec.Backends[0].Name
+	vc.Spec.VCL.Snippets.VCLRecv = "set req.backend_hint = my" + name + "_0;"
+	vc.Spec.VCL.Snippets.VCLHit = "set req.http.X = " + name + "_0x;"
+	warnings, err := webhook.ValidateVinylCache(vc)
+	require.NoError(t, err)
+	assert.Empty(t, warnings)
+}
+
+func TestValidate_LegacyBackendReferences_MultipleSnippets(t *testing.T) {
+	vc := minimalValidVC()
+	name := vc.Spec.Backends[0].Name
+	vc.Spec.VCL.Snippets.Header = "# " + name + "_1"
+	vc.Spec.VCL.Snippets.VCLBackendFetch = "set bereq.backend = " + name + "_12;"
+	warnings, err := webhook.ValidateVinylCache(vc)
+	require.NoError(t, err)
+	require.Len(t, warnings, 2)
+	assert.Contains(t, warnings[0], "spec.vcl.snippets.header")
+	assert.Contains(t, warnings[1], "spec.vcl.snippets.vclBackendFetch")
+}
+
+func TestValidate_LegacyBackendReferences_TwoBackends(t *testing.T) {
+	vc := minimalValidVC()
+	vc.Spec.Backends = []vinylv1.BackendSpec{
+		{Name: "plone", ServiceRef: vinylv1.ServiceRef{Name: "plone-svc"}},
+		{Name: "api", ServiceRef: vinylv1.ServiceRef{Name: "api-svc"}},
+	}
+	vc.Spec.VCL.Snippets.VCLRecv = "if (x) { set req.backend_hint = plone_0; } else { set req.backend_hint = api_2; }"
+	warnings, err := webhook.ValidateVinylCache(vc)
+	require.NoError(t, err)
+	require.Len(t, warnings, 2)
+	assert.Contains(t, warnings[0], "plone.backend()")
+	assert.Contains(t, warnings[1], "api.backend()")
+}
+
+func TestValidate_LegacyBackendReferences_QuotedName(t *testing.T) {
+	vc := minimalValidVC()
+	vc.Spec.Backends[0].Name = "a.b"
+	vc.Spec.VCL.Snippets.VCLRecv = "set x = axb_0;"
+	// Such a name is rejected elsewhere; the pattern must still not panic or
+	// treat the dot as a wildcard.
+	warnings, _ := webhook.ValidateVinylCache(vc)
+	assert.Empty(t, warnings, "the dot must be matched literally")
+}
+
+func TestValidateUpdate_LegacyBackendReferences_Warns(t *testing.T) {
+	old := minimalValidVC()
+	vc := minimalValidVC()
+	vc.Spec.VCL.Snippets.VCLRecv = "set req.backend_hint = " + vc.Spec.Backends[0].Name + "_0;"
+	warnings, err := webhook.ValidateVinylCacheUpdate(old, vc)
+	require.NoError(t, err)
+	assert.Len(t, warnings, 1)
+}
