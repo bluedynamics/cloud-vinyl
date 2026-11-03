@@ -68,6 +68,8 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go build ./cmd/operator ./cmd/agent
+      - name: Check generated files are up to date
+        run: make check-generated
 
   helm-lint:
     name: Helm Lint
