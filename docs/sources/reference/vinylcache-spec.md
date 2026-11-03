@@ -112,6 +112,14 @@ In cluster mode a request passes through two pods, and most custom VCL snippets
 run on the owning pod only. See
 [Custom snippets in cluster mode](cluster-snippets).
 
+### vcl.snippets
+
+Snippets that reference a per-pod backend name such as `plone_0` are admitted,
+but the admission webhook returns a warning for each snippet field and backend
+involved: per-pod names are renumbered whenever the endpoints change. Use
+`<backend>.backend()` instead, see
+[Per-backend directors](../how-to/per-backend-directors.md).
+
 ### varnishParameters
 
 A `map[string]string`. Each entry becomes one `-p` flag on `varnishd`: the key

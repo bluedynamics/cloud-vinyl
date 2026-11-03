@@ -86,6 +86,11 @@ not exist in the updated pod set.
 
 Migrate to `<backend>.backend()`, which dispatches through the
 per-backend director.
+
+The admission webhook helps you find leftovers: when any
+`spec.vcl.snippets` field contains `<backend>_<N>` for a backend in
+`spec.backends`, applying the VinylCache prints a warning naming the field
+and the replacement. It is only a warning, the resource is still admitted.
 ```
 
 **Before — fragile:**
