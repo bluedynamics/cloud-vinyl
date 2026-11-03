@@ -569,7 +569,10 @@ type StorageSpec struct {
 	// +optional
 	Size resource.Quantity `json:"size,omitempty"`
 
-	// path is the filesystem path for file-type storage.
+	// path is the filesystem path for file-type storage. Leave it empty to
+	// let the operator provision an emptyDir volume of size (plus a small
+	// margin), mount it at /var/lib/vinyl-storage/<name> and request the
+	// matching ephemeral-storage. With a path, mount your own volume there.
 	// +optional
 	Path string `json:"path,omitempty"`
 }

@@ -19,7 +19,7 @@ changing `apiVersion` only.
 |-------|------|----------|-------------|
 | `replicas` | integer | yes | Number of Vinyl Cache pods in the StatefulSet. |
 | `image` | string | yes | Cache image. The operator runs `varnishd` from the image's `PATH` as the container command and passes every flag itself; the image's entrypoint does not run. See [Varnish version support](varnish-versions.md). |
-| `storage` | list | no | Cache storages, each with `name`, `type` (`malloc` or `file`), `size` and, for `file`, `path`. When set, these are the only cache storages. When empty, varnishd creates its default storage `s0` (malloc, 100 MB). The name `synth` is reserved. |
+| `storage` | list | no | Cache storages, each with `name`, `type` (`malloc` or `file`), `size` and, for `file`, an optional `path`. A `file` storage without `path` gets a volume provisioned by the operator and needs a `size`; see {ref}`file-storage-provisioned`. When set, these are the only cache storages. When empty, varnishd creates its default storage `s0` (malloc, 100 MB). The name `synth` is reserved. |
 | `backends` | list | yes | One or more backend services. |
 | `director` | object | no | Director configuration (defaults: `type: shard`). |
 | `cluster` | object | no | Clustering / peer-routing configuration. |
