@@ -47,6 +47,26 @@ snippets in `if (!req.http.X-Vinyl-Shard) { ... }`, or `bereq.http` on the
 backend side. A `return` inside a snippet still works. Without cluster mode,
 there is only one hop and the snippets are rendered without the guard.
 
+(cluster-esi)=
+
+### ESI fragments in cluster mode
+
+With `spec.esi.enabled` as well, fragments are sharded like any other URL. The
+page is expanded on its owner hop, because the relay hop receives the already
+expanded body. An ESI subrequest starts from the headers its parent was received
+with, and on the owner hop these include `X-Vinyl-Shard` from the relay. Left
+alone, the fragment would take the owner-hop path, be looked up and cached on
+the page's owner, and every pod that owns a page including a shared fragment
+(navigation, footer) would fetch it from the backend itself.
+
+The generated `vcl_recv` therefore drops the header for ESI subrequests
+(`req.esi_level > 0`), before the shard decision. The fragment is then relayed
+to its own shard owner like a fresh client request. It arrives there as a normal
+request (`esi_level` 0) carrying `X-Vinyl-Shard`, so the owner serves it from its
+cache and does not route again. A relayed fragment cannot loop between pods for
+the same reason. The guard is only rendered when both cluster mode and ESI are
+enabled.
+
 ## Push
 
 For each ready pod the operator:

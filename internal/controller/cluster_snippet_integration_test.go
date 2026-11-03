@@ -82,9 +82,17 @@ func TestClusterSnippetsRunOnOwnerHopOnly(t *testing.T) {
 // its IP on the docker bridge.
 func startOrigin(t *testing.T, image string) string {
 	t.Helper()
+	id := startOriginVCL(t, image, originVCL)
+	return containerIP(t, id)
+}
+
+// startOriginVCL runs a varnishd with the given VCL as an origin and returns
+// its container id.
+func startOriginVCL(t *testing.T, image, vcl string) string {
+	t.Helper()
 	dir := t.TempDir()
 	vclPath := filepath.Join(dir, "default.vcl")
-	require.NoError(t, os.WriteFile(vclPath, []byte(originVCL), 0o644))
+	require.NoError(t, os.WriteFile(vclPath, []byte(vcl), 0o644))
 	require.NoError(t, os.Chmod(dir, 0o755))
 	out, err := docker("run", "-d", "--rm", "-v", vclPath+":/etc/varnish/default.vcl:ro", image).Output()
 	require.NoError(t, err, "docker run origin: %s", stderrText(err))
@@ -99,7 +107,7 @@ func startOrigin(t *testing.T, image string) string {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	return containerIP(t, id)
+	return id
 }
 
 func containerIP(t *testing.T, id string) string {
