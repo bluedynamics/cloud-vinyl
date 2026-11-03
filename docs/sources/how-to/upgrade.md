@@ -20,6 +20,27 @@ on an `emptyDir` starts cold. Plan upgrades for a quiet period. Pinning
 `image.agent.tag` avoids the roll, but leaves the agent on a different version than the
 operator, which is not supported.
 
+(upgrade-1-1-metric-labels)=
+
+## Upgrading to 1.1: renamed metric labels
+
+1.1 renames two labels of the operator's `vinyl_*` metrics (#155). Before, they
+collided with the target labels Prometheus attaches to every series scraped
+from the operator pod, so Prometheus renamed them to `exported_namespace` and
+`exported_pod`, and `namespace` on every `vinyl_*` series was the operator's
+namespace instead of the cache's.
+
+| Metric | Before 1.1 | As scraped before 1.1 | Since 1.1 |
+|---|---|---|---|
+| all `vinyl_*` with a cache's namespace | `namespace` | `exported_namespace` | `cache_namespace` |
+| `vinyl_broadcast_total` | `pod` (an `ip:port`) | `exported_pod` | `pod_addr` |
+| `vinyl_broadcast_total` | (none) | (none) | `cache`, `cache_namespace` (new) |
+
+The alert rules from the chart and from the operator use the new labels. Update
+your own dashboards, recording rules and alert routes: replace
+`exported_namespace` with `cache_namespace` and `exported_pod` with `pod_addr`
+on `vinyl_*` metrics. The exporter's `varnish_*` metrics are unchanged.
+
 ## Upgrade the CRD
 
 CRDs in `charts/cloud-vinyl/crds/` are installed on `helm install` but are **not** updated

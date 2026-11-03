@@ -102,6 +102,26 @@ tests:
     asserts:
       - failedTemplate: {}
 
+  # Operator metrics carry the cache's namespace as cache_namespace (#155):
+  # a scraped "namespace" is renamed to exported_namespace by Prometheus.
+  - it: PrometheusRule operator alerts use cache_namespace, not namespace
+    template: prometheusrule.yaml
+    set:
+      monitoring.prometheusRules.enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.groups[0].rules[0].annotations.description
+          pattern: '\$labels\.cache_namespace'
+      - equal:
+          path: spec.groups[0].rules[9].alert
+          value: VinylCacheBroadcastFailures
+      - equal:
+          path: spec.groups[0].rules[9].expr
+          value: 'sum by (cache_namespace, cache) (rate(vinyl_broadcast_total{result="error"}[5m])) > 0.1'
+      - matchRegex:
+          path: spec.groups[0].rules[9].annotations.description
+          pattern: 'cache \{\{ \$labels\.cache \}\} in namespace \{\{ \$labels\.cache_namespace \}\}'
+
   - it: ServiceMonitor should not be rendered when disabled
     template: servicemonitor.yaml
     set:

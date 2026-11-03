@@ -136,9 +136,9 @@ func join(matchers ...string) string {
 
 // GeneratePrometheusRule generates the PrometheusRule for one VinylCache: all
 // ten alerts from architektur.md §8.5, each selecting only that cache's series.
-// The operator's metrics carry a cache label; the exporter's are selected by
-// the cache's namespace and StatefulSet pod names. VinylCacheOperatorDown and
-// VinylCacheBroadcastFailures watch the operator as a whole and stay
+// The operator's metrics carry cache and cache_namespace labels; the
+// exporter's are selected by the cache's namespace and StatefulSet pod names.
+// VinylCacheOperatorDown watches the operator as a whole and stays
 // unfiltered; identical alerts from several caches' rules are deduplicated by
 // Alertmanager. opts tunes VinylCacheLowHitRatio.
 func GeneratePrometheusRule(cache, namespace string, opts Options) *PrometheusRule {
@@ -160,7 +160,7 @@ func GeneratePrometheusRule(cache, namespace string, opts Options) *PrometheusRu
 				{
 					Name: appName,
 					Rules: allAlerts(
-						fmt.Sprintf(`cache=%q`, cache),
+						fmt.Sprintf(`cache=%q,cache_namespace=%q`, cache, namespace),
 						fmt.Sprintf(`namespace=%q,pod=~%q`, namespace, regexp.QuoteMeta(cache)+"-[0-9]+"),
 						opts,
 					),
@@ -182,7 +182,7 @@ func allAlerts(cacheSel, podSel string, opts Options) []Rule {
 			Labels: map[string]string{labelSeverity: severityWarning},
 			Annotations: map[string]string{
 				annotationSummary:     "VCL sync failed on {{ $labels.cache }}",
-				annotationDescription: "VCL push errors detected on cache {{ $labels.cache }} in namespace {{ $labels.namespace }}.",
+				annotationDescription: "VCL push errors detected on cache {{ $labels.cache }} in namespace {{ $labels.cache_namespace }}.",
 			},
 		},
 		{
@@ -267,12 +267,12 @@ func allAlerts(cacheSel, podSel string, opts Options) []Rule {
 		},
 		{
 			Alert:  "VinylCacheBroadcastFailures",
-			Expr:   intstr.FromString(`rate(vinyl_broadcast_total{result="error"}[5m]) > 0.1`),
+			Expr:   intstr.FromString(fmt.Sprintf(`sum by (cache_namespace, cache) (rate(vinyl_broadcast_total{%s}[5m])) > 0.1`, join(`result="error"`, cacheSel))),
 			For:    "5m",
 			Labels: map[string]string{labelSeverity: severityWarning},
 			Annotations: map[string]string{
 				annotationSummary:     "Broadcast failures on {{ $labels.cache }} pods",
-				annotationDescription: "More than 10% of broadcast requests to Varnish pods are failing for cache {{ $labels.cache }}.",
+				annotationDescription: "More than 0.1 broadcast requests per second to the Varnish pods of cache {{ $labels.cache }} in namespace {{ $labels.cache_namespace }} are failing.",
 			},
 		},
 	}

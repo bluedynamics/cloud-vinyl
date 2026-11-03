@@ -50,7 +50,7 @@ func TestNewMetrics_AllRegisteredInRegistry(t *testing.T) {
 	m.VCLPushTotal.WithLabelValues("my-cache", "default", "success").Inc()
 	m.ReconcileTotal.WithLabelValues("my-cache", "default", "ok").Inc()
 	m.VCLVersionsLoaded.WithLabelValues("my-cache", "default").Set(1.0)
-	m.BroadcastTotal.WithLabelValues("pod-0", "success").Inc()
+	m.BroadcastTotal.WithLabelValues("my-cache", "production", "10.0.0.1:8080", "success").Inc()
 
 	mfs2, err := reg2.Gather()
 	require.NoError(t, err)
