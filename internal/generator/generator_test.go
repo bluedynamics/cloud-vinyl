@@ -1722,3 +1722,38 @@ func TestGenerate_Cluster_NoSnippets_NoGuard(t *testing.T) {
 		assert.NotContains(t, subBody(t, r.VCL, sub), "X-Vinyl-Shard", "%s: no guard without a snippet", sub)
 	}
 }
+
+func TestGenerate_Cluster_ESI_FragmentsDropInheritedShardHeader(t *testing.T) {
+	g := newGenerator(t)
+	input := clusterInputWithBAN(false)
+	input.Spec.ESI.Enabled = true
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+
+	guard := "if (req.esi_level > 0) {\n        unset req.http.X-Vinyl-Shard;"
+	spoofIdx := strings.Index(r.VCL, "!(client.ip ~ vinyl_cluster_peers)")
+	guardIdx := strings.Index(r.VCL, guard)
+	routeIdx := strings.Index(r.VCL, "set req.backend_hint = ")
+	require.NotEqual(t, -1, guardIdx, "ESI subrequests must drop the inherited X-Vinyl-Shard (#156)")
+	assert.Less(t, spoofIdx, guardIdx)
+	assert.Less(t, guardIdx, routeIdx,
+		"the guard must run before the shard decision, or the fragment is served on the page's owner")
+}
+
+func TestGenerate_Cluster_NoESI_NoFragmentGuard(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(clusterInputWithBAN(false))
+	require.NoError(t, err)
+	assert.NotContains(t, r.VCL, "req.esi_level")
+}
+
+func TestGenerate_NoCluster_ESI_NoFragmentGuard(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.ESI.Enabled = true
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	assert.NotContains(t, r.VCL, "req.esi_level",
+		"without clustering there is no X-Vinyl-Shard to drop")
+	assert.NotContains(t, r.VCL, "X-Vinyl-Shard")
+}

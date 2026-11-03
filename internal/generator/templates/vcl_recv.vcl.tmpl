@@ -79,6 +79,17 @@ sub vcl_recv {
     if (req.http.X-Vinyl-Shard && !(client.ip ~ vinyl_cluster_peers)) {
         unset req.http.X-Vinyl-Shard;
     }
+{{- if .HasESI }}
+    # An ESI subrequest starts from the headers its parent was received with.
+    # On the owner hop of the page that includes X-Vinyl-Shard, so without this
+    # the fragment would be looked up and cached on the page's owner instead of
+    # being relayed to the fragment's own shard owner. The relayed request
+    # reaches that owner as a normal request (esi_level 0) with the header set,
+    # so it cannot loop.
+    if (req.esi_level > 0) {
+        unset req.http.X-Vinyl-Shard;
+    }
+{{- end }}
     # Route to responsible peer; if already routed, proceed to cache lookup
     if (!req.http.X-Vinyl-Shard) {
         set req.http.X-Vinyl-Shard = "1";
