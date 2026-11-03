@@ -68,6 +68,28 @@ helm upgrade cloud-vinyl ... \
   --set monitoring.serviceMonitor.enabled=true
 ```
 
+(install-watch-namespaces)=
+
+## Restrict the operator to some namespaces
+
+The operator keeps the objects it works with in an in-memory cache. Since 1.1
+that cache only holds the objects the operator created itself, which carry its
+labels, plus the EndpointSlices of all Services, because the backend Services
+of a VinylCache are yours and carry no label of ours. On a cluster with many
+Services those slices still grow with the cluster.
+
+If your VinylCaches live in a known set of namespaces, restrict the operator to
+them:
+
+```bash
+helm upgrade cloud-vinyl ... \
+  --set 'operatorFlags.watchNamespaces={shop,blog}'
+```
+
+The operator then ignores VinylCaches in every other namespace. The admission
+webhook still validates them, so `kubectl apply` succeeds, but nothing
+reconciles them. The ClusterRole stays cluster-wide.
+
 (install-troubleshooting)=
 
 ## Troubleshoot a failed VCL push

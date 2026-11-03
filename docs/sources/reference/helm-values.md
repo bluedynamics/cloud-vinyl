@@ -58,6 +58,7 @@ value never had an effect; it is still accepted, and ignored, until 2.0.
 | `operatorFlags.metricsAddr` | string | `:8080` | Metrics server bind address. |
 | `operatorFlags.probeAddr` | string | `:8081` | Health probe bind address. |
 | `operatorFlags.agentClientTimeout` | string | `30s` | HTTP timeout for vinyl-agent API calls, as a Go duration (`30s`, `1m30s`). Before 1.0.2 the value was ignored and the operator always used 30s. |
+| `operatorFlags.watchNamespaces` | list of strings | `[]` | Namespaces the operator watches. Empty watches the whole cluster. VinylCaches in other namespaces are ignored, and the webhook still admits them. See {ref}`install-watch-namespaces`. |
 
 ## defaults
 

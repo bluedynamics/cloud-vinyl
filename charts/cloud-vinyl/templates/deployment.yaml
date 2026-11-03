@@ -35,6 +35,9 @@ spec:
             - --default-pod-anti-affinity={{ .Values.defaults.podAntiAffinity.type }}
             - --default-pod-anti-affinity-topology-key={{ .Values.defaults.podAntiAffinity.topologyKey }}
             - --default-pod-anti-affinity-weight={{ .Values.defaults.podAntiAffinity.weight }}
+            {{- with .Values.operatorFlags.watchNamespaces }}
+            - --watch-namespaces={{ join "," . }}
+            {{- end }}
             {{- if and .Values.monitoring.metrics.secure (include "cloud-vinyl.metricsTLSSecret" .) }}
             - --metrics-cert-path=/tmp/k8s-metrics-server/metrics-certs
             {{- end }}
