@@ -79,11 +79,24 @@ removes the dependency on a single vendor's image.
 
 ### API
 
+Today's lineage. `flavor` can be omitted; it defaults to `varnish`:
+
 ```yaml
 spec:
-  flavor: varnish   # or: vinyl. Default: varnish.
-  image: ghcr.io/bluedynamics/vinyl-cache:9.1.0
+  flavor: varnish
+  image: varnish:9.1.0
 ```
+
+Vinyl Cache, with our image:
+
+```yaml
+spec:
+  flavor: vinyl
+  image: ghcr.io/bluedynamics/vinyl-cache:9.1.0-r1
+```
+
+Flavor and image always belong to the same lineage. A mismatch is a
+misconfiguration; see "Mismatch detection".
 
 - `spec.flavor`, an enum `varnish | vinyl`, defaulted to `varnish` by the CRD
   (so existing objects read back as `varnish` and nothing changes for them).
