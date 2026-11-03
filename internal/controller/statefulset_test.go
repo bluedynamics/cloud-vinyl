@@ -123,7 +123,7 @@ func TestReconcileStatefulSet_ExporterSidecarWhenEnabled(t *testing.T) {
 		}
 	}
 	require.NotNil(t, exporter, "exporter sidecar must be present when enabled")
-	assert.Equal(t, "ghcr.io/bluedynamics/varnish-exporter:1.6.1-varnish9.1.0", exporter.Image)
+	assert.Equal(t, "ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0", exporter.Image)
 	assert.Equal(t, []string{"-n", "/var/lib/varnish/varnishd", "-web.listen-address", ":9131"}, exporter.Args,
 		"varnishstat must read varnishd's explicit -n, not its build default")
 
