@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"time"
 
@@ -51,6 +52,12 @@ func NewServer(addr, token string, admin AdminClient, xkey *XkeyPurger) *Server 
 // Start starts the HTTP server.
 func (s *Server) Start() error {
 	return s.httpServer.ListenAndServe()
+}
+
+// Serve serves on an already bound listener. Binding separately from serving
+// lets the caller log "listening" only once the socket really is bound.
+func (s *Server) Serve(l net.Listener) error {
+	return s.httpServer.Serve(l)
 }
 
 // Shutdown gracefully shuts down the server.
