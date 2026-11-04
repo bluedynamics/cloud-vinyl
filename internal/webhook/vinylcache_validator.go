@@ -92,6 +92,9 @@ var reservedMountPaths = []string{
 	"/etc/varnish/default.vcl",
 	"/var/lib/varnish",
 	"/tmp",
+	// The operator mounts the volumes it provisions for file storages
+	// without a path here (controller.FileStorageMountRoot, #131).
+	"/var/lib/vinyl-storage",
 }
 
 // pathIsReserved reports whether p equals a reserved mount path or sits
@@ -256,14 +259,7 @@ func ValidateVinylCache(vc *vinylv1.VinylCache) (admission.Warnings, error) {
 
 	errs = append(errs, validateProxyProtocolPort(vc)...)
 
-	// Validate spec.storage[].path does not write into a reserved mount.
-	for _, s := range vc.Spec.Storage {
-		if s.Type == "file" && pathIsReserved(s.Path) {
-			errs = append(errs, fmt.Sprintf(
-				"spec.storage[%q].path %q is reserved by the operator; mount your own volume and place the cache file there",
-				s.Name, s.Path))
-		}
-	}
+	errs = append(errs, validateFileStorage(vc.Spec.Storage)...)
 
 	// Validate tracing: an enabled tracer without a collector endpoint (or
 	// with a malformed one) would crash-loop the sidecar.
@@ -277,11 +273,63 @@ func ValidateVinylCache(vc *vinylv1.VinylCache) (admission.Warnings, error) {
 	}
 
 	warnings := legacyBackendWarnings(vc)
+	warnings = append(warnings, fileStorageWarnings(vc)...)
 
 	if len(errs) > 0 {
 		return warnings, fmt.Errorf("%s", strings.Join(errs, "; "))
 	}
 	return warnings, nil
+}
+
+// validateFileStorage checks type: file storages. With a path, the file must
+// not land in a mount the operator owns. Without one, the operator
+// provisions a volume of the storage's size (#131), so the size is required.
+func validateFileStorage(storage []vinylv1.StorageSpec) []string {
+	var errs []string
+	for _, s := range storage {
+		if s.Type != "file" {
+			continue
+		}
+		switch {
+		case s.Path == "" && s.Size.Sign() <= 0:
+			errs = append(errs, fmt.Sprintf(
+				"spec.storage[%q]: a file storage without path needs a size; the operator provisions a volume of that size",
+				s.Name))
+		case pathIsReserved(s.Path):
+			errs = append(errs, fmt.Sprintf(
+				"spec.storage[%q].path %q is reserved by the operator; mount your own volume and place the cache file there, or omit path to let the operator provision one",
+				s.Name, s.Path))
+		}
+	}
+	return errs
+}
+
+// fileStorageWarnings warns about a file storage whose explicit path lies
+// under none of spec.pod.volumeMounts. varnishd then writes the file into
+// the container's writable layer, where it counts against the node's image
+// filesystem and can get unrelated pods evicted. A warning, not an error:
+// existing caches configured that way must stay updatable.
+func fileStorageWarnings(vc *vinylv1.VinylCache) admission.Warnings {
+	var warnings admission.Warnings
+	for _, s := range vc.Spec.Storage {
+		if s.Type != "file" || s.Path == "" || pathIsReserved(s.Path) {
+			continue
+		}
+		mounted := false
+		for _, m := range vc.Spec.Pod.VolumeMounts {
+			mp := strings.TrimRight(m.MountPath, "/")
+			if strings.HasPrefix(s.Path, mp+"/") {
+				mounted = true
+				break
+			}
+		}
+		if !mounted {
+			warnings = append(warnings, fmt.Sprintf(
+				"spec.storage[%q].path %q lies under none of spec.pod.volumeMounts, so the cache file is written into the container's writable layer; mount a volume there, or omit path to let the operator provision one",
+				s.Name, s.Path))
+		}
+	}
+	return warnings
 }
 
 // snippetField pairs a spec.vcl.snippets field path with its VCL text.

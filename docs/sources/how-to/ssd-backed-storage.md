@@ -1,10 +1,45 @@
-# Back spec.storage[].type=file with a user-provisioned volume
+# Back spec.storage[].type=file with a volume
 
-By default, `spec.storage[].type=file` lands the cache spill file in the operator's `/var/lib/varnish` EmptyDir. That works for small working sets on nodes with SSD-backed ephemeral storage, but has limits: no persistence across pod restart, no `sizeLimit`, no choice of StorageClass, no isolation from node ephemeral use (logs, image layers).
+A `type: file` storage keeps cached objects in a file on disk instead of in the
+heap. That file needs a volume. Without one it would land in the container's
+writable layer, count against the node's image filesystem and can get unrelated
+pods evicted.
 
-This guide shows how to back the spill file with (1) an EmptyDir with an explicit size limit, or (2) a StorageClass-provisioned PVC per pod.
+This guide shows three ways: (0) let the operator provision the volume, (1) an
+EmptyDir you declare yourself, or (2) a StorageClass-provisioned PVC per pod.
 
-## Option 1 — EmptyDir with sizeLimit (simplest)
+(file-storage-provisioned)=
+
+## Option 0 — let the operator provision the volume (simplest)
+
+Since 1.1, leave out `path` and the operator does the wiring:
+
+```yaml
+spec:
+  storage:
+    - name: disk
+      type: file
+      size: 10Gi
+```
+
+For every `type: file` storage without `path` the operator
+
+- adds an `emptyDir` volume with `sizeLimit` set to `size` plus 5 % (at least
+  plus 64Mi), so a full cache file never trips the limit;
+- mounts it at `/var/lib/vinyl-storage/<name>` and passes
+  `/var/lib/vinyl-storage/<name>/<name>.bin` to varnishd;
+- adds the sum of these volumes to the varnish container's
+  `requests.ephemeral-storage`, so the scheduler only places the pod on a node
+  with that much free disk. An `ephemeral-storage` request you set yourself in
+  `spec.resources` takes precedence.
+
+`size` is required in this form. `/var/lib/vinyl-storage` is reserved; neither
+`path` nor `spec.pod.volumeMounts` may point into it.
+
+Use option 1 or 2 when you need a different volume type, a StorageClass, or
+persistence across restarts.
+
+## Option 1 — EmptyDir with sizeLimit
 
 Useful when you want to cap cache disk use and isolate it from node ephemeral capacity, without per-pod persistence.
 
@@ -101,8 +136,19 @@ These names cannot be used for your volumes (they collide with operator-managed 
 
 These mount paths are reserved by the operator:
 
-- `/run/vinyl`, `/etc/varnish/secret`, `/etc/varnish/default.vcl`, `/var/lib/varnish`, `/tmp`
+- `/run/vinyl`, `/etc/varnish/secret`, `/etc/varnish/default.vcl`, `/var/lib/varnish`, `/tmp`, `/var/lib/vinyl-storage`
 
 `spec.storage[].path` cannot live under a reserved mount — you must declare your own `pod.volumeMounts` entry that covers the path.
 
-The admission webhook rejects violations with a clear message.
+The admission webhook rejects violations with a clear message. A `path` that lies under none of your `pod.volumeMounts` is admitted with a warning, because the file would then land in the container's writable layer.
+
+## Memory with a file storage
+
+varnishd `mmap`s the cache file, so the objects it serves live in the kernel's
+page cache. The page cache counts against the container's memory limit, but the
+kernel reclaims it under pressure instead of OOM-killing varnishd. The memory
+limit therefore only has to cover the process itself (object headers, threads,
+workspaces, the `Transient` storage) plus whatever share of hot objects should
+stay in RAM. With `malloc` storage, by contrast, the limit must cover the
+storage itself plus heap fragmentation; see
+[Size memory for malloc storage](size-memory.md).

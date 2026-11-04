@@ -226,8 +226,10 @@ func TestValidate_StorageType_Blocklist(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			vc := minimalValidVC()
+			// A size, because a file storage without path and size is
+			// rejected on its own (#131).
 			vc.Spec.Storage = []vinylv1.StorageSpec{
-				{Name: "cache", Type: tc.storageType},
+				{Name: "cache", Type: tc.storageType, Size: resource.MustParse("1Gi")},
 			}
 
 			_, err := webhook.ValidateVinylCache(vc)
@@ -884,4 +886,56 @@ func TestValidateUpdate_LegacyBackendReferences_Warns(t *testing.T) {
 	warnings, err := webhook.ValidateVinylCacheUpdate(old, vc)
 	require.NoError(t, err)
 	assert.Len(t, warnings, 1)
+}
+
+func TestValidate_FileStorage_ProvisionedNeedsSize(t *testing.T) {
+	vc := minimalValidVC()
+	vc.Spec.Storage = []vinylv1.StorageSpec{{Name: "disk", Type: "file"}}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "needs a size")
+
+	vc.Spec.Storage[0].Size = resource.MustParse("10Gi")
+	warnings, err := webhook.ValidateVinylCache(vc)
+	require.NoError(t, err)
+	assert.Empty(t, warnings, "a provisioned file storage needs no mount of its own")
+}
+
+func TestValidate_FileStorage_OperatorMountRootIsReserved(t *testing.T) {
+	vc := minimalValidVC()
+	vc.Spec.Storage = []vinylv1.StorageSpec{{
+		Name: "disk", Type: "file", Path: "/var/lib/vinyl-storage/disk/disk.bin", Size: resource.MustParse("1Gi"),
+	}}
+	_, err := webhook.ValidateVinylCache(vc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reserved by the operator")
+
+	vc = minimalValidVC()
+	vc.Spec.Pod.VolumeMounts = []corev1.VolumeMount{{Name: "x", MountPath: "/var/lib/vinyl-storage"}}
+	_, err = webhook.ValidateVinylCache(vc)
+	require.Error(t, err, "user volumes must not mount over the operator's storage root")
+}
+
+func TestValidate_FileStorage_WarnsWhenPathIsNotOnAVolume(t *testing.T) {
+	vc := minimalValidVC()
+	vc.Spec.Storage = []vinylv1.StorageSpec{{
+		Name: "disk", Type: "file", Path: "/cache/disk.bin", Size: resource.MustParse("1Gi"),
+	}}
+	warnings, err := webhook.ValidateVinylCache(vc)
+	require.NoError(t, err, "a warning, never a rejection")
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], `"/cache/disk.bin"`)
+	assert.Contains(t, warnings[0], "writable layer")
+
+	vc.Spec.Pod.Volumes = []corev1.Volume{{
+		Name: "cache", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+	}}
+	vc.Spec.Pod.VolumeMounts = []corev1.VolumeMount{{Name: "cache", MountPath: "/cache/"}}
+	warnings, err = webhook.ValidateVinylCache(vc)
+	require.NoError(t, err)
+	assert.Empty(t, warnings, "path under a declared mount")
+
+	vc.Spec.Pod.VolumeMounts = []corev1.VolumeMount{{Name: "cache", MountPath: "/cach"}}
+	warnings, _ = webhook.ValidateVinylCache(vc)
+	assert.Len(t, warnings, 1, "/cach is no parent of /cache/disk.bin")
 }

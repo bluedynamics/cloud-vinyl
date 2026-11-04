@@ -186,8 +186,10 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vin
 				ReadOnlyRootFilesystem:   new(true),
 				AllowPrivilegeEscalation: new(false),
 			},
-			Resources: vc.Spec.Resources,
+			Resources: varnishResources(vc),
 		}
+		fileStorages := provisionedFileStorages(vc.Spec.Storage)
+		varnishContainer.VolumeMounts = append(varnishContainer.VolumeMounts, fileStorageMounts(fileStorages)...)
 
 		// Append user-declared volume mounts to the varnish container.
 		if len(vc.Spec.Pod.VolumeMounts) > 0 {
@@ -305,6 +307,8 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vin
 				},
 			},
 		}
+
+		volumes = append(volumes, fileStorageVolumes(fileStorages)...)
 
 		// Append user-declared pod volumes after the operator-managed defaults.
 		if len(vc.Spec.Pod.Volumes) > 0 {
@@ -505,8 +509,9 @@ func storageArgs(storage []vinylv1.StorageSpec) []string {
 			// -s <name>=malloc,<size>
 			spec = fmt.Sprintf("%s=malloc,%d", s.Name, s.Size.Value())
 		case "file":
-			// -s <name>=file,<path>,<size>
-			spec = fmt.Sprintf("%s=file,%s,%d", s.Name, s.Path, s.Size.Value())
+			// -s <name>=file,<path>,<size>; without a path the operator
+			// provisions the volume (#131).
+			spec = fmt.Sprintf("%s=file,%s,%d", s.Name, fileStoragePath(s), s.Size.Value())
 		default:
 			continue // webhook already rejects other types; belt-and-braces skip
 		}
