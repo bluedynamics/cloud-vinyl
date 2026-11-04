@@ -14,6 +14,8 @@ spec:
     metadata:
       labels:
         {{- include "cloud-vinyl.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/runtime-catalog: {{ include "cloud-vinyl.runtimes" . | sha256sum }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -35,6 +37,7 @@ spec:
             - --default-pod-anti-affinity={{ .Values.defaults.podAntiAffinity.type }}
             - --default-pod-anti-affinity-topology-key={{ .Values.defaults.podAntiAffinity.topologyKey }}
             - --default-pod-anti-affinity-weight={{ .Values.defaults.podAntiAffinity.weight }}
+            - --runtime-catalog=/etc/cloud-vinyl/runtimes.yaml
             {{- with .Values.operatorFlags.watchNamespaces }}
             - --watch-namespaces={{ join "," . }}
             {{- end }}
@@ -51,8 +54,6 @@ spec:
                   fieldPath: status.podIP
             - name: AGENT_IMAGE
               value: "{{ .Values.image.agent.repository }}:{{ .Values.image.agent.tag | default .Chart.AppVersion }}"
-            - name: TRACER_IMAGE
-              value: "{{ .Values.image.tracer.repository }}:{{ .Values.image.tracer.tag | default .Chart.AppVersion }}"
           ports:
             - name: metrics
               containerPort: 8080
@@ -83,6 +84,9 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           volumeMounts:
+            - name: runtime-catalog
+              mountPath: /etc/cloud-vinyl
+              readOnly: true
             - name: webhook-certs
               mountPath: /tmp/k8s-webhook-server/serving-certs
               readOnly: true
@@ -92,6 +96,9 @@ spec:
               readOnly: true
             {{- end }}
       volumes:
+        - name: runtime-catalog
+          configMap:
+            name: {{ include "cloud-vinyl.fullname" . }}-runtimes
         - name: webhook-certs
           secret:
             secretName: {{ include "cloud-vinyl.webhookTLSSecret" . }}

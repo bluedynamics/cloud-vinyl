@@ -94,3 +94,26 @@ In-cluster DNS name of the Service carrying the metrics port.
 {{- define "cloud-vinyl.metricsServiceHost" -}}
 {{- printf "%s.%s.svc" (include "cloud-vinyl.fullname" .) .Release.Namespace -}}
 {{- end }}
+
+{{/*
+Effective runtime catalog (the content of runtimes.yaml). Fills an empty tracer
+with the tracer of this chart release (<appVersion> for varnish,
+<appVersion>-vinyl for vinyl). While the deprecated image.tracer.repository or
+image.tracer.tag is set, it replaces the tracer of every varnish entry.
+*/}}
+{{- define "cloud-vinyl.runtimes" -}}
+{{- $rt := deepCopy .Values.runtimes -}}
+{{- $base := "ghcr.io/bluedynamics/cloud-vinyl-tracer" -}}
+{{- $legacy := or .Values.image.tracer.repository .Values.image.tracer.tag -}}
+{{- range $flavor, $spec := $rt -}}
+{{- range $version, $entry := $spec.versions -}}
+{{- if and (eq $flavor "varnish") $legacy -}}
+{{- $_ := set $entry "tracer" (printf "%s:%s" ($.Values.image.tracer.repository | default $base) ($.Values.image.tracer.tag | default $.Chart.AppVersion)) -}}
+{{- else if not $entry.tracer -}}
+{{- $suffix := ternary "-vinyl" "" (eq $flavor "vinyl") -}}
+{{- $_ := set $entry "tracer" (printf "%s:%s%s" $base $.Chart.AppVersion $suffix) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- toYaml $rt -}}
+{{- end }}

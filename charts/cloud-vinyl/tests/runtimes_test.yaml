@@ -1,0 +1,168 @@
+suite: Runtime catalog tests
+chart:
+  appVersion: "1.2.3"
+templates:
+  - runtime-catalog.yaml
+  - deployment.yaml
+  - NOTES.txt
+tests:
+  - it: ConfigMap holds both flavors with default tracer images
+    template: runtime-catalog.yaml
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-cloud-vinyl-runtimes
+      - matchRegex:
+          path: data["runtimes.yaml"]
+          pattern: 'tracer: ghcr.io/bluedynamics/cloud-vinyl-tracer:1.2.3\n'
+      - matchRegex:
+          path: data["runtimes.yaml"]
+          pattern: 'tracer: ghcr.io/bluedynamics/cloud-vinyl-tracer:1.2.3-vinyl\n'
+      - matchRegex:
+          path: data["runtimes.yaml"]
+          pattern: 'daemon: ghcr.io/bluedynamics/vinyl-cache:9.1.0-r1'
+      - matchRegex:
+          path: data["runtimes.yaml"]
+          pattern: 'daemon: docker.io/library/varnish:9.1.0'
+      - matchRegex:
+          path: data["runtimes.yaml"]
+          pattern: 'default: 9.1.0'
+
+  - it: image.tracer.tag overrides the varnish tracer only
+    template: runtime-catalog.yaml
+    set:
+      image.tracer.tag: x
+    asserts:
+      - matchRegex:
+          path: data["runtimes.yaml"]
+          pattern: 'tracer: ghcr.io/bluedynamics/cloud-vinyl-tracer:x\n'
+      - matchRegex:
+          path: data["runtimes.yaml"]
+          pattern: 'tracer: ghcr.io/bluedynamics/cloud-vinyl-tracer:1.2.3-vinyl\n'
+
+  - it: image.tracer.repository alone uses appVersion as tag
+    template: runtime-catalog.yaml
+    set:
+      image.tracer.repository: example.com/t
+    asserts:
+      - matchRegex:
+          path: data["runtimes.yaml"]
+          pattern: 'tracer: example.com/t:1.2.3\n'
+
+  - it: NOTES prints a deprecation note for image.tracer
+    template: NOTES.txt
+    set:
+      image.tracer.tag: x
+    asserts:
+      - matchRegexRaw:
+          pattern: deprecated
+
+  - it: NOTES has no deprecation note by default
+    template: NOTES.txt
+    asserts:
+      - notMatchRegexRaw:
+          pattern: deprecated
+
+  - it: a vinyl daemon override appears in the ConfigMap
+    template: runtime-catalog.yaml
+    set:
+      runtimes:
+        vinyl:
+          versions:
+            "9.1.0":
+              daemon: example.com/vinyl@sha256:abc
+    asserts:
+      - matchRegex:
+          path: data["runtimes.yaml"]
+          pattern: 'daemon: example.com/vinyl@sha256:abc'
+
+  - it: deployment passes the flag, mounts the catalog, drops TRACER_IMAGE
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --runtime-catalog=/etc/cloud-vinyl/runtimes.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: runtime-catalog
+            mountPath: /etc/cloud-vinyl
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: runtime-catalog
+            configMap:
+              name: RELEASE-NAME-cloud-vinyl-runtimes
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TRACER_IMAGE
+            value: ghcr.io/bluedynamics/cloud-vinyl-tracer:1.2.3
+      - notExists:
+          path: spec.template.spec.containers[0].env[2]
+
+  - it: checksum annotation is stable across renders
+    template: deployment.yaml
+    set:
+      runtimes:
+        varnish:
+          versions:
+            "9.1.0":
+              daemon: d1
+              exporter: e1
+              tracer: t1
+        vinyl:
+          versions:
+            "9.1.0":
+              daemon: d2
+              exporter: e2
+              tracer: t2
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/runtime-catalog"]
+          # Pinned for a fully specified catalog: any drift in the rendering
+          # (key order, quoting) shows up here and would roll every operator
+          # on helm upgrade.
+          value: 1970d6ff4084b56b356e4e86d75da28755588d13a02f57aae2f51951fe1df230
+
+  - it: a changed daemon changes the checksum
+    template: deployment.yaml
+    set:
+      runtimes:
+        varnish:
+          versions:
+            "9.1.0":
+              daemon: d1
+              exporter: e1
+              tracer: t1
+        vinyl:
+          versions:
+            "9.1.0":
+              daemon: d3
+              exporter: e2
+              tracer: t2
+    asserts:
+      - notEqual:
+          path: spec.template.metadata.annotations["checksum/runtime-catalog"]
+          value: 1970d6ff4084b56b356e4e86d75da28755588d13a02f57aae2f51951fe1df230
+
+  - it: schema rejects an unknown flavor
+    template: runtime-catalog.yaml
+    set:
+      runtimes:
+    asserts:
+      - failedTemplate: {}
+
+  - it: schema rejects an unknown image key
+    template: runtime-catalog.yaml
+    set:
+      runtimes:
+        vinyl:
+          versions:
+            "9.1.0":
+              sidecar: x
+    asserts:
+      - failedTemplate: {}

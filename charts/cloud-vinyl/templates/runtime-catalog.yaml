@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cloud-vinyl.fullname" . }}-runtimes
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cloud-vinyl.labels" . | nindent 4 }}
+data:
+  runtimes.yaml: |
+    {{- include "cloud-vinyl.runtimes" . | nindent 4 }}

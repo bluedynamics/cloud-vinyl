@@ -14,11 +14,50 @@ image:
     # Defaults to Chart appVersion when empty.
     tag: ""
     pullPolicy: IfNotPresent
+  # Deprecated: the tracer image is part of the runtime catalog (`runtimes`
+  # below). While either field is set, the tracer of every varnish catalog entry
+  # becomes <repository>:<tag>, with the repository defaulting to
+  # ghcr.io/bluedynamics/cloud-vinyl-tracer and the tag to the chart appVersion.
+  # The vinyl tracer is not affected.
   tracer:
-    repository: ghcr.io/bluedynamics/cloud-vinyl-tracer
-    # Defaults to Chart appVersion when empty.
+    repository: ""
     tag: ""
     pullPolicy: IfNotPresent
+
+# Runtime catalog: the Varnish/Vinyl versions a VinylCache can run, each with
+# its daemon, exporter and tracer image. The chart renders it into a ConfigMap
+# that the operator reads at startup (--runtime-catalog); a change restarts the
+# operator. A VinylCache picks a flavor and version via spec.flavor and
+# spec.version, or falls back to `default` of its flavor.
+#
+# Normal case: leave this block alone. Each chart release ships entries that
+# were tested together.
+#
+# Empty tracer: use the tracer of this chart release,
+# ghcr.io/bluedynamics/cloud-vinyl-tracer:<appVersion> for varnish and
+# ...:<appVersion>-vinyl for vinyl.
+#
+# Emergency override, e.g. to roll out a patched daemon image before the next
+# chart release. Dots in a version key must be escaped with a backslash, and
+# the shell needs the backslash quoted:
+#   helm upgrade ... --set 'runtimes.vinyl.versions.9\.1\.0.daemon=registry.example/vinyl-cache@sha256:...'
+# In a values file no escaping is needed (versions are quoted YAML keys).
+# Only flavors varnish and vinyl exist; version keys must be quoted strings.
+runtimes:
+  varnish:
+    default: "9.1.0"
+    versions:
+      "9.1.0":
+        daemon: docker.io/library/varnish:9.1.0
+        exporter: ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0
+        tracer: ""
+  vinyl:
+    default: "9.1.0"
+    versions:
+      "9.1.0":
+        daemon: ghcr.io/bluedynamics/vinyl-cache:9.1.0-r1
+        exporter: ghcr.io/bluedynamics/varnish-exporter:1.8.3-vinyl9.1.0
+        tracer: ""
 
 imagePullSecrets: []
 nameOverride: ""
