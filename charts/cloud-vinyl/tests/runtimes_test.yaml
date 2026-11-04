@@ -153,8 +153,11 @@ tests:
     template: runtime-catalog.yaml
     set:
       runtimes:
+        bogus:
+          default: x
     asserts:
-      - failedTemplate: {}
+      - failedTemplate:
+          errorPattern: "additional properties 'bogus' not allowed"
 
   - it: schema rejects an unknown image key
     template: runtime-catalog.yaml
@@ -165,4 +168,5 @@ tests:
             "9.1.0":
               sidecar: x
     asserts:
-      - failedTemplate: {}
+      - failedTemplate:
+          errorPattern: "additional properties 'sidecar' not allowed"
