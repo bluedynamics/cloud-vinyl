@@ -1,0 +1,2 @@
+# Chainsaw values for the Varnish leg. Fixtures read $values.flavor.
+flavor: varnish

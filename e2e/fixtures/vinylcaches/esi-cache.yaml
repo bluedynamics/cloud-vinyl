@@ -26,6 +26,7 @@ kind: VinylCache
 metadata:
   name: esi-cache
 spec:
+  flavor: ($values.flavor)
   replicas: 1
   backends:
     - name: esi

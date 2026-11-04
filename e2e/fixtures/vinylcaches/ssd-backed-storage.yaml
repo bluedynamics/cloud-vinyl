@@ -3,6 +3,7 @@ kind: VinylCache
 metadata:
   name: ssd-cache
 spec:
+  flavor: ($values.flavor)
   replicas: 1
   backends:
     - name: app

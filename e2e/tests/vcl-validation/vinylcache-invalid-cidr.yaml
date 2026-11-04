@@ -8,6 +8,7 @@ kind: VinylCache
 metadata:
   name: invalid-cidr-test
 spec:
+  flavor: ($values.flavor)
   replicas: 1
   backends:
     - name: echo

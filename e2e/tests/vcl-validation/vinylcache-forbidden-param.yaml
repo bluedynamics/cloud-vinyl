@@ -10,6 +10,7 @@ kind: VinylCache
 metadata:
   name: forbidden-param-test
 spec:
+  flavor: ($values.flavor)
   replicas: 1
   backends:
     - name: echo

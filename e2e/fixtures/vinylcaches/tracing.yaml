@@ -6,6 +6,7 @@ kind: VinylCache
 metadata:
   name: traced-cache
 spec:
+  flavor: ($values.flavor)
   replicas: 1
   backends:
     - name: echo

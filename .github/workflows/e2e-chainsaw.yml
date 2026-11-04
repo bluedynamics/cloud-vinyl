@@ -50,7 +50,7 @@ jobs:
       github.event.action != 'labeled' ||
       github.event.label.name == 'e2e-full'
     name: >-
-      Chainsaw E2E
+      Chainsaw E2E ${{ matrix.flavor }}
       (${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'e2e-full')) && 'full' || 'fast' }})
     # Pinned, not ubuntu-latest: ubuntu-26.04 ships Docker 29 with the
     # containerd image store, and `kind load docker-image` then fails on
@@ -60,12 +60,24 @@ jobs:
     # it.
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # One leg per runtime flavor, same suite selection on both. The flavor
+    # reaches the fixtures as the chainsaw value `flavor`
+    # (e2e/values/<flavor>.yaml) and the operator install via FLAVOR.
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [varnish, vinyl]
     env:
+      FLAVOR: ${{ matrix.flavor }}
       SUITE: >-
         ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'e2e-full')) && 'full' || 'fast' }}
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The vinyl leg diffs against origin/main to see whether the Vinyl
+          # image itself changed.
+          fetch-depth: 0
 
       - name: Fix MTU for Kind cross-node networking
         run: sudo sysctl -w net.ipv4.tcp_mtu_probing=1
@@ -120,13 +132,39 @@ jobs:
           kind load docker-image cloud-vinyl-probe:dev \
             --name cloud-vinyl-e2e
 
+      # When the PR changes Dockerfile.vinyl, the Vinyl leg tests the image
+      # built from this checkout instead of the published one. Built before the
+      # tracer, which takes its vinyllog from the daemon image.
+      - name: Build Vinyl Cache image (if changed)
+        if: matrix.flavor == 'vinyl'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && \
+             git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD" | grep -qx 'Dockerfile.vinyl'; then
+            docker build -f Dockerfile.vinyl \
+              -t ghcr.io/bluedynamics/vinyl-cache:ci .
+            kind load docker-image ghcr.io/bluedynamics/vinyl-cache:ci \
+              --name cloud-vinyl-e2e
+            echo "DAEMON_IMAGE=ghcr.io/bluedynamics/vinyl-cache:ci" >> "$GITHUB_ENV"
+            echo "VINYL_IMAGE=ghcr.io/bluedynamics/vinyl-cache:ci" >> "$GITHUB_ENV"
+          else
+            echo "Dockerfile.vinyl unchanged: using the catalog's published image."
+          fi
+
       - name: Build tracer image
         run: |
+          if [ "$FLAVOR" = "vinyl" ]; then
+            TAG=dev-vinyl
+          else
+            TAG=dev
+          fi
           docker build -f Dockerfile.tracer \
+            --build-arg FLAVOR="$FLAVOR" \
             --build-arg VARNISH_IMAGE=varnish:9.1.0 \
-            -t ghcr.io/bluedynamics/cloud-vinyl-tracer:dev .
-          kind load docker-image ghcr.io/bluedynamics/cloud-vinyl-tracer:dev \
+            ${VINYL_IMAGE:+--build-arg VINYL_IMAGE="$VINYL_IMAGE"} \
+            -t "ghcr.io/bluedynamics/cloud-vinyl-tracer:${TAG}" .
+          kind load docker-image "ghcr.io/bluedynamics/cloud-vinyl-tracer:${TAG}" \
             --name cloud-vinyl-e2e
+          echo "TRACER_IMAGE=ghcr.io/bluedynamics/cloud-vinyl-tracer:${TAG}" >> "$GITHUB_ENV"
 
       - uses: azure/setup-helm@v5
 
@@ -137,7 +175,6 @@ jobs:
         env:
           OPERATOR_IMAGE: ghcr.io/bluedynamics/cloud-vinyl-operator:dev
           AGENT_IMAGE: ghcr.io/bluedynamics/cloud-vinyl-agent:dev
-          TRACER_IMAGE: ghcr.io/bluedynamics/cloud-vinyl-tracer:dev
         run: bash e2e/setup/install-operator.sh
 
       # Downloads the prebuilt release binary. `go install` compiled chainsaw from
@@ -180,6 +217,7 @@ jobs:
             --test-dir e2e/tests \
             --parallel 2 \
             --selector "$SELECTOR" \
+            --values "e2e/values/${FLAVOR}.yaml" \
             --exclude-test-regex "chainsaw/(ha-operator|drift-detection)"
 
       - name: Run sequential E2E tests
@@ -189,6 +227,7 @@ jobs:
             --test-dir e2e/tests \
             --parallel 1 \
             --selector "suite=full" \
+            --values "e2e/values/${FLAVOR}.yaml" \
             --include-test-regex "chainsaw/(ha-operator|drift-detection)"
 
       - name: Debug - operator logs
