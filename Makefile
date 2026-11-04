@@ -87,6 +87,10 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
 
+.PHONY: check-catalog-digests
+check-catalog-digests: ## Fail if a runtime catalog image has no resolvable digest pin (needs network, docker buildx, yq).
+	bash hack/check-catalog-digests.sh
+
 ##@ Integration & Docs
 
 .PHONY: test-int

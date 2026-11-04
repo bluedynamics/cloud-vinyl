@@ -24,6 +24,8 @@ jobs:
         run: bash hack/check-suite-labels.sh
       - name: Check E2E layer boundary
         run: bash hack/check-e2e-boundary.sh
+      - name: Check catalog digests
+        run: bash hack/check-catalog-digests.sh
 
   test:
     name: Unit Tests

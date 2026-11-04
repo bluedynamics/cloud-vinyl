@@ -48,8 +48,8 @@ runtimes:
     default: "9.1.0"
     versions:
       "9.1.0":
-        daemon: docker.io/library/varnish:9.1.0
-        exporter: ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0
+        daemon: docker.io/library/varnish:9.1.0@sha256:4c6066279af88edcdd97d35a45579c77f363e551cd9cb5597644ac856d8ebbdf
+        exporter: ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0@sha256:7140e635cf6ead4518a616c711021482221f1a847167130ecc59c48725653cb3
         tracer: ""
   vinyl:
     default: "9.1.0"
