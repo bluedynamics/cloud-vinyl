@@ -1,0 +1,5 @@
+runtimes:
+  vinyl:
+    versions:
+      "9.1.0":
+        daemon: ""

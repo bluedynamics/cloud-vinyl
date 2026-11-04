@@ -170,3 +170,43 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "additional properties 'sidecar' not allowed"
+
+  - it: fails with a hint when the runtime catalog is missing (--reuse-values)
+    template: runtime-catalog.yaml
+    set:
+      runtimes: null
+    asserts:
+      - failedTemplate:
+          errorPattern: 'runtime catalog .* is missing.*--reset-then-reuse-values'
+
+  - it: fails when a flavor has no default
+    template: runtime-catalog.yaml
+    set:
+      runtimes.vinyl.default: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: 'runtimes\.vinyl\.default "" is missing or not among'
+
+  - it: fails when the default is not among the versions
+    template: runtime-catalog.yaml
+    set:
+      runtimes.varnish.default: "7.7.7"
+    asserts:
+      - failedTemplate:
+          errorPattern: 'runtimes\.varnish\.default "7\.7\.7" is missing or not among'
+
+  - it: fails when a version has no daemon image
+    template: runtime-catalog.yaml
+    values:
+      - values/no-daemon.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: 'runtimes\.vinyl\.versions\."9\.1\.0" has no daemon image'
+
+  - it: fails when a version has no exporter image
+    template: runtime-catalog.yaml
+    values:
+      - values/no-exporter.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: 'runtimes\.varnish\.versions\."9\.1\.0" has no exporter image'
