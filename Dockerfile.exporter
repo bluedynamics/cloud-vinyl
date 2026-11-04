@@ -1,13 +1,24 @@
 # varnish-exporter: a thin, distroless image that runs prometheus_varnish_exporter
-# from the maintained otto-de fork (#59) and bundles a matching `varnishstat` (plus its
-# shared libraries) copied from the official varnish image. The exporter shells
-# out to varnishstat, so the bundled varnishstat MUST match the varnishd version
-# that writes the VSM — keep VARNISH_IMAGE in sync with the cache image.
+# from the maintained otto-de fork (#59) and bundles the matching stat tool (plus
+# its shared libraries) copied from the cache image of one flavor:
 #
-# Published as ghcr.io/bluedynamics/varnish-exporter:<EXPORTER_VERSION>-<VARNISH_IMAGE
-# without the colon>, e.g. 1.8.3-varnish9.1.0 (see release-exporter.yml).
+#   FLAVOR=varnish  varnishstat + libvarnishapi.so.3, from VARNISH_IMAGE (default)
+#   FLAVOR=vinyl    vinylstat    + libvinylapi.so.3,   from VINYL_IMAGE (#106)
+#
+# The exporter shells out to the stat tool, so the bundled tool MUST match the
+# daemon that writes the VSM: keep the selected *_IMAGE in sync with the cache
+# image. The vinyl variant needs `-varnishstat-path /usr/bin/vinylstat`.
+#
+# Only the selected source stage is built: `FROM src-${FLAVOR} AS daemon` makes
+# BuildKit prune the other one, so building FLAVOR=varnish never pulls the vinyl
+# image and vice versa.
+#
+# Published as ghcr.io/bluedynamics/varnish-exporter:<EXPORTER_VERSION>-<flavor><daemon
+# version>, e.g. 1.8.3-varnish9.1.0 or 1.8.3-vinyl9.1.0 (see release-exporter.yml).
 
+ARG FLAVOR=varnish
 ARG VARNISH_IMAGE=varnish:9.1.0
+ARG VINYL_IMAGE=ghcr.io/bluedynamics/vinyl-cache:9.1.0-r1
 ARG EXPORTER_VERSION=1.8.3
 
 # Build the exporter from source. It is pure Go (it execs varnishstat; no cgo),
@@ -24,37 +35,62 @@ RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
         go build -trimpath -ldflags "-X main.Version=${EXPORTER_VERSION}" \
         -o /out/prometheus_varnish_exporter .
 
-# Source of a matching varnishstat + its runtime libraries.
+# Source stages: a matching stat tool + its runtime libraries, staged under
+# /export so the final stage needs a single COPY whatever the flavor.
 #
-# The RUN below is a build guard, and it lives in this stage on purpose: BuildKit
-# only builds stages the final image depends on, so a standalone guard stage is
-# pruned and never runs. This stage is COPY'd from, so it always builds.
-FROM ${VARNISH_IMAGE} AS varnish
-RUN test -e /usr/lib/libvarnishapi.so.3 || { \
-        echo "ERROR: VARNISH_IMAGE ships no libvarnishapi.so.3, found:" >&2; \
-        ls -1 /usr/lib/libvarnishapi.so.* >&2; \
-        echo "varnish 6.0 LTS ships .so.1 and is unsupported. See #91." >&2; \
-        exit 1; }
-
-# Must match the Debian release of VARNISH_IMAGE (varnish:9.1.0 = Debian 13/trixie,
-# glibc 2.41) so the copied varnishstat/libvarnishapi find a compatible glibc.
-FROM gcr.io/distroless/base-debian13:nonroot
-# varnishstat and the libraries it needs that distroless/base does not provide.
-# (libc, libm and the loader come from distroless/base.)
-COPY --from=varnish /usr/bin/varnishstat /usr/bin/varnishstat
-# libvarnishapi's soname is pinned deliberately. Varnish 7.6 through 9.1 all
-# ship .so.3 and their varnishstat/varnishd combinations interoperate; varnish
-# 6.0 LTS ships .so.1 and is not supported. Without the guard below, building
+# The RUN in each stage is a build guard, and it lives in the source stage on
+# purpose: BuildKit only builds stages the final image depends on, so a
+# standalone guard stage is pruned and never runs. These stages are COPY'd from
+# (via daemon), so the selected one always builds.
+#
+# The soname is pinned deliberately. Varnish 7.6 through 9.1 all ship
+# libvarnishapi.so.3 and their varnishstat/varnishd combinations interoperate;
+# varnish 6.0 LTS ships .so.1 and is not supported. Without the guard, building
 # against 6.0 succeeds while the glob matches nothing, and the image only fails
 # once it is running:
 #
 #	varnishstat: error while loading shared libraries: libvarnishapi.so.1
 #
-# See #91.
-COPY --from=varnish /usr/lib/libvarnishapi.so.3* /usr/lib/
-COPY --from=varnish /lib/*-linux-gnu/libncursesw.so.6 /usr/lib/libncursesw.so.6
-COPY --from=varnish /lib/*-linux-gnu/libtinfo.so.6 /usr/lib/libtinfo.so.6
-COPY --from=varnish /lib/*-linux-gnu/libpcre2-8.so.0 /usr/lib/libpcre2-8.so.0
+# See #91. Vinyl Cache 9.1 ships libvinylapi.so.3, guarded the same way.
+#
+# libc, libm and the loader come from distroless/base; ncurses, tinfo and pcre2
+# do not, so they are staged too (dereferenced to plain files).
+FROM ${VARNISH_IMAGE} AS src-varnish
+RUN test -e /usr/lib/libvarnishapi.so.3 || { \
+        echo "ERROR: VARNISH_IMAGE ships no libvarnishapi.so.3, found:" >&2; \
+        ls -1 /usr/lib/libvarnishapi.so.* >&2; \
+        echo "varnish 6.0 LTS ships .so.1 and is unsupported. See #91." >&2; \
+        exit 1; }
+USER root
+RUN mkdir -p /export/usr/bin /export/usr/lib \
+    && cp /usr/bin/varnishstat /export/usr/bin/ \
+    && cp -a /usr/lib/libvarnishapi.so.3* /export/usr/lib/ \
+    && cp -L /lib/*-linux-gnu/libncursesw.so.6 /export/usr/lib/ \
+    && cp -L /lib/*-linux-gnu/libtinfo.so.6 /export/usr/lib/ \
+    && cp -L /lib/*-linux-gnu/libpcre2-8.so.0 /export/usr/lib/
+
+FROM ${VINYL_IMAGE} AS src-vinyl
+RUN test -e /usr/lib/libvinylapi.so.3 || { \
+        echo "ERROR: VINYL_IMAGE ships no libvinylapi.so.3, found:" >&2; \
+        ls -1 /usr/lib/libvinylapi.so.* >&2; \
+        echo "Only the .so.3 ABI is supported. See #91." >&2; \
+        exit 1; }
+USER root
+RUN mkdir -p /export/usr/bin /export/usr/lib \
+    && cp /usr/bin/vinylstat /export/usr/bin/ \
+    && cp -a /usr/lib/libvinylapi.so.3* /export/usr/lib/ \
+    && cp -L /lib/*-linux-gnu/libncursesw.so.6 /export/usr/lib/ \
+    && cp -L /lib/*-linux-gnu/libtinfo.so.6 /export/usr/lib/ \
+    && cp -L /lib/*-linux-gnu/libpcre2-8.so.0 /export/usr/lib/
+
+# Selects the flavor: the other source stage is never built.
+FROM src-${FLAVOR} AS daemon
+
+# Must match the Debian release of the source images (varnish:9.1.0 and
+# vinyl-cache:9.1.0-r1 = Debian 13/trixie, glibc 2.41) so the copied stat tool
+# and API library find a compatible glibc.
+FROM gcr.io/distroless/base-debian13:nonroot
+COPY --from=daemon /export/ /
 COPY --from=build /out/prometheus_varnish_exporter /usr/bin/prometheus_varnish_exporter
 # 9131 is the exporter's default listen port.
 EXPOSE 9131

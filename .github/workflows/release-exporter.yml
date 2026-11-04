@@ -1,9 +1,12 @@
 name: Release Exporter Image
 
 # Builds and publishes ghcr.io/bluedynamics/varnish-exporter:<tag>, the
-# varnish-exporter sidecar used by spec.monitoring.exporter. The tag is
-# <EXPORTER_VERSION>-<VARNISH_IMAGE without the colon>, e.g. 1.8.3-varnish9.1.0.
-# This image is essentially static (pinned upstream exporter + pinned varnish
+# varnish-exporter sidecar used by spec.monitoring.exporter, once per daemon
+# flavor. The tag is <EXPORTER_VERSION>-<flavor><daemon version>, e.g.
+# 1.8.3-varnish9.1.0 and 1.8.3-vinyl9.1.0. The daemon version is read from the
+# flavor's image default in Dockerfile.exporter (varnish:9.1.0 -> 9.1.0,
+# vinyl-cache:9.1.0-r1 -> 9.1.0; the -r<N> image revision is stripped).
+# This image is essentially static (pinned upstream exporter + pinned daemon
 # base), so it is built on demand rather than on every cloud-vinyl release.
 
 on:
@@ -26,12 +29,12 @@ permissions:
 env:
   IMAGE: ghcr.io/bluedynamics/varnish-exporter
   # EXPORTER_VERSION is the exporter release of the otto-de fork (#59); the
-  # Dockerfile clones its git tag v<EXPORTER_VERSION>. VARNISH_IMAGE deliberately does NOT live
-  # here: it selects which varnishstat gets bundled, and that must match the
-  # varnishd the sidecar reads the VSM from. A second copy would be two files
-  # that must agree, and a silent mismatch produces an exporter that cannot
-  # read the VSM at all. Dockerfile.exporter owns it (#69); the tag job reads
-  # it from there.
+  # Dockerfile clones its git tag v<EXPORTER_VERSION>. VARNISH_IMAGE and
+  # VINYL_IMAGE deliberately do NOT live here: they select which stat tool gets
+  # bundled, and that must match the daemon the sidecar reads the VSM from. A
+  # second copy would be two files that must agree, and a silent mismatch
+  # produces an exporter that cannot read the VSM at all. Dockerfile.exporter
+  # owns them (#69); the guard-tag job reads them from there.
   EXPORTER_VERSION: "1.8.3"
 
 jobs:
@@ -41,69 +44,81 @@ jobs:
   # imagePullPolicy, Kubernetes defaults to IfNotPresent for a non-latest tag,
   # and which build a pod gets became a per-node cache lottery (#91).
   #
-  # The tag therefore carries the bundled varnish version, so a VARNISH_IMAGE
-  # bump yields a new tag by itself. EXPORTER_VERSION cannot carry that bump:
-  # it names the upstream release.
-  # This job still refuses to overwrite a tag that exists, e.g. when
-  # Dockerfile.exporter changes without a varnish bump.
+  # The tag therefore carries the flavor and bundled daemon version, so an
+  # image bump in Dockerfile.exporter yields a new tag by itself.
+  # EXPORTER_VERSION cannot carry that bump: it names the upstream release.
+  # This job never overwrites a tag that exists, e.g. when Dockerfile.exporter
+  # changes without a daemon bump. Such a flavor is skipped with a notice, not
+  # failed: otherwise adding a flavor would fail on the already published tag
+  # of the other one. It emits the flavors that still need publishing; the
+  # build jobs run only for those.
   guard-tag:
-    name: Refuse to overwrite a published tag
+    name: Select flavors whose tag is free
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.tag.outputs.tag }}
+      publish: ${{ steps.tags.outputs.publish }}
     steps:
       - uses: actions/checkout@v7
 
-      - name: Derive the tag from Dockerfile.exporter
-        id: tag
-        run: |
-          set -euo pipefail
-          varnish_image=$(sed -n 's/^ARG VARNISH_IMAGE=//p' Dockerfile.exporter)
-          if [ -z "$varnish_image" ]; then
-            echo "::error::no 'ARG VARNISH_IMAGE=' default found in Dockerfile.exporter"
-            exit 1
-          fi
-          tag="${EXPORTER_VERSION}-${varnish_image//:/}"
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "Publishing ${IMAGE}:${tag}"
-
-      - name: Check whether the tag already exists in GHCR
+      - name: Derive the tags from Dockerfile.exporter and skip published ones
+        id: tags
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
+          OVERWRITE: ${{ github.event.inputs.overwrite_tag }}
+          ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event.inputs.overwrite_tag }}" = "true" ]; then
+
+          if [ "${OVERWRITE}" = "true" ]; then
             echo "::warning::overwrite_tag was requested, skipping the immutability check"
-            exit 0
+          else
+            token=$(curl -sSf -u "${ACTOR}:${GH_TOKEN}" \
+              "https://ghcr.io/token?scope=repository:bluedynamics/varnish-exporter:pull&service=ghcr.io" \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
           fi
 
-          token=$(curl -sSf -u "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
-            "https://ghcr.io/token?scope=repository:bluedynamics/varnish-exporter:pull&service=ghcr.io" \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+          publish='[]'
+          for flavor in varnish vinyl; do
+            var="${flavor^^}_IMAGE"
+            image=$(sed -n "s/^ARG ${var}=//p" Dockerfile.exporter)
+            if [ -z "$image" ]; then
+              echo "::error::no 'ARG ${var}=' default found in Dockerfile.exporter"
+              exit 1
+            fi
+            # varnish:9.1.0 -> 9.1.0; ghcr.io/x/vinyl-cache:9.1.0-r1 -> 9.1.0
+            version="${image##*:}"
+            version="${version%-r[0-9]*}"
+            tag="${EXPORTER_VERSION}-${flavor}${version}"
 
-          code=$(curl -sS -o /dev/null -w '%{http_code}' \
-            -H "Authorization: Bearer $token" \
-            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
-            "https://ghcr.io/v2/bluedynamics/varnish-exporter/manifests/${TAG}")
-
-          if [ "$code" = "200" ]; then
-            echo "::error::${IMAGE}:${TAG} already exists."
-            echo "Publishing over it would change what a pinned tag means, which is what #91 is about."
-            echo "Bump VARNISH_IMAGE in Dockerfile.exporter or EXPORTER_VERSION here, or re-run with overwrite_tag if you are certain."
-            exit 1
-          fi
-          echo "${IMAGE}:${TAG} is free (HTTP $code), proceeding."
+            if [ "${OVERWRITE}" != "true" ]; then
+              code=$(curl -sS -o /dev/null -w '%{http_code}' \
+                -H "Authorization: Bearer $token" \
+                -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+                "https://ghcr.io/v2/bluedynamics/varnish-exporter/manifests/${tag}")
+              if [ "$code" = "200" ]; then
+                echo "::notice::${IMAGE}:${tag} already exists, skipping ${flavor}. Bump ${var} in Dockerfile.exporter or EXPORTER_VERSION here, or re-run with overwrite_tag if you are certain (#91)."
+                continue
+              fi
+              echo "${IMAGE}:${tag} is free (HTTP $code), will publish."
+            else
+              echo "Publishing ${IMAGE}:${tag}"
+            fi
+            publish=$(jq -c --arg f "$flavor" --arg t "$tag" '. + [{flavor: $f, tag: $t}]' <<<"$publish")
+          done
+          echo "publish=${publish}" >> "$GITHUB_OUTPUT"
 
   docker-build:
     needs: guard-tag
+    if: needs.guard-tag.outputs.publish != '[]'
     strategy:
       matrix:
-        include:
+        target: ${{ fromJSON(needs.guard-tag.outputs.publish) }}
+        arch:
           - platform: linux/amd64
             runner: ubuntu-latest
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.arch.runner }}
     steps:
       - uses: actions/checkout@v7
 
@@ -119,7 +134,7 @@ jobs:
       - name: Platform tag
         id: meta
         run: |
-          PLATFORM_TAG="${{ matrix.platform }}"
+          PLATFORM_TAG="${{ matrix.arch.platform }}"
           echo "platform_tag=${PLATFORM_TAG//\//-}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push per-arch image
@@ -127,16 +142,21 @@ jobs:
         with:
           context: .
           file: Dockerfile.exporter
-          platforms: ${{ matrix.platform }}
+          platforms: ${{ matrix.arch.platform }}
           push: true
           provenance: false
           build-args: |
             EXPORTER_VERSION=${{ env.EXPORTER_VERSION }}
-          tags: ${{ env.IMAGE }}:${{ needs.guard-tag.outputs.tag }}-${{ steps.meta.outputs.platform_tag }}
+            FLAVOR=${{ matrix.target.flavor }}
+          tags: ${{ env.IMAGE }}:${{ matrix.target.tag }}-${{ steps.meta.outputs.platform_tag }}
 
   docker-manifest:
     needs: [guard-tag, docker-build]
+    if: needs.guard-tag.outputs.publish != '[]'
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: ${{ fromJSON(needs.guard-tag.outputs.publish) }}
     steps:
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -147,7 +167,7 @@ jobs:
 
       - name: Create and push multi-arch manifest
         env:
-          TAG: ${{ needs.guard-tag.outputs.tag }}
+          TAG: ${{ matrix.target.tag }}
         run: |
           docker manifest create "${IMAGE}:${TAG}" \
             "${IMAGE}:${TAG}-linux-amd64" \
