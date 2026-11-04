@@ -60,7 +60,7 @@ func (r *VinylCacheReconciler) reconcileSecret(ctx context.Context, vc *vinylv1.
 			Name:      agentSecretName,
 			Namespace: vc.Namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "cloud-vinyl",
+				labelManagedBy: managedByValue,
 			},
 		},
 		Type: corev1.SecretTypeOpaque,

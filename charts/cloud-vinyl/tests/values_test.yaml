@@ -30,3 +30,15 @@ tests:
       operatorFlags.agentClientTimeout: 30sec
     asserts:
       - failedTemplate: {}
+
+  - it: rejects a watched namespace that is not a valid namespace name
+    set:
+      operatorFlags.watchNamespaces: [Shop_1]
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects watched namespaces given as one string
+    set:
+      operatorFlags.watchNamespaces: shop,blog
+    asserts:
+      - failedTemplate: {}

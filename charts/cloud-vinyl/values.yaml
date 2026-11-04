@@ -49,6 +49,10 @@ operatorFlags:
   metricsAddr: ":8080"
   probeAddr: ":8081"
   agentClientTimeout: "30s"
+  # Namespaces the operator watches. Empty watches the whole cluster.
+  # VinylCaches in other namespaces are ignored. Restricting it keeps the
+  # operator's memory independent of the rest of the cluster (#145).
+  watchNamespaces: []
 
 # Defaults the operator applies to every VinylCache.
 defaults:

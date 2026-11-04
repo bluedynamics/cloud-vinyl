@@ -92,7 +92,12 @@
       "properties": {
         "metricsAddr": {"type": "string"},
         "probeAddr": {"type": "string"},
-        "agentClientTimeout": {"type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"}
+        "agentClientTimeout": {"type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"},
+        "watchNamespaces": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63},
+          "uniqueItems": true
+        }
       }
     },
     "defaults": {

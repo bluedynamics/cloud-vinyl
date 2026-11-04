@@ -71,6 +71,7 @@ func main() {
 	var agentClientTimeout time.Duration
 	var antiAffinity controller.AntiAffinityDefaults
 	var antiAffinityWeight int
+	var watchNamespaces string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -100,6 +101,9 @@ func main() {
 	flag.IntVar(&antiAffinityWeight, "default-pod-anti-affinity-weight",
 		int(controller.BuiltinAntiAffinityDefaults.Weight),
 		"Weight of the default pod anti-affinity when it is preferred (1-100)")
+	flag.StringVar(&watchNamespaces, "watch-namespaces", "",
+		"Comma-separated namespaces the operator watches. Empty watches the whole cluster. "+
+			"VinylCaches in other namespaces are ignored.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -191,6 +195,7 @@ func main() {
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
+		Cache:                  controller.CacheOptions(controller.SplitNamespaces(watchNamespaces)),
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "4a2cd977.bluedynamics.eu",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily

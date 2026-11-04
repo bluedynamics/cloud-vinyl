@@ -145,3 +145,17 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --agent-client-timeout=1m30s
+
+  - it: should watch the whole cluster by default
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--watch-namespaces
+
+  - it: should pass watched namespaces as one comma-separated flag
+    set:
+      operatorFlags.watchNamespaces: [shop, blog]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --watch-namespaces=shop,blog
