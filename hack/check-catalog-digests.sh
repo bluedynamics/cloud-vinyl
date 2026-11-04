@@ -18,6 +18,26 @@ set -euo pipefail
 
 values="${1:-charts/cloud-vinyl/values.yaml}"
 
+# inspect <ref>: resolve a reference; manifest JSON lands in $inspect_out. Runs in
+# the current shell (not a $(...) subshell) so $inspect_err survives. Retries
+# rate limits, 5xx and network blips on shared runners, but not "not found". On
+# final failure the registry's stderr is in $inspect_err, so callers can tell
+# "not found" from "rate limited".
+inspect_out=""
+inspect_err=""
+inspect() {
+  local attempt
+  for attempt in 1 2 3; do
+    if inspect_out="$(docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' 2>&1)"; then
+      return 0
+    fi
+    inspect_err="$inspect_out"
+    [[ "$inspect_err" == *"not found"* ]] && return 1
+    [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
+  done
+  return 1
+}
+
 fail=0
 checked=0
 while IFS= read -r ref; do
@@ -38,8 +58,8 @@ while IFS= read -r ref; do
   else
     repo="$repo_tag"
   fi
-  if ! docker buildx imagetools inspect "$repo@$pinned" >/dev/null 2>&1; then
-    echo "FAIL: $repo@$pinned does not resolve"
+  if ! inspect "$repo@$pinned"; then
+    echo "FAIL: $repo@$pinned does not resolve: $inspect_err"
     fail=1
     continue
   fi
@@ -47,10 +67,12 @@ while IFS= read -r ref; do
     echo "OK: $repo@$pinned (no tag to compare)"
     continue
   fi
-  current="$(docker buildx imagetools inspect "$repo_tag" --format '{{json .Manifest}}' 2>/dev/null | yq -p=json '.digest' 2>/dev/null || true)"
-  if [ -z "$current" ]; then
-    echo "::warning::$repo_tag does not resolve any more (pinned $pinned)"
-  elif [ "$current" != "$pinned" ]; then
+  if ! inspect "$repo_tag"; then
+    echo "::warning::could not look up $repo_tag to check for a newer build (pinned $pinned): $inspect_err"
+    continue
+  fi
+  current="$(yq -p=json '.digest' <<<"$inspect_out")"
+  if [ "$current" != "$pinned" ]; then
     echo "::warning::$repo_tag now points to $current, pinned is $pinned"
   else
     echo "OK: $repo_tag@$pinned"
