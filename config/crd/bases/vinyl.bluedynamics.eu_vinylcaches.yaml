@@ -516,8 +516,8 @@ spec:
                         type: boolean
                       image:
                         description: |-
-                          image overrides the exporter image. Defaults to
-                          ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0.
+                          image overrides the exporter image of the runtime catalog entry that
+                          matches spec.flavor and spec.version.
                         properties:
                           repository:
                             type: string
@@ -5308,8 +5308,8 @@ spec:
                         type: boolean
                       image:
                         description: |-
-                          image overrides the exporter image. Defaults to
-                          ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0.
+                          image overrides the exporter image of the runtime catalog entry that
+                          matches spec.flavor and spec.version.
                         properties:
                           repository:
                             type: string

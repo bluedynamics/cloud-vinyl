@@ -18,8 +18,6 @@ package controller
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -123,18 +121,18 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
-	// 5. Reconcile StatefulSet.
+	// 5. Resolve the runtime and reconcile the StatefulSet.
 	// The catalog resolves flavor and version to images; spec overrides are
-	// applied on top. TODO(C4): surface a missing entry as a condition.
-	if r.Catalog == nil {
-		return ctrl.Result{}, errors.New("runtime catalog is not configured")
-	}
-	rt, err := r.Catalog.Resolve(vc.Spec.Flavor, vc.Spec.Version)
+	// applied on top. A missing entry is not an error: the condition says so
+	// and the StatefulSet stays as it is, while everything else carries on.
+	rt, resolved, err := r.resolveRuntime(ctx, vc)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("resolving runtime: %w", err)
-	}
-	if err := r.reconcileStatefulSet(ctx, vc, effectiveRuntime(vc, rt)); err != nil {
 		return ctrl.Result{}, err
+	}
+	if resolved {
+		if err := r.reconcileStatefulSet(ctx, vc, rt); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	// 6. Reconcile Services.

@@ -1,8 +1,6 @@
 package controller
 
 import (
-	"testing"
-
 	"github.com/stretchr/testify/require"
 
 	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
@@ -26,8 +24,15 @@ vinyl:
       tracer: example.org/cloud-vinyl-tracer:1.0.0-vinyl
 `
 
+// testingT is what the helpers need from a test. *testing.T satisfies it, and
+// so does Ginkgo's GinkgoT(), which is not a testing.TB.
+type testingT interface {
+	require.TestingT
+	Helper()
+}
+
 // testCatalog is the catalog every controller unit test resolves against.
-func testCatalog(t testing.TB) *catalog.Catalog {
+func testCatalog(t testingT) *catalog.Catalog {
 	t.Helper()
 	c, err := catalog.Parse([]byte(testCatalogYAML))
 	require.NoError(t, err)
@@ -35,7 +40,7 @@ func testCatalog(t testing.TB) *catalog.Catalog {
 }
 
 // testRuntime resolves a runtime from testCatalog for direct builder tests.
-func testRuntime(t testing.TB, f vinylv1.Flavor) catalog.Runtime {
+func testRuntime(t testingT, f vinylv1.Flavor) catalog.Runtime {
 	t.Helper()
 	rt, err := testCatalog(t).Resolve(f, "")
 	require.NoError(t, err)

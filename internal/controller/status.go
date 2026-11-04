@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
+	"github.com/bluedynamics/cloud-vinyl/internal/catalog"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 )
 
@@ -200,4 +202,68 @@ func findConditionStatus(vc *vinylv1.VinylCache, condType string) metav1.Conditi
 		}
 	}
 	return ""
+}
+
+// resolveRuntime resolves the runtime of a VinylCache from the catalog and
+// records the outcome (status.runtime and the RuntimeResolved condition) in
+// the persisted status right away. Persisting here, not in updateStatus,
+// keeps the outcome visible when a later step returns early (debounce,
+// backends without endpoints).
+//
+// It returns the effective runtime (catalog entry with the per-cache image
+// overrides applied) and whether it resolved. A catalog entry that has
+// vanished is reported as resolved=false with no error: the caller skips the
+// StatefulSet so running pods keep their images, and there is no hot error
+// loop. A nil catalog is a programming error and returned as an error.
+func (r *VinylCacheReconciler) resolveRuntime(
+	ctx context.Context, vc *vinylv1.VinylCache,
+) (rt catalog.Runtime, resolved bool, err error) {
+	if r.Catalog == nil {
+		return catalog.Runtime{}, false, errors.New("runtime catalog is not configured")
+	}
+	log := logf.FromContext(ctx)
+
+	base, rerr := r.Catalog.Resolve(vc.Spec.Flavor, vc.Spec.Version)
+	switch {
+	case rerr == nil:
+		rt = effectiveRuntime(vc, base)
+		status := &vinylv1.RuntimeStatus{
+			Flavor:  rt.Flavor,
+			Version: rt.Version,
+			Daemon:  rt.Daemon,
+		}
+		if exp := vc.Spec.Monitoring.Exporter; exp != nil && exp.Enabled {
+			status.Exporter = rt.Exporter
+		}
+		if vc.Spec.Tracing.Enabled {
+			status.Tracer = rt.Tracer
+		}
+		vc.Status.Runtime = status
+		setCondition(vc, vinylv1.ConditionRuntimeResolved, metav1.ConditionTrue, "Resolved",
+			fmt.Sprintf("runtime %s %s resolved from the catalog", rt.Flavor, rt.Version))
+		resolved = true
+	case errors.Is(rerr, catalog.ErrNotInCatalog):
+		log.Info("runtime not in catalog, leaving the StatefulSet unchanged", "reason", rerr.Error())
+		version := vc.Spec.Version
+		if version == "" {
+			version = "(catalog default)"
+		}
+		setCondition(vc, vinylv1.ConditionRuntimeResolved, metav1.ConditionFalse, "NotInCatalog",
+			fmt.Sprintf("flavor %q version %s: %v", traitsFlavor(vc.Spec.Flavor), version, rerr))
+	default:
+		return catalog.Runtime{}, false, fmt.Errorf("resolving runtime: %w", rerr)
+	}
+
+	if err := r.Status().Update(ctx, vc); err != nil {
+		return catalog.Runtime{}, false, fmt.Errorf("updating runtime status: %w", err)
+	}
+	return rt, resolved, nil
+}
+
+// traitsFlavor returns the flavor with the empty default made explicit.
+func traitsFlavor(f vinylv1.Flavor) vinylv1.Flavor {
+	if f == "" {
+		return vinylv1.FlavorVarnish
+	}
+	return f
 }

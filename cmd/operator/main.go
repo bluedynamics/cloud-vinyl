@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
+	"github.com/bluedynamics/cloud-vinyl/internal/catalog"
 	"github.com/bluedynamics/cloud-vinyl/internal/controller"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
@@ -72,9 +73,13 @@ func main() {
 	var antiAffinity controller.AntiAffinityDefaults
 	var antiAffinityWeight int
 	var watchNamespaces string
+	var runtimeCatalogPath string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
+	flag.StringVar(&runtimeCatalogPath, "runtime-catalog", "/etc/cloud-vinyl/runtimes.yaml",
+		"Path to the runtime catalog file that maps flavor and version to images. "+
+			"The Helm chart mounts it from a ConfigMap.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
@@ -115,6 +120,11 @@ func main() {
 	if antiAffinityWeight < 1 || antiAffinityWeight > 100 {
 		setupLog.Error(nil, "--default-pod-anti-affinity-weight must be between 1 and 100",
 			"weight", antiAffinityWeight)
+		os.Exit(1)
+	}
+	runtimeCatalog, err := catalog.Load(runtimeCatalogPath)
+	if err != nil {
+		setupLog.Error(err, "Failed to load the runtime catalog", "path", runtimeCatalogPath)
 		os.Exit(1)
 	}
 	antiAffinity.Weight = int32(antiAffinityWeight)
@@ -256,6 +266,7 @@ func main() {
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
 		Generator: generator.New(),
+		Catalog:   runtimeCatalog,
 		Metrics:   vinylMetrics,
 		AgentClient: &controller.HTTPAgentClient{
 			HTTPClient: &http.Client{Timeout: agentClientTimeout},
