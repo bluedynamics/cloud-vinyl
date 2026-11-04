@@ -282,7 +282,7 @@ func main() {
 	}
 	// nolint:goconst
 	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
-		if err := webhookv1.SetupVinylCacheWebhookWithManager(mgr); err != nil {
+		if err := webhookv1.SetupVinylCacheWebhookWithManager(mgr, runtimeCatalog); err != nil {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "VinylCache")
 			os.Exit(1)
 		}

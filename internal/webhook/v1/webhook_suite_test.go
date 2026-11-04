@@ -43,6 +43,7 @@ import (
 
 	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	vinylv1alpha1 "github.com/bluedynamics/cloud-vinyl/api/v1alpha1"
+	"github.com/bluedynamics/cloud-vinyl/internal/catalog"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -56,6 +57,19 @@ var (
 	cfg       *rest.Config
 	testEnv   *envtest.Environment
 )
+
+// testCatalog is the runtime catalog the webhook under test validates against.
+const testCatalogYAML = `
+varnish:
+  default: "9.1.0"
+  versions:
+    "9.1.0":
+      daemon: docker.io/library/varnish:9.1.0
+      exporter: ghcr.io/bluedynamics/varnish-exporter:1.8.3
+      tracer: ghcr.io/bluedynamics/cloud-vinyl-tracer:1.0.0
+`
+
+var testCatalog *catalog.Catalog
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -115,7 +129,9 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	err = SetupVinylCacheWebhookWithManager(mgr)
+	testCatalog, err = catalog.Parse([]byte(testCatalogYAML))
+	Expect(err).NotTo(HaveOccurred())
+	err = SetupVinylCacheWebhookWithManager(mgr, testCatalog)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:webhook
