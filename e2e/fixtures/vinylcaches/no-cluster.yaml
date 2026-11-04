@@ -26,7 +26,6 @@ metadata:
   name: my-cache
 spec:
   replicas: 3
-  image: varnish:9.1.0
   backends:
     - name: echo
       serviceRef:

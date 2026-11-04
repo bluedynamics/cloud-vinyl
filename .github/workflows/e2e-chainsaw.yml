@@ -87,8 +87,6 @@ jobs:
 
       - name: Pre-pull images into Kind
         run: |
-          docker pull varnish:9.1.0
-          kind load docker-image varnish:9.1.0 --name cloud-vinyl-e2e
           for img in \
             quay.io/calico/cni:v3.31.1 \
             quay.io/calico/node:v3.31.1 \
