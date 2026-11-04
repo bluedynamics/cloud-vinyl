@@ -1,0 +1,163 @@
+name: Release Vinyl Cache Image
+
+# Builds and publishes ghcr.io/bluedynamics/vinyl-cache:<VERSION>-r<REVISION>
+# (immutable) and the moving ghcr.io/bluedynamics/vinyl-cache:<VERSION>. Both
+# ARGs live in Dockerfile.vinyl, the single owner of what gets built (#106).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile.vinyl"
+
+# Two runs must not both pass the guard and publish the same -rN.
+concurrency:
+  group: release-vinyl
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/bluedynamics/vinyl-cache
+
+jobs:
+  # Revision tags are immutable, for the reason #91 documents for the exporter:
+  # the operator does not set imagePullPolicy, so an overwritten tag becomes a
+  # per-node cache lottery. There is deliberately no overwrite switch. To
+  # rebuild (base image security fix, vmod bump) raise VINYL_REVISION in
+  # Dockerfile.vinyl; a new VINYL_VERSION resets it to 1.
+  guard-tag:
+    name: Refuse to overwrite a published tag
+    # A dispatch from another branch would publish unreviewed bytes as an
+    # immutable revision; dependent jobs are skipped with this one.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Derive the tag from Dockerfile.vinyl
+        id: tag
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^ARG VINYL_VERSION=//p' Dockerfile.vinyl)
+          revision=$(sed -n 's/^ARG VINYL_REVISION=//p' Dockerfile.vinyl)
+          if [ -z "$version" ] || [ -z "$revision" ]; then
+            echo "::error::no 'ARG VINYL_VERSION=' / 'ARG VINYL_REVISION=' default found in Dockerfile.vinyl"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${version}-r${revision}" >> "$GITHUB_OUTPUT"
+          echo "Publishing ${IMAGE}:${version}-r${revision}"
+
+      - name: Check whether the tag already exists in GHCR
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          token=$(curl -sSf -u "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
+            "https://ghcr.io/token?scope=repository:bluedynamics/vinyl-cache:pull&service=ghcr.io" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $token" \
+            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+            "https://ghcr.io/v2/bluedynamics/vinyl-cache/manifests/${TAG}")
+
+          if [ "$code" = "200" ]; then
+            echo "::error::${IMAGE}:${TAG} already exists."
+            echo "A published revision is never overwritten. Raise VINYL_REVISION in Dockerfile.vinyl (or set a new VINYL_VERSION with revision 1)."
+            exit 1
+          fi
+          echo "${IMAGE}:${TAG} is free (HTTP $code), proceeding."
+
+  docker-build:
+    needs: guard-tag
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Platform tag
+        id: meta
+        run: |
+          PLATFORM_TAG="${{ matrix.platform }}"
+          echo "platform_tag=${PLATFORM_TAG//\//-}" >> "$GITHUB_OUTPUT"
+          echo "ref=${IMAGE}:${{ needs.guard-tag.outputs.tag }}-${PLATFORM_TAG//\//-}" >> "$GITHUB_OUTPUT"
+
+      # Build into the local Docker daemon only (load: true), so the smoke test
+      # can run exactly the bytes that get published. Pushing is a separate
+      # docker push of that same loaded image, which is simpler than a second
+      # build-push-action pass that would have to reuse the build cache. Nothing
+      # reaches GHCR unless the smoke test passed.
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.vinyl
+          platforms: ${{ matrix.platform }}
+          load: true
+          push: false
+          provenance: false
+          tags: ${{ steps.meta.outputs.ref }}
+
+      - name: Smoke test
+        run: hack/smoke-vinyl-image.sh "${{ steps.meta.outputs.ref }}"
+
+      - name: Push per-arch image
+        run: docker push "${{ steps.meta.outputs.ref }}"
+
+  # imagetools create writes a proper OCI index straight in the registry from
+  # the two per-arch images. docker manifest create is avoided because it is
+  # unreliable when a per-arch tag is itself an index, which the containerd
+  # image store (ubuntu-latest) can produce on docker push.
+  #
+  # If the moving-tag step fails after the immutable tag was pushed, recover
+  # with "Re-run failed jobs", not a full rerun: a full rerun re-runs guard-tag,
+  # which correctly refuses the now existing revision. The guard outputs persist.
+  docker-manifest:
+    needs: [guard-tag, docker-build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The immutable <version>-r<N> index and the moving <version> index are
+      # built from the same two per-arch images, so they share one digest.
+      - name: Create and push multi-arch indexes
+        env:
+          VERSION: ${{ needs.guard-tag.outputs.version }}
+          TAG: ${{ needs.guard-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          for name in "${TAG}" "${VERSION}"; do
+            docker buildx imagetools create -t "${IMAGE}:${name}" \
+              "${IMAGE}:${TAG}-linux-amd64" \
+              "${IMAGE}:${TAG}-linux-arm64"
+          done

@@ -138,12 +138,17 @@ docker-build-agent: ## Build the agent docker image.
 TRACER_IMG ?= ghcr.io/bluedynamics/cloud-vinyl-tracer:latest
 # FLAVOR selects the log tool source: varnish (varnishlog) or vinyl (vinyllog).
 FLAVOR ?= varnish
+VINYL_IMG ?= ghcr.io/bluedynamics/vinyl-cache:dev
 
 .PHONY: docker-build-tracer
 docker-build-tracer: ## Build the tracer docker image (FLAVOR=varnish|vinyl; VARNISH_IMAGE/VINYL_IMAGE pin the log tool source).
 	$(CONTAINER_TOOL) build -t $(TRACER_IMG) -f Dockerfile.tracer --build-arg FLAVOR=$(FLAVOR) \
 		$(if $(VARNISH_IMAGE),--build-arg VARNISH_IMAGE=$(VARNISH_IMAGE)) \
 		$(if $(VINYL_IMAGE),--build-arg VINYL_IMAGE=$(VINYL_IMAGE)) .
+
+.PHONY: docker-build-vinyl
+docker-build-vinyl: ## Build the Vinyl Cache image (Dockerfile.vinyl).
+	$(CONTAINER_TOOL) build -t $(VINYL_IMG) -f Dockerfile.vinyl .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
