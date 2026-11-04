@@ -94,8 +94,10 @@ func TestValidateRuntime_ImageWithoutVersionWarns(t *testing.T) {
 	if len(errs) != 0 || len(w) != 1 {
 		t.Fatalf("errs=%v warnings=%v", errs, w)
 	}
-	if !strings.Contains(w[0], "spec.version") || !strings.Contains(w[0], "9.1.0") {
-		t.Errorf("warning %q", w[0])
+	for _, want := range []string{"spec.version", "9.1.0", "catalog entry", "chart values"} {
+		if !strings.Contains(w[0], want) {
+			t.Errorf("warning %q lacks %q", w[0], want)
+		}
 	}
 	if w, _ := ValidateRuntime(nil, rtVC(vinylv1.FlavorVarnish, "9.1.0", "docker.io/library/varnish:9.1.0"), cat); len(w) != 0 {
 		t.Errorf("version set still warns: %v", w)
@@ -141,4 +143,45 @@ func TestValidateRuntime_LegacyCacheAdmitted(t *testing.T) {
 	if len(w) != 1 || !strings.Contains(w[0], "spec.version") {
 		t.Errorf("warnings=%v", w)
 	}
+}
+
+func TestValidateRuntime_ExporterLineageWarns(t *testing.T) {
+	cat := testRuntimeCat(t)
+	tests := []struct {
+		name   string
+		flavor vinylv1.Flavor
+		exp    *vinylv1.ExporterSpec
+		warn   bool
+	}{
+		{"vinyl with varnish tag", vinylv1.FlavorVinyl, expSpec("ghcr.io/bluedynamics/varnish-exporter", "1.8.3-varnish9.1.0"), true},
+		{"vinyl with vinyl tag", vinylv1.FlavorVinyl, expSpec("ghcr.io/bluedynamics/varnish-exporter", "1.8.3-vinyl9.1.0"), false},
+		{"varnish with varnish tag", vinylv1.FlavorVarnish, expSpec("ghcr.io/bluedynamics/varnish-exporter", "1.8.3-varnish9.1.0"), false},
+		{"varnish with vinyl tag", vinylv1.FlavorVarnish, expSpec("ghcr.io/bluedynamics/varnish-exporter", "1.8.3-vinyl9.1.0"), true},
+		{"empty flavor is varnish", "", expSpec("ghcr.io/bluedynamics/varnish-exporter", "1.8.3-vinyl9.1.0"), true},
+		{"vinyl with vinyl repository", vinylv1.FlavorVinyl, expSpec("example.org/vinyl-exporter", "1.8.3"), false},
+		{"vinyl without tag defaults to latest", vinylv1.FlavorVinyl, expSpec("example.org/varnish-exporter", ""), true},
+		{"org called vinyl is ignored", vinylv1.FlavorVarnish, expSpec("example.org/vinyl/varnish-exporter", "1.8.3"), false},
+		{"no override", vinylv1.FlavorVinyl, &vinylv1.ExporterSpec{Enabled: true}, false},
+		{"no exporter", vinylv1.FlavorVinyl, nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vc := rtVC(tt.flavor, "9.1.0", "")
+			vc.Spec.Monitoring.Exporter = tt.exp
+			w, errs := ValidateRuntime(nil, vc, cat)
+			if len(errs) != 0 {
+				t.Fatalf("errs: %v", errs)
+			}
+			if (len(w) == 1) != tt.warn || len(w) > 1 {
+				t.Fatalf("warnings=%v want warn=%v", w, tt.warn)
+			}
+			if tt.warn && !strings.Contains(w[0], "spec.monitoring.exporter.image") {
+				t.Errorf("warning %q", w[0])
+			}
+		})
+	}
+}
+
+func expSpec(repo, tag string) *vinylv1.ExporterSpec {
+	return &vinylv1.ExporterSpec{Enabled: true, Image: vinylv1.ExporterImageSpec{Repository: repo, Tag: tag}}
 }

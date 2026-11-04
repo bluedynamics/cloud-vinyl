@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -106,7 +107,12 @@ func (r *VinylCacheReconciler) updateStatus(
 		fmt.Sprintf("VCL active on %d/%d ready pods", len(peers), vc.Spec.Replicas))
 	setCondition(vc, vinylv1.ConditionBackendsAvailable, metav1.ConditionTrue, "BackendsConfigured", "backend configuration applied")
 
-	if allReplicasReady {
+	if findConditionStatus(vc, vinylv1.ConditionRuntimeResolved) == metav1.ConditionFalse {
+		// The StatefulSet is held back, so the reconciliation is not complete
+		// however many replicas happen to be ready.
+		setCondition(vc, vinylv1.ConditionProgressing, metav1.ConditionTrue, "RuntimeNotInCatalog",
+			"the StatefulSet is held back because the runtime is not in the catalog (see condition RuntimeResolved)")
+	} else if allReplicasReady {
 		setCondition(vc, vinylv1.ConditionProgressing, metav1.ConditionFalse, "ReconcileComplete", "reconciliation complete")
 	} else {
 		setCondition(vc, vinylv1.ConditionProgressing, metav1.ConditionTrue, "WaitingForReplicas",
@@ -223,6 +229,9 @@ func (r *VinylCacheReconciler) resolveRuntime(
 	}
 	log := logf.FromContext(ctx)
 
+	prevRuntime := vc.Status.Runtime.DeepCopy()
+	prevCond := findCondition(vc, vinylv1.ConditionRuntimeResolved)
+
 	base, rerr := r.Catalog.Resolve(vc.Spec.Flavor, vc.Spec.Version)
 	switch {
 	case rerr == nil:
@@ -244,26 +253,31 @@ func (r *VinylCacheReconciler) resolveRuntime(
 		resolved = true
 	case errors.Is(rerr, catalog.ErrNotInCatalog):
 		log.Info("runtime not in catalog, leaving the StatefulSet unchanged", "reason", rerr.Error())
-		version := vc.Spec.Version
-		if version == "" {
-			version = "(catalog default)"
-		}
-		setCondition(vc, vinylv1.ConditionRuntimeResolved, metav1.ConditionFalse, "NotInCatalog",
-			fmt.Sprintf("flavor %q version %s: %v", traitsFlavor(vc.Spec.Flavor), version, rerr))
+		setCondition(vc, vinylv1.ConditionRuntimeResolved, metav1.ConditionFalse, "NotInCatalog", rerr.Error())
 	default:
 		return catalog.Runtime{}, false, fmt.Errorf("resolving runtime: %w", rerr)
 	}
 
+	// Skip the write when nothing changed: a concurrent writer's conflict
+	// would otherwise abort the reconcile on every pass. Comparing the
+	// condition as a whole is safe, setCondition keeps LastTransitionTime
+	// unless the status flips.
+	if equality.Semantic.DeepEqual(prevRuntime, vc.Status.Runtime) &&
+		equality.Semantic.DeepEqual(prevCond, findCondition(vc, vinylv1.ConditionRuntimeResolved)) {
+		return rt, resolved, nil
+	}
 	if err := r.Status().Update(ctx, vc); err != nil {
 		return catalog.Runtime{}, false, fmt.Errorf("updating runtime status: %w", err)
 	}
 	return rt, resolved, nil
 }
 
-// traitsFlavor returns the flavor with the empty default made explicit.
-func traitsFlavor(f vinylv1.Flavor) vinylv1.Flavor {
-	if f == "" {
-		return vinylv1.FlavorVarnish
+// findCondition returns a copy of the named condition, or nil if absent.
+func findCondition(vc *vinylv1.VinylCache, condType string) *metav1.Condition {
+	for _, c := range vc.Status.Conditions {
+		if c.Type == condType {
+			return c.DeepCopy()
+		}
 	}
-	return f
+	return nil
 }

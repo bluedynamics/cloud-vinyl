@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +12,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
 	"github.com/bluedynamics/cloud-vinyl/internal/catalog"
@@ -121,6 +123,50 @@ varnish:
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
 	assert.Equal(t, "NotInCatalog", cond.Reason)
-	assert.Contains(t, cond.Message, "vinyl")
-	assert.Contains(t, cond.Message, "9.1.0")
+	assert.Equal(t, 1, strings.Count(cond.Message, `flavor "vinyl"`), "flavor named once: %s", cond.Message)
+	assert.True(t, strings.HasPrefix(cond.Message, `flavor "vinyl" is not in the runtime catalog`), cond.Message)
+
+	// Progressing must not claim completion while the StatefulSet is held back.
+	assert.Equal(t, metav1.ConditionTrue, findConditionStatus(got, vinylv1.ConditionProgressing))
+	for _, c := range got.Status.Conditions {
+		if c.Type == vinylv1.ConditionProgressing {
+			assert.Equal(t, "RuntimeNotInCatalog", c.Reason)
+			assert.Contains(t, c.Message, "held back")
+		}
+	}
+}
+
+func TestReconcile_UnchangedRuntimeIssuesNoExtraRuntimeStatusUpdate(t *testing.T) {
+	vc := &vinylv1.VinylCache{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: "ns1"},
+		Spec:       vinylv1.VinylCacheSpec{Image: "varnish:8.0.2"},
+	}
+	sch := newScheme(t)
+	updates := 0
+	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).WithStatusSubresource(vc).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceUpdate: func(ctx context.Context, c client.Client, sub string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+				updates++
+				return c.SubResource(sub).Update(ctx, obj, opts...)
+			},
+		}).Build()
+	r := &VinylCacheReconciler{Client: cli, Scheme: sch, Generator: generator.New(), Catalog: testCatalog(t)}
+
+	cur := getVC(t, cli, vc)
+	_, _, err := r.resolveRuntime(context.Background(), cur)
+	require.NoError(t, err)
+	assert.Equal(t, 1, updates, "first resolution persists the outcome")
+
+	cur = getVC(t, cli, vc)
+	_, resolved, err := r.resolveRuntime(context.Background(), cur)
+	require.NoError(t, err)
+	assert.True(t, resolved)
+	assert.Equal(t, 1, updates, "unchanged inputs must not write again")
+
+	// A changed input is written.
+	cur = getVC(t, cli, vc)
+	cur.Spec.Image = "varnish:8.0.3"
+	_, _, err = r.resolveRuntime(context.Background(), cur)
+	require.NoError(t, err)
+	assert.Equal(t, 2, updates)
 }

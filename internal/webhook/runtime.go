@@ -40,7 +40,9 @@ func ValidateRuntime(old, vc *vinylv1.VinylCache, cat *catalog.Catalog) (admissi
 			warnings = append(warnings, fmt.Sprintf(
 				"spec.image is set without spec.version: the exporter and tracing sidecars follow the "+
 					"catalog default version %s, which may not match the image you run. "+
-					"Set spec.version to the version of spec.image so the sidecars match", rt.Version))
+					"Set spec.version to one of the versions the catalog has for flavor %s (%s) so the sidecars match; "+
+					"a version the catalog does not list is rejected and needs a catalog entry in the chart values (runtimes)",
+				rt.Version, flavor, strings.Join(cat.Versions(flavor), ", ")))
 		}
 	}
 
@@ -59,7 +61,46 @@ func ValidateRuntime(old, vc *vinylv1.VinylCache, cat *catalog.Catalog) (admissi
 				vc.Spec.Image))
 		}
 	}
+	if w := exporterLineageWarning(flavor, vc.Spec.Monitoring.Exporter); w != "" {
+		warnings = append(warnings, w)
+	}
 	return warnings, errs
+}
+
+// exporterLineageWarning warns when spec.monitoring.exporter.image pins an
+// exporter of the other lineage. The reference is built as the controller
+// does (repository:tag, tag defaulting to latest). Both lineages publish
+// under the repository name varnish-exporter, so the lineage lives in the tag
+// (1.8.3-varnish9.1.0 or 1.8.3-vinyl9.1.0). The rule looks at the last
+// repository segment plus the tag, lowercased; host and organisation are
+// ignored. Flavor vinyl needs "vinyl" in that part, flavor varnish must not
+// have it. A vinyl exporter in an image without vinylstat fails at start,
+// because the operator passes -varnishstat-path /usr/bin/vinylstat.
+func exporterLineageWarning(flavor vinylv1.Flavor, exp *vinylv1.ExporterSpec) string {
+	if exp == nil || exp.Image.Repository == "" {
+		return ""
+	}
+	tag := exp.Image.Tag
+	if tag == "" {
+		tag = "latest"
+	}
+	ref := exp.Image.Repository + ":" + tag
+	hasVinyl := strings.Contains(imageRepoName(exp.Image.Repository)+":"+strings.ToLower(tag), "vinyl")
+	switch {
+	case flavor == vinylv1.FlavorVinyl && !hasVinyl:
+		return fmt.Sprintf(
+			"spec.monitoring.exporter.image %q looks like a Varnish exporter (neither its repository name nor its tag "+
+				"mentions vinyl) but spec.flavor is vinyl: the exporter will not start because the vinyl pod has "+
+				"vinylstat, not varnishstat. Use a vinyl exporter tag such as 1.8.3-vinyl9.1.0, or remove the override",
+			ref)
+	case flavor == vinylv1.FlavorVarnish && hasVinyl:
+		return fmt.Sprintf(
+			"spec.monitoring.exporter.image %q looks like a Vinyl Cache exporter (its repository name or tag "+
+				"mentions vinyl) but spec.flavor is varnish: the exporter will not start because the varnish pod has "+
+				"varnishstat, not vinylstat. Use a varnish exporter tag such as 1.8.3-varnish9.1.0, or remove the override",
+			ref)
+	}
+	return ""
 }
 
 func effectiveFlavor(f vinylv1.Flavor) vinylv1.Flavor {
