@@ -1,0 +1,93 @@
+# vinyl-cache: Vinyl Cache (the renamed FOSS Varnish Cache) built from source,
+# with jemalloc and the vmods the operator's VCL uses (std, directors and
+# purge ship with the core; xkey from varnish-modules; uuid from libvmod-uuid).
+#
+# Why this exists: the Vinyl Cache project publishes no container images, so
+# the vinyl flavor of cloud-vinyl needs one we build ourselves (#106).
+#
+# Published as ghcr.io/bluedynamics/vinyl-cache:<VINYL_VERSION>-r<VINYL_REVISION>
+# (immutable) and the moving ghcr.io/bluedynamics/vinyl-cache:<VINYL_VERSION>.
+# Raise VINYL_REVISION to rebuild without a new Vinyl release (base image
+# security fixes, a vmod bump); reset it to 1 with a new VINYL_VERSION.
+#
+# The varnish working directory (-n) is /var/lib/varnish/varnishd for both
+# flavors. The image deliberately sets no WORKDIR there: in a pod the operator
+# mounts an emptyDir at /var/lib/varnish, and runc would create a missing
+# WORKDIR inside it as root 0755, which UID 65532 cannot write to.
+
+ARG VINYL_VERSION=9.1.0
+ARG VINYL_REVISION=1
+
+FROM debian:trixie AS build
+ARG VINYL_VERSION
+ARG VINYL_SHA256=3840a06dd0cd212fd1e3beeb8b086dbd7c35ca31cfe1962fe2586363a63410aa
+ARG VARNISH_MODULES_VERSION=0.29.0
+ARG VARNISH_MODULES_SHA256=58bd6c64954f5c9ffb2f8026468f0553a8ffc6def45017d071701bfba73fce72
+ARG LIBVMOD_UUID_COMMIT=9820da2d7396520bf2ce7723a5317ee55dbaf416
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential autoconf automake autoconf-archive libtool pkg-config \
+      python3 python3-docutils python3-sphinx \
+      libedit-dev libjemalloc-dev libncurses-dev libpcre2-dev libossp-uuid-dev \
+      git curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+RUN curl -fsSLo vinyl-cache.tgz "https://vinyl-cache.org/downloads/vinyl-cache-${VINYL_VERSION}.tgz" \
+    && echo "${VINYL_SHA256}  vinyl-cache.tgz" | sha256sum -c - \
+    && tar xzf vinyl-cache.tgz \
+    && cd "vinyl-cache-${VINYL_VERSION}" \
+    && ./configure --prefix=/usr --with-jemalloc \
+    && make -j"$(nproc)" \
+    && make install
+
+RUN curl -fsSLo varnish-modules.tgz "https://github.com/varnish/varnish-modules/releases/download/${VARNISH_MODULES_VERSION}/varnish-modules-${VARNISH_MODULES_VERSION}.tar.gz" \
+    && echo "${VARNISH_MODULES_SHA256}  varnish-modules.tgz" | sha256sum -c - \
+    && tar xzf varnish-modules.tgz \
+    && cd "varnish-modules-${VARNISH_MODULES_VERSION}" \
+    && ./configure --prefix=/usr \
+    && make -j"$(nproc)" \
+    && make install
+
+# Fetch by commit, not by cloning a branch, so the build survives a rebase of
+# the fork's branches.
+RUN mkdir libvmod-uuid && cd libvmod-uuid \
+    && git init -q \
+    && git remote add origin https://github.com/nigoroll/libvmod-uuid \
+    && git fetch -q --depth 1 origin "${LIBVMOD_UUID_COMMIT}" \
+    && git checkout -q FETCH_HEAD \
+    && ./autogen.sh \
+    && ./configure --prefix=/usr \
+    && make -j"$(nproc)" \
+    && make install
+
+FROM debian:trixie-slim
+ARG VINYL_VERSION
+ARG VINYL_REVISION
+LABEL org.opencontainers.image.title="vinyl-cache" \
+      org.opencontainers.image.version="${VINYL_VERSION}-r${VINYL_REVISION}" \
+      org.opencontainers.image.source="https://github.com/bluedynamics/cloud-vinyl" \
+      org.opencontainers.image.description="Vinyl Cache ${VINYL_VERSION} with jemalloc, xkey and uuid vmods" \
+      org.opencontainers.image.licenses="BSD-2-Clause"
+
+# Runtime libraries = ldd of vinyld, vinylstat, vinyllog and every vmod:
+# jemalloc, ncursesw (vinylstat), pcre2-8, ossp-uuid (vmod uuid). libc, libm,
+# libtinfo, libmd and libgcc/libstdc++ come with the base image or gcc. gcc and
+# libc6-dev are needed because vinyld compiles VCL to C at load time.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      gcc libc6-dev \
+      libjemalloc2 libncursesw6 libpcre2-8-0 libossp-uuid16 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /usr/sbin/vinyld /usr/sbin/vinyld
+COPY --from=build /usr/bin/vinylstat /usr/bin/vinylstat
+COPY --from=build /usr/bin/vinyllog /usr/bin/vinyllog
+COPY --from=build /usr/lib/libvinylapi.so.3* /usr/lib/
+COPY --from=build /usr/lib/vinyl-cache /usr/lib/vinyl-cache
+COPY --from=build /usr/share/vinyl-cache /usr/share/vinyl-cache
+RUN ldconfig
+
+RUN useradd --uid 65532 --user-group --no-create-home --shell /usr/sbin/nologin vinyl \
+    && install -d -o 65532 -g 65532 /var/lib/varnish /var/lib/varnish/varnishd
+USER 65532:65532
+EXPOSE 8080
