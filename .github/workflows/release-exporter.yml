@@ -53,8 +53,10 @@ jobs:
   # failed: otherwise adding a flavor would fail on the already published tag
   # of the other one. The only exception is the one flavor named by the
   # overwrite_flavor dispatch input (warned about); the other flavor stays
-  # untouched, so a rebuild of one never changes the bytes of the other. It emits the flavors that still need publishing; the
-  # build jobs run only for those.
+  # untouched, so a rebuild of one never changes the bytes of the other. It
+  # emits the flavors that still need publishing; the build jobs run only for
+  # those. Only HTTP 404 means "free": any other status except 200 fails the job
+  # rather than risk overwriting a published tag.
   guard-tag:
     name: Select flavors whose tag is free
     runs-on: ubuntu-latest
@@ -92,13 +94,21 @@ jobs:
             if [ "${OVERWRITE_FLAVOR:-none}" != "$flavor" ]; then
               code=$(curl -sS -o /dev/null -w '%{http_code}' \
                 -H "Authorization: Bearer $token" \
-                -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+                -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json" \
                 "https://ghcr.io/v2/bluedynamics/varnish-exporter/manifests/${tag}")
-              if [ "$code" = "200" ]; then
-                echo "::notice::${IMAGE}:${tag} already exists, skipping ${flavor}. Bump ${var} in Dockerfile.exporter or EXPORTER_VERSION here, or re-run with overwrite_flavor=${flavor} if you are certain (#91)."
-                continue
-              fi
-              echo "${IMAGE}:${tag} is free (HTTP $code), will publish."
+              case "$code" in
+                200)
+                  echo "::notice::${IMAGE}:${tag} already exists, skipping ${flavor}. Bump ${var} in Dockerfile.exporter or EXPORTER_VERSION here, or re-run with overwrite_flavor=${flavor} if you are certain (#91)."
+                  continue
+                  ;;
+                404)
+                  echo "${IMAGE}:${tag} is free (HTTP 404), will publish."
+                  ;;
+                *)
+                  echo "::error::unexpected HTTP ${code} for ${tag}"
+                  exit 1
+                  ;;
+              esac
             else
               echo "::warning::overwriting ${IMAGE}:${tag} (overwrite_flavor=${flavor})"
             fi

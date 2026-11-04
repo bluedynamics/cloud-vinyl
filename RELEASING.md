@@ -126,6 +126,12 @@ filters key on the type rather than the scope. Worth a skim after a release.
 has its own workflow, [`release-exporter.yml`](.github/workflows/release-exporter.yml),
 triggered manually or by changes to `Dockerfile.exporter`. It is not versioned by the
 repo tag, because the image is essentially static. Its tag is the upstream exporter
-version plus the bundled Varnish, e.g. `1.8.3-varnish9.1.0`: `EXPORTER_VERSION` from the
-workflow and `VARNISH_IMAGE` from `Dockerfile.exporter`. A Varnish bump therefore
-publishes a new tag, and the operator's default exporter image has to follow it.
+version, the flavor and the bundled daemon version, one image per flavor:
+`<exporter-version>-<flavor><daemon-version>`, e.g. `1.8.3-varnish9.1.0` and
+`1.8.3-vinyl9.1.0`. `EXPORTER_VERSION` comes from the workflow, the daemon version from
+`VARNISH_IMAGE` / `VINYL_IMAGE` in `Dockerfile.exporter` (`-r<N>` image revisions are
+stripped). A daemon bump therefore publishes a new tag, and the operator's default
+exporter image has to follow it. Tags are immutable: a `Dockerfile.exporter` change
+without a version bump is a green run that skips existing tags with a notice. To
+republish one flavor, dispatch the workflow with `overwrite_flavor` set to it; the other
+flavor is left alone.
