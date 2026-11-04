@@ -18,20 +18,37 @@ set -euo pipefail
 
 values="${1:-charts/cloud-vinyl/values.yaml}"
 
+# Preflight: a missing tool or the wrong yq (the Python yq wrapper takes jq
+# syntax) would otherwise surface as a confusing per-image failure.
+if ! docker buildx version >/dev/null 2>&1; then
+  echo "FAIL: docker buildx is required"
+  exit 1
+fi
+yq_version="$(yq --version 2>&1 || true)"
+if [[ "$yq_version" != *mikefarah* || "$yq_version" != *" v4."* ]]; then
+  echo "FAIL: mikefarah yq v4 is required, found: ${yq_version:-none}"
+  exit 1
+fi
+
 # inspect <ref>: resolve a reference; manifest JSON lands in $inspect_out. Runs in
 # the current shell (not a $(...) subshell) so $inspect_err survives. Retries
 # rate limits, 5xx and network blips on shared runners, but not "not found". On
 # final failure the registry's stderr is in $inspect_err, so callers can tell
 # "not found" from "rate limited".
+#
+# stdout and stderr are kept apart: buildx may print warnings on stderr even on
+# success, and those must not end up in the JSON that yq parses.
 inspect_out=""
 inspect_err=""
+errfile="$(mktemp)"
+trap 'rm -f "$errfile"' EXIT
 inspect() {
   local attempt
   for attempt in 1 2 3; do
-    if inspect_out="$(docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' 2>&1)"; then
+    if inspect_out="$(docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' 2>"$errfile")"; then
       return 0
     fi
-    inspect_err="$inspect_out"
+    inspect_err="$(<"$errfile")"
     [[ "$inspect_err" == *"not found"* ]] && return 1
     [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
   done

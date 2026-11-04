@@ -55,8 +55,8 @@ runtimes:
     default: "9.1.0"
     versions:
       "9.1.0":
-        daemon: ghcr.io/bluedynamics/vinyl-cache:9.1.0-r1
-        exporter: ghcr.io/bluedynamics/varnish-exporter:1.8.3-vinyl9.1.0
+        daemon: ghcr.io/bluedynamics/vinyl-cache:9.1.0-r1@sha256:97111a6297749eb3eeed87e538bcede706dabd26e7b4079432459a07f4f5486d
+        exporter: ghcr.io/bluedynamics/varnish-exporter:1.8.3-vinyl9.1.0@sha256:016eb426e12039891e31f17cca5eca43942296c10264249ea19c4c474224b057
         tracer: ""
 
 imagePullSecrets: []
