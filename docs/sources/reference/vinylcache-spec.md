@@ -46,6 +46,8 @@ changing `apiVersion` only.
 | `monitoring` | object | no | Metrics scraping and alerting. See the `monitoring` section below. |
 | `volumeClaimTemplates` | list | no | StatefulSet-native per-replica PVC templates. Reference the claim `name` from `spec.pod.volumeMounts`. Immutable after creation. |
 
+(reference-flavor)=
+
 ### Flavor
 
 | | `varnish` | `vinyl` |

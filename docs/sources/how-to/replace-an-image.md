@@ -59,11 +59,17 @@ one pod at a time, with no throttling across caches.
 
 An override stays in your values after the fix is released. Remove it when you upgrade to
 the release that contains the fix, or the cluster keeps running your image instead of the
-tested one. With `--reset-then-reuse-values`, a `--set` from an earlier upgrade is kept,
-so list your overrides in a values file under version control instead.
+tested one. `--reset-then-reuse-values` reuses the user-supplied values of the last
+release, so removing a key from your values file is not enough, and `--set ...=null`
+deletes the chart default, after which the chart fails. For that upgrade use
+`--reset-values -f <your full values file>` without the override. Keep your overrides in
+a values file under version control.
 
 ## Own builds and versions we do not ship
 
 Add an entry under `runtimes.<flavor>.versions` for a version the chart does not list.
-`default` stays as it is unless you want it to change. A VinylCache can then select the
+`default` stays as it is unless you want it to change. The entry needs `daemon` and
+`exporter`; the chart fails without them. An empty `tracer` defaults to this release's
+tracer, built for 9.1.0. It cannot read the log of another version, so tracing goes
+silent: set `tracer` too if you use `spec.tracing`. A VinylCache can then select the
 version with `spec.version`. See {ref}`helm-values-runtimes`.

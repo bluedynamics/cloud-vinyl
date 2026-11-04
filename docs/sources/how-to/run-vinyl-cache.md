@@ -58,32 +58,29 @@ kubectl get vinylcache my-cache -o jsonpath='{.status.runtime}'
 
 ## Switch an existing cache
 
-Change `flavor` (and `version`) on the existing object:
+Every cache created before 1.1 has `spec.image: varnish:9.1.0`. That image overrides the
+daemon, so changing only `flavor` would run `vinyld` on a Varnish image and crash-loop the
+first pod. Switch the flavor and remove the image in one patch:
 
 ```bash
 kubectl patch vinylcache my-cache --type merge \
-  -p '{"spec":{"flavor":"vinyl","version":"9.1.0"}}'
+  -p '{"spec":{"flavor":"vinyl","version":"9.1.0","image":null}}'
 ```
 
 This is a rolling restart, like an image change: the pods restart one at a time and each
 comes back with an empty cache. Plan it for a quiet period. During the roll, pods of both
 lineages can run side by side. That is safe because the peers only talk HTTP to each
-other. Pods do not share a cache between flavors.
+other. Each pod starts empty.
 
-If the cache sets `spec.image`, remove it or replace it with an image of the new lineage,
-otherwise the new flavor runs the old image. See {ref}`replace-an-image`.
+If you want to keep an image override, replace it with an image of the new lineage. See
+{ref}`replace-an-image`.
 
 ## What the flavor changes
 
-| | `varnish` | `vinyl` |
-|---|---|---|
-| daemon command | `varnishd` | `vinyld` |
-| exporter `-varnishstat-path` | default (`varnishstat`) | `/usr/bin/vinylstat` |
-| tracer `VARNISHLOG_PATH` | `varnishlog` | `vinyllog` |
-
-Everything else is identical. The working directory stays `/var/lib/varnish/varnishd` for
-both, so existing pods see no change. The VCL the operator generates is the same for both
-lineages.
+The flavor decides the daemon command, the exporter's statistics tool and the tracer's log
+tool. Everything else is identical, including the working directory
+`/var/lib/varnish/varnishd` and the generated VCL. See the table in
+{ref}`reference-flavor`.
 
 ## When the catalog changes under a cache
 

@@ -12,7 +12,6 @@ metadata:
   namespace: default
 spec:
   replicas: 2
-  image: varnish:9.1.0
   backends:
     - name: app
       serviceRef:
@@ -66,7 +65,6 @@ spec:
 ```yaml
 spec:
   replicas: 2
-  image: varnish:9.1.0
   backends:
     - name: app
       serviceRef:

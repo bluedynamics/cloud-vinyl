@@ -30,7 +30,7 @@ Mixing lineages inside one pod is not supported.
 
 ## Why digests
 
-Every image the operator deploys by default is pinned by digest in the runtime catalog. A
+Every daemon, exporter and tracer image of the catalog is pinned by digest in the runtime catalog. A
 tag can move: docker-library rebuilds `varnish:9.1.0` for Debian fixes, and a mutable tag
 can change what runs between two pod restarts. With digests, what runs is exactly what was
 tested, and a moved tag cannot change it.

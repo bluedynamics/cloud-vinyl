@@ -27,7 +27,7 @@ value never had an effect; it is still accepted, and ignored, until 2.0.
 | `image.agent.repository` | string | `ghcr.io/bluedynamics/cloud-vinyl-agent` | vinyl-agent sidecar image repository. |
 | `image.agent.tag` | string | `""` | Agent image tag. Defaults to Chart `appVersion`. |
 | `image.agent.pullPolicy` | string | `IfNotPresent` | Image pull policy. |
-| `image.tracer.repository` | string | `""` | **Deprecated**, removed after one minor release. Use `runtimes.<flavor>.versions."<version>".tracer`. While set, it overrides the tracer of the `varnish` entries only (the `vinyl` tracer is not affected), repository defaulting to `ghcr.io/bluedynamics/cloud-vinyl-tracer`. `helm install` and `helm upgrade` print a deprecation note. |
+| `image.tracer.repository` | string | `""` | **Deprecated**, planned for removal in 1.2. Use `runtimes.<flavor>.versions."<version>".tracer`. While set, it overrides the tracer of the `varnish` entries only (the `vinyl` tracer is not affected), repository defaulting to `ghcr.io/bluedynamics/cloud-vinyl-tracer`. `helm install` and `helm upgrade` print a deprecation note. |
 | `image.tracer.tag` | string | `""` | **Deprecated**, see above. Defaults to the chart `appVersion`. |
 
 (helm-values-runtimes)=
@@ -54,7 +54,7 @@ strings. The chart ships these entries:
 | Flavor and version | `daemon` | `exporter` |
 |---|---|---|
 | `varnish` 9.1.0 | `docker.io/library/varnish:9.1.0@sha256:...` | `ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0@sha256:...` |
-| `vinyl` 9.1.0 | `ghcr.io/bluedynamics/vinyl-cache:9.1.0-r1` | `ghcr.io/bluedynamics/varnish-exporter:1.8.3-vinyl9.1.0` |
+| `vinyl` 9.1.0 | `ghcr.io/bluedynamics/vinyl-cache:9.1.0-r1@sha256:...` | `ghcr.io/bluedynamics/varnish-exporter:1.8.3-vinyl9.1.0@sha256:...` |
 
 See the chart's `values.yaml` for the digests of the release you installed.
 
