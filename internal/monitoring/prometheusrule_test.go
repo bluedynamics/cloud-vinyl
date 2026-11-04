@@ -106,7 +106,7 @@ func TestPrometheusRule_BackendHealthUsesExporterMetric(t *testing.T) {
 // per-cache rule alerts on every cache in the cluster (#143).
 func TestGeneratePrometheusRule_SelectsOnlyTheCache(t *testing.T) {
 	rule := monitoring.GeneratePrometheusRule("my-cache", "shop", monitoring.Options{})
-	global := map[string]bool{"VinylCacheOperatorDown": true, "VinylCacheBroadcastFailures": true}
+	global := map[string]bool{"VinylCacheOperatorDown": true}
 	exporter := map[string]bool{"VinylCacheLowHitRatio": true, "VinylCacheBackendUnhealthy": true}
 	for _, r := range rule.Spec.Groups[0].Rules {
 		expr := r.Expr.String()
@@ -116,7 +116,9 @@ func TestGeneratePrometheusRule_SelectsOnlyTheCache(t *testing.T) {
 		case exporter[r.Alert]:
 			assert.Contains(t, expr, `namespace="shop",pod=~"my-cache-[0-9]+"`, r.Alert)
 		default:
-			assert.Contains(t, expr, `cache="my-cache"`, r.Alert)
+			// Both labels: a cache name alone matches same-named caches
+			// in other namespaces (#155).
+			assert.Contains(t, expr, `cache="my-cache",cache_namespace="shop"`, r.Alert)
 		}
 	}
 }
@@ -125,7 +127,7 @@ func TestGeneratePrometheusRule_AllPodsUnreachableFiltersBothSides(t *testing.T)
 	expr, ok := findAlertExpr(monitoring.GeneratePrometheusRule("my-cache", "shop", monitoring.Options{}), "VinylCacheAllPodsUnreachable")
 	require.True(t, ok)
 	assert.Equal(t,
-		`rate(vinyl_vcl_push_total{result="error",cache="my-cache"}[5m]) > 0 and vinyl_reconcile_total{result="error",cache="my-cache"} > 0`,
+		`rate(vinyl_vcl_push_total{result="error",cache="my-cache",cache_namespace="shop"}[5m]) > 0 and vinyl_reconcile_total{result="error",cache="my-cache",cache_namespace="shop"} > 0`,
 		expr)
 }
 
@@ -193,4 +195,28 @@ func TestGeneratePrometheusRule_LowHitRatioOnlyAffectsThatAlert(t *testing.T) {
 		}
 		assert.Equal(t, r, custom.Spec.Groups[0].Rules[i], r.Alert)
 	}
+}
+
+// The operator's metrics name their cache's namespace cache_namespace, not
+// namespace: Prometheus renames a scraped namespace label that collides with
+// the operator pod's target label to exported_namespace (#155). No alert on
+// operator metrics may rely on namespace.
+func TestGeneratePrometheusRule_OperatorAlertsUseCacheNamespace(t *testing.T) {
+	rule := monitoring.GeneratePrometheusRule("my-cache", "shop", monitoring.Options{})
+	exporter := map[string]bool{"VinylCacheLowHitRatio": true, "VinylCacheBackendUnhealthy": true}
+	for _, r := range rule.Spec.Groups[0].Rules {
+		if exporter[r.Alert] {
+			continue
+		}
+		assert.NotContains(t, r.Annotations["description"], "$labels.namespace", r.Alert)
+		assert.NotRegexp(t, `(^|[{,(\s])namespace=`, r.Expr.String(), r.Alert)
+	}
+}
+
+func TestGeneratePrometheusRule_BroadcastFailuresPerCache(t *testing.T) {
+	expr, ok := findAlertExpr(monitoring.GeneratePrometheusRule("my-cache", "shop", monitoring.Options{}), "VinylCacheBroadcastFailures")
+	require.True(t, ok)
+	assert.Equal(t,
+		`sum by (cache_namespace, cache) (rate(vinyl_broadcast_total{result="error",cache="my-cache",cache_namespace="shop"}[5m])) > 0.1`,
+		expr)
 }

@@ -6,8 +6,15 @@ const (
 	// labelCache is the Prometheus label carrying the VinylCache name. Every
 	// metric in this package is partitioned by it.
 	labelCache = "cache"
-	// labelNamespace is the namespace of that VinylCache.
-	labelNamespace = "namespace"
+	// labelCacheNamespace is the namespace of that VinylCache. Not
+	// "namespace": Prometheus attaches the operator pod's namespace as a
+	// target label of that name and, with honor_labels false, renames a
+	// scraped "namespace" to "exported_namespace" (#155).
+	labelCacheNamespace = "cache_namespace"
+	// labelPodAddr is the address (ip:port) a broadcast was sent to. Not
+	// "pod", for the same reason as labelCacheNamespace, and because the
+	// value is an address, not a pod name.
+	labelPodAddr = "pod_addr"
 	// labelResult partitions the operation counters into success and error.
 	labelResult = "result"
 	// labelType partitions the invalidation counters by request kind
@@ -22,14 +29,14 @@ const (
 // Nil-safe pattern for callers: if m != nil { m.VCLPushTotal.WithLabelValues(...).Inc() }
 type Metrics struct {
 	// VCL push metrics
-	VCLPushTotal    *prometheus.CounterVec // labels: cache, namespace, result (success|error)
+	VCLPushTotal    *prometheus.CounterVec // labels: cache, cache_namespace, result (success|error)
 	VCLPushDuration prometheus.Histogram   // aggregated over all caches
 
 	// Invalidation metrics
-	InvalidationTotal    *prometheus.CounterVec // labels: cache, namespace, type (purge|ban|xkey), result
+	InvalidationTotal    *prometheus.CounterVec // labels: cache, cache_namespace, type (purge|ban|xkey), result
 	InvalidationDuration prometheus.Histogram
-	BroadcastTotal       *prometheus.CounterVec // labels: pod, result (success|error)
-	PartialFailureTotal  *prometheus.CounterVec // labels: cache, namespace
+	BroadcastTotal       *prometheus.CounterVec // labels: cache, cache_namespace, pod_addr, result (success|error)
+	PartialFailureTotal  *prometheus.CounterVec // labels: cache, cache_namespace
 	// ObjectsPurgedTotal is the cumulative count of objects Varnish actually
 	// removed, summed from the X-Vinyl-Purged header each pod's purge synth
 	// response carries (see internal/proxy/broadcast.go's aggregateObjectsPurged).
@@ -42,7 +49,7 @@ type Metrics struct {
 	// type is purge or xkey only. ban is never a value here: BAN is routed
 	// to the agent's POST /ban (see internal/proxy/handler.go's handleBAN),
 	// not varnishd's purge synth, and never sets X-Vinyl-Purged.
-	ObjectsPurgedTotal *prometheus.CounterVec // labels: cache, namespace, type (purge|xkey)
+	ObjectsPurgedTotal *prometheus.CounterVec // labels: cache, cache_namespace, type (purge|xkey)
 	// ObjectsPurgedUnknownTotal counts individual pod responses that
 	// answered 2xx (the purge call itself succeeded) but did not carry a
 	// parseable X-Vinyl-Purged header — a pod that "did not say", as
@@ -56,7 +63,7 @@ type Metrics struct {
 	// design, not by regression, so counting it here would be permanent
 	// noise rather than a signal (see objectsPurgedCapable in
 	// internal/proxy/handler.go).
-	ObjectsPurgedUnknownTotal *prometheus.CounterVec // labels: cache, namespace, type (purge|xkey)
+	ObjectsPurgedUnknownTotal *prometheus.CounterVec // labels: cache, cache_namespace, type (purge|xkey)
 	// InvalidationUnknownHostTotal counts invalidation requests rejected
 	// because their Host header names no registered cache, most often the
 	// bare "<cache>-invalidation" Service name without the namespace (#132).
@@ -70,10 +77,10 @@ type Metrics struct {
 	// Note: hit-ratio and backend-health are NOT operator-side gauges — they come
 	// from the prometheus_varnish_exporter sidecar (varnish_main_cache_hit/miss,
 	// backend health) and are computed in PromQL/Grafana.
-	VCLVersionsLoaded *prometheus.GaugeVec // labels: cache, namespace
+	VCLVersionsLoaded *prometheus.GaugeVec // labels: cache, cache_namespace
 
 	// Operator
-	ReconcileTotal    *prometheus.CounterVec // labels: cache, namespace, result
+	ReconcileTotal    *prometheus.CounterVec // labels: cache, cache_namespace, result
 	ReconcileDuration prometheus.Histogram
 }
 
@@ -85,7 +92,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m.VCLPushTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "vinyl_vcl_push_total",
 		Help: "Total number of VCL push attempts.",
-	}, []string{labelCache, labelNamespace, labelResult})
+	}, []string{labelCache, labelCacheNamespace, labelResult})
 	reg.MustRegister(m.VCLPushTotal)
 
 	m.VCLPushDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -98,7 +105,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m.InvalidationTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "vinyl_invalidation_total",
 		Help: "Total number of cache invalidation requests.",
-	}, []string{labelCache, labelNamespace, labelType, labelResult})
+	}, []string{labelCache, labelCacheNamespace, labelType, labelResult})
 	reg.MustRegister(m.InvalidationTotal)
 
 	m.InvalidationDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -111,25 +118,25 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m.BroadcastTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "vinyl_broadcast_total",
 		Help: "Total number of broadcast requests to individual Varnish pods.",
-	}, []string{"pod", labelResult})
+	}, []string{labelCache, labelCacheNamespace, labelPodAddr, labelResult})
 	reg.MustRegister(m.BroadcastTotal)
 
 	m.PartialFailureTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "vinyl_partial_failure_total",
 		Help: "Total number of partial broadcast failures (some pods unreachable).",
-	}, []string{labelCache, labelNamespace})
+	}, []string{labelCache, labelCacheNamespace})
 	reg.MustRegister(m.PartialFailureTotal)
 
 	m.ObjectsPurgedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "vinyl_objects_purged_total",
 		Help: "Total number of cache objects actually removed by invalidation requests, as reported by Varnish. type is purge or xkey; ban never sets this.",
-	}, []string{labelCache, labelNamespace, labelType})
+	}, []string{labelCache, labelCacheNamespace, labelType})
 	reg.MustRegister(m.ObjectsPurgedTotal)
 
 	m.ObjectsPurgedUnknownTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "vinyl_objects_purged_unknown_total",
 		Help: "Total number of individual pod purge responses that answered 2xx but did not carry a parseable X-Vinyl-Purged count. type is purge or xkey; ban never sets this header by design.",
-	}, []string{labelCache, labelNamespace, labelType})
+	}, []string{labelCache, labelCacheNamespace, labelType})
 	reg.MustRegister(m.ObjectsPurgedUnknownTotal)
 
 	m.InvalidationUnknownHostTotal = prometheus.NewCounter(prometheus.CounterOpts{
@@ -141,13 +148,13 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m.VCLVersionsLoaded = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "vinyl_vcl_versions_loaded",
 		Help: "Number of VCL versions currently loaded in Varnish.",
-	}, []string{labelCache, labelNamespace})
+	}, []string{labelCache, labelCacheNamespace})
 	reg.MustRegister(m.VCLVersionsLoaded)
 
 	m.ReconcileTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "vinyl_reconcile_total",
 		Help: "Total number of reconcile operations.",
-	}, []string{labelCache, labelNamespace, labelResult})
+	}, []string{labelCache, labelCacheNamespace, labelResult})
 	reg.MustRegister(m.ReconcileTotal)
 
 	m.ReconcileDuration = prometheus.NewHistogram(prometheus.HistogramOpts{

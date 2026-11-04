@@ -72,7 +72,7 @@ func (s *Server) recordInvalidation(namespace, cacheName, typ string, start time
 		if pr.Status < 200 || pr.Status >= 300 {
 			r = outcomeError
 		}
-		s.metrics.BroadcastTotal.WithLabelValues(pr.Pod, r).Inc()
+		s.metrics.BroadcastTotal.WithLabelValues(cacheName, namespace, pr.Pod, r).Inc()
 		// A pod that answered 2xx but reported no parseable count is a
 		// different fact from one that reported a known 0 — the sum above
 		// cannot tell the two apart (it just adds a little less), so a

@@ -88,9 +88,9 @@ func TestHandlePurge_RecordsInvalidationMetrics(t *testing.T) {
 	assert.Equal(t, float64(1),
 		testutil.ToFloat64(m.InvalidationTotal.WithLabelValues("my-cache", "production", "purge", "success")))
 	assert.Equal(t, float64(3),
-		testutil.ToFloat64(m.BroadcastTotal.WithLabelValues("10.0.0.1:8080", "success"))+
-			testutil.ToFloat64(m.BroadcastTotal.WithLabelValues("10.0.0.2:8080", "success"))+
-			testutil.ToFloat64(m.BroadcastTotal.WithLabelValues("10.0.0.3:8080", "success")))
+		testutil.ToFloat64(m.BroadcastTotal.WithLabelValues("my-cache", "production", "10.0.0.1:8080", "success"))+
+			testutil.ToFloat64(m.BroadcastTotal.WithLabelValues("my-cache", "production", "10.0.0.2:8080", "success"))+
+			testutil.ToFloat64(m.BroadcastTotal.WithLabelValues("my-cache", "production", "10.0.0.3:8080", "success")))
 }
 
 // TestHandlePurge_RecordsObjectsPurgedMetric drives a broadcast result with
