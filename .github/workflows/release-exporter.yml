@@ -12,10 +12,11 @@ name: Release Exporter Image
 on:
   workflow_dispatch:
     inputs:
-      overwrite_tag:
-        description: "Republish even if the tag already exists (see #91 before using)"
-        type: boolean
-        default: false
+      overwrite_flavor:
+        description: "Republish the tag of this flavor even if it already exists (see #91 before using). The other flavor keeps its published tag."
+        type: choice
+        options: [none, varnish, vinyl]
+        default: none
   push:
     branches: [main]
     paths:
@@ -47,10 +48,12 @@ jobs:
   # The tag therefore carries the flavor and bundled daemon version, so an
   # image bump in Dockerfile.exporter yields a new tag by itself.
   # EXPORTER_VERSION cannot carry that bump: it names the upstream release.
-  # This job never overwrites a tag that exists, e.g. when Dockerfile.exporter
+  # This job does not overwrite a tag that exists, e.g. when Dockerfile.exporter
   # changes without a daemon bump. Such a flavor is skipped with a notice, not
   # failed: otherwise adding a flavor would fail on the already published tag
-  # of the other one. It emits the flavors that still need publishing; the
+  # of the other one. The only exception is the one flavor named by the
+  # overwrite_flavor dispatch input (warned about); the other flavor stays
+  # untouched, so a rebuild of one never changes the bytes of the other. It emits the flavors that still need publishing; the
   # build jobs run only for those.
   guard-tag:
     name: Select flavors whose tag is free
@@ -63,19 +66,15 @@ jobs:
       - name: Derive the tags from Dockerfile.exporter and skip published ones
         id: tags
         env:
-          OVERWRITE: ${{ github.event.inputs.overwrite_tag }}
+          OVERWRITE_FLAVOR: ${{ github.event.inputs.overwrite_flavor }}
           ACTOR: ${{ github.actor }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          if [ "${OVERWRITE}" = "true" ]; then
-            echo "::warning::overwrite_tag was requested, skipping the immutability check"
-          else
-            token=$(curl -sSf -u "${ACTOR}:${GH_TOKEN}" \
-              "https://ghcr.io/token?scope=repository:bluedynamics/varnish-exporter:pull&service=ghcr.io" \
-              | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
-          fi
+          token=$(curl -sSf -u "${ACTOR}:${GH_TOKEN}" \
+            "https://ghcr.io/token?scope=repository:bluedynamics/varnish-exporter:pull&service=ghcr.io" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
 
           publish='[]'
           for flavor in varnish vinyl; do
@@ -90,18 +89,18 @@ jobs:
             version="${version%-r[0-9]*}"
             tag="${EXPORTER_VERSION}-${flavor}${version}"
 
-            if [ "${OVERWRITE}" != "true" ]; then
+            if [ "${OVERWRITE_FLAVOR:-none}" != "$flavor" ]; then
               code=$(curl -sS -o /dev/null -w '%{http_code}' \
                 -H "Authorization: Bearer $token" \
                 -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
                 "https://ghcr.io/v2/bluedynamics/varnish-exporter/manifests/${tag}")
               if [ "$code" = "200" ]; then
-                echo "::notice::${IMAGE}:${tag} already exists, skipping ${flavor}. Bump ${var} in Dockerfile.exporter or EXPORTER_VERSION here, or re-run with overwrite_tag if you are certain (#91)."
+                echo "::notice::${IMAGE}:${tag} already exists, skipping ${flavor}. Bump ${var} in Dockerfile.exporter or EXPORTER_VERSION here, or re-run with overwrite_flavor=${flavor} if you are certain (#91)."
                 continue
               fi
               echo "${IMAGE}:${tag} is free (HTTP $code), will publish."
             else
-              echo "Publishing ${IMAGE}:${tag}"
+              echo "::warning::overwriting ${IMAGE}:${tag} (overwrite_flavor=${flavor})"
             fi
             publish=$(jq -c --arg f "$flavor" --arg t "$tag" '. + [{flavor: $f, tag: $t}]' <<<"$publish")
           done
