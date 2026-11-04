@@ -66,15 +66,27 @@ jobs:
 
           code=$(curl -sS -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer $token" \
-            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json" \
             "https://ghcr.io/v2/bluedynamics/vinyl-cache/manifests/${TAG}")
 
-          if [ "$code" = "200" ]; then
-            echo "::error::${IMAGE}:${TAG} already exists."
-            echo "A published revision is never overwritten. Raise VINYL_REVISION in Dockerfile.vinyl (or set a new VINYL_VERSION with revision 1)."
-            exit 1
-          fi
-          echo "${IMAGE}:${TAG} is free (HTTP $code), proceeding."
+          # Only 404 means free. Any other status (401, 403, 429, 5xx, or 000
+          # on a connection failure) says nothing about the tag, and reading it
+          # as free would overwrite a published revision. The first publish of
+          # 9.1.0-r1 saw 404, so a missing tag answers 404 here.
+          case "$code" in
+            200)
+              echo "::error::${IMAGE}:${TAG} already exists."
+              echo "A published revision is never overwritten. Raise VINYL_REVISION in Dockerfile.vinyl (or set a new VINYL_VERSION with revision 1)."
+              exit 1
+              ;;
+            404)
+              echo "${IMAGE}:${TAG} is free (HTTP 404), proceeding."
+              ;;
+            *)
+              echo "::error::unexpected HTTP ${code} for ${IMAGE}:${TAG}; refusing to publish without knowing whether the tag exists."
+              exit 1
+              ;;
+          esac
 
   docker-build:
     needs: guard-tag
