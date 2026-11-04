@@ -10,7 +10,11 @@ on:
     branches: [main]
     paths:
       - "Dockerfile.vinyl"
-      - ".github/workflows/release-vinyl.yml"
+
+# Two runs must not both pass the guard and publish the same -rN.
+concurrency:
+  group: release-vinyl
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -27,6 +31,9 @@ jobs:
   # Dockerfile.vinyl; a new VINYL_VERSION resets it to 1.
   guard-tag:
     name: Refuse to overwrite a published tag
+    # A dispatch from another branch would publish unreviewed bytes as an
+    # immutable revision; dependent jobs are skipped with this one.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.tag.outputs.version }}

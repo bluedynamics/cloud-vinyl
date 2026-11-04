@@ -10,8 +10,10 @@
 # Raise VINYL_REVISION to rebuild without a new Vinyl release (base image
 # security fixes, a vmod bump); reset it to 1 with a new VINYL_VERSION.
 #
-# The workdir /var/lib/varnish/varnishd matches the varnish flavor, so the
-# operator mounts the same paths for both.
+# The varnish working directory (-n) is /var/lib/varnish/varnishd for both
+# flavors. The image deliberately sets no WORKDIR there: in a pod the operator
+# mounts an emptyDir at /var/lib/varnish, and runc would create a missing
+# WORKDIR inside it as root 0755, which UID 65532 cannot write to.
 
 ARG VINYL_VERSION=9.1.0
 ARG VINYL_REVISION=1
@@ -47,9 +49,13 @@ RUN curl -fsSLo varnish-modules.tgz "https://github.com/varnish/varnish-modules/
     && make -j"$(nproc)" \
     && make install
 
-RUN git clone https://github.com/nigoroll/libvmod-uuid \
-    && cd libvmod-uuid \
-    && git checkout "${LIBVMOD_UUID_COMMIT}" \
+# Fetch by commit, not by cloning a branch, so the build survives a rebase of
+# the fork's branches.
+RUN mkdir libvmod-uuid && cd libvmod-uuid \
+    && git init -q \
+    && git remote add origin https://github.com/nigoroll/libvmod-uuid \
+    && git fetch -q --depth 1 origin "${LIBVMOD_UUID_COMMIT}" \
+    && git checkout -q FETCH_HEAD \
     && ./autogen.sh \
     && ./configure --prefix=/usr \
     && make -j"$(nproc)" \
@@ -83,6 +89,5 @@ RUN ldconfig
 
 RUN useradd --uid 65532 --user-group --no-create-home --shell /usr/sbin/nologin vinyl \
     && install -d -o 65532 -g 65532 /var/lib/varnish /var/lib/varnish/varnishd
-WORKDIR /var/lib/varnish/varnishd
 USER 65532:65532
 EXPOSE 8080
