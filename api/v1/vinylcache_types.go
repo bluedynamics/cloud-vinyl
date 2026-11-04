@@ -37,7 +37,38 @@ const (
 	ConditionBackendsAvailable = "BackendsAvailable"
 	ConditionProgressing       = "Progressing"
 	ConditionVCLConsistent     = "VCLConsistent"
+	ConditionRuntimeResolved   = "RuntimeResolved"
 )
+
+// Flavor selects which cache daemon family a VinylCache runs.
+type Flavor string
+
+const (
+	// FlavorVarnish runs Varnish Cache (varnishd).
+	FlavorVarnish Flavor = "varnish"
+	// FlavorVinyl runs Vinyl Cache (vinyld).
+	FlavorVinyl Flavor = "vinyl"
+)
+
+// RuntimeStatus records the runtime the operator resolved for a VinylCache.
+type RuntimeStatus struct {
+	// flavor is the resolved daemon family.
+	Flavor Flavor `json:"flavor"`
+
+	// version is the resolved daemon version.
+	Version string `json:"version"`
+
+	// daemon is the resolved image of the cache daemon container.
+	Daemon string `json:"daemon"`
+
+	// exporter is the resolved image of the metrics exporter sidecar.
+	// +optional
+	Exporter string `json:"exporter,omitempty"`
+
+	// tracer is the resolved image of the tracing sidecar.
+	// +optional
+	Tracer string `json:"tracer,omitempty"`
+}
 
 // VinylCacheSpec defines the desired state of VinylCache.
 type VinylCacheSpec struct {
@@ -45,9 +76,28 @@ type VinylCacheSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	Replicas int32 `json:"replicas"`
 
-	// image is the container image for the Varnish pods.
+	// flavor selects the cache daemon family: varnish (Varnish Cache) or
+	// vinyl (Vinyl Cache). Defaults to varnish.
+	// +kubebuilder:validation:Enum=varnish;vinyl
+	// +kubebuilder:default=varnish
+	// +optional
+	Flavor Flavor `json:"flavor,omitempty"`
+
+	// version is the daemon version to run, for example "9.1.0". It must be
+	// listed in the operator's runtime catalog for the chosen flavor. When
+	// empty, the catalog's default version for the flavor is used. That default
+	// is resolved at reconcile time and not written back to this field, so it
+	// follows the chart's default; pin version to stay on a given release.
+	// +optional
+	Version string `json:"version,omitempty"`
+
+	// image optionally overrides the container image of the cache daemon. It
+	// replaces only the daemon image: the exporter and tracing sidecars still
+	// follow flavor and version. When empty, the daemon image comes from the
+	// runtime catalog.
 	// +kubebuilder:validation:MinLength=1
-	Image string `json:"image"`
+	// +optional
+	Image string `json:"image,omitempty"`
 
 	// backends defines the upstream services Varnish will proxy to.
 	// At least one backend is required.
@@ -862,6 +912,10 @@ type VinylCacheStatus struct {
 	// +optional
 	Message string `json:"message,omitempty"`
 
+	// runtime is the flavor, version and images the operator resolved.
+	// +optional
+	Runtime *RuntimeStatus `json:"runtime,omitempty"`
+
 	// activeVCL describes the VCL version currently loaded in Varnish.
 	// +optional
 	ActiveVCL *ActiveVCLStatus `json:"activeVCL,omitempty"`
@@ -966,6 +1020,8 @@ type ClusterPeerStatus struct {
 // +kubebuilder:printcolumn:name="Replicas",type="string",JSONPath=".status.readyReplicas"
 // +kubebuilder:printcolumn:name="VCL",type="string",JSONPath=".status.conditions[?(@.type=='VCLSynced')].status"
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",priority=1
+// +kubebuilder:printcolumn:name="Flavor",type="string",JSONPath=".status.runtime.flavor"
+// +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".status.runtime.version"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // VinylCache is the Schema for the vinylcaches API.

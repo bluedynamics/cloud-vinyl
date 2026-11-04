@@ -70,3 +70,60 @@ func TestCRDVersionsShareOneSchema(t *testing.T) {
 		}
 	}
 }
+
+// TestCRDFlavorDefaultsToVarnish pins the flavor field contract: it defaults
+// to varnish, admits only varnish and vinyl, and spec.image is no longer
+// required because the runtime catalog supplies it.
+func TestCRDFlavorDefaultsToVarnish(t *testing.T) {
+	raw, err := os.ReadFile("../../config/crd/bases/vinyl.bluedynamics.eu_vinylcaches.yaml")
+	if err != nil {
+		t.Fatalf("read CRD: %v", err)
+	}
+	var crd struct {
+		Spec struct {
+			Versions []struct {
+				Name   string `json:"name"`
+				Schema struct {
+					OpenAPIV3Schema struct {
+						Properties struct {
+							Spec struct {
+								Required   []string `json:"required"`
+								Properties struct {
+									Flavor struct {
+										Default string   `json:"default"`
+										Enum    []string `json:"enum"`
+									} `json:"flavor"`
+								} `json:"properties"`
+							} `json:"spec"`
+						} `json:"properties"`
+					} `json:"openAPIV3Schema"`
+				} `json:"schema"`
+			} `json:"versions"`
+		} `json:"spec"`
+	}
+	if err := yaml.Unmarshal(raw, &crd); err != nil {
+		t.Fatalf("parse CRD: %v", err)
+	}
+	found := false
+	for _, v := range crd.Spec.Versions {
+		if v.Name != "v1" {
+			continue
+		}
+		found = true
+		spec := v.Schema.OpenAPIV3Schema.Properties.Spec
+		if got := spec.Properties.Flavor.Default; got != "varnish" {
+			t.Errorf("flavor default %q, want varnish", got)
+		}
+		if got := spec.Properties.Flavor.Enum; !reflect.DeepEqual(got, []string{"varnish", "vinyl"}) {
+			t.Errorf("flavor enum %v, want [varnish vinyl]", got)
+		}
+		for _, r := range spec.Required {
+			if r == "image" {
+				t.Errorf("image must not be required, got required=%v", spec.Required)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("v1 version not found in CRD")
+	}
+}
