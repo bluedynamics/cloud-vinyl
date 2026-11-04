@@ -136,10 +136,15 @@ docker-build-agent: ## Build the agent docker image.
 	$(CONTAINER_TOOL) build -t $(AGENT_IMG) -f Dockerfile.agent .
 
 TRACER_IMG ?= ghcr.io/bluedynamics/cloud-vinyl-tracer:latest
+VINYL_IMG ?= ghcr.io/bluedynamics/vinyl-cache:dev
 
 .PHONY: docker-build-tracer
 docker-build-tracer: ## Build the tracer docker image (VARNISH_IMAGE pins the varnishlog source).
 	$(CONTAINER_TOOL) build -t $(TRACER_IMG) -f Dockerfile.tracer .
+
+.PHONY: docker-build-vinyl
+docker-build-vinyl: ## Build the Vinyl Cache image (Dockerfile.vinyl).
+	$(CONTAINER_TOOL) build -t $(VINYL_IMG) -f Dockerfile.vinyl .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
