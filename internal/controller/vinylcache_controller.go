@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -33,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
+	"github.com/bluedynamics/cloud-vinyl/internal/catalog"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
 	"github.com/bluedynamics/cloud-vinyl/internal/proxy"
@@ -53,7 +56,9 @@ type VinylCacheReconciler struct {
 	ObserveTimeout time.Duration
 
 	client.Client
-	Scheme      *runtime.Scheme
+	Scheme *runtime.Scheme
+	// Catalog resolves spec.flavor and spec.version to images. Required.
+	Catalog     *catalog.Catalog
 	Generator   generator.Generator
 	AgentClient AgentClient
 	// OperatorIP is the operator pod's own IP address, used to populate the
@@ -119,7 +124,16 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	// 5. Reconcile StatefulSet.
-	if err := r.reconcileStatefulSet(ctx, vc); err != nil {
+	// The catalog resolves flavor and version to images; spec overrides are
+	// applied on top. TODO(C4): surface a missing entry as a condition.
+	if r.Catalog == nil {
+		return ctrl.Result{}, errors.New("runtime catalog is not configured")
+	}
+	rt, err := r.Catalog.Resolve(vc.Spec.Flavor, vc.Spec.Version)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("resolving runtime: %w", err)
+	}
+	if err := r.reconcileStatefulSet(ctx, vc, effectiveRuntime(vc, rt)); err != nil {
 		return ctrl.Result{}, err
 	}
 
