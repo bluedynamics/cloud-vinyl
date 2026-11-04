@@ -145,6 +145,13 @@ caches (see [Varnish version support](../reference/varnish-versions.md)). For
 other versions, override `exporter.image` with a matching build. A mismatched
 `varnishstat` cannot read the VSM, and the sidecar then reports `varnish_up 0`
 and exports no `varnish_*` metrics at all.
+
+You rarely need this override: the exporter normally comes from the runtime catalog
+entry of the cache's `flavor` and `version`, pinned by digest. A cache with
+`flavor: vinyl` needs the exporter built from the Vinyl image,
+`ghcr.io/bluedynamics/varnish-exporter:1.8.3-vinyl9.1.0`, which bundles `vinylstat`.
+The Varnish tag `1.8.3-varnish9.1.0` has no `vinylstat`, so the sidecar would not
+start. The admission webhook warns when the exporter override names the other lineage.
 ```
 
 ## Show the cache hit rate in Grafana

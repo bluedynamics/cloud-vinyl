@@ -20,6 +20,10 @@ spec:
       port: 8080
 ```
 
+`spec.image` is optional. Without it, the operator runs the default `varnish` version of
+its runtime catalog. To run Vinyl Cache instead, set `flavor: vinyl` (see
+{ref}`run-vinyl-cache`).
+
 Apply it:
 
 ```bash
