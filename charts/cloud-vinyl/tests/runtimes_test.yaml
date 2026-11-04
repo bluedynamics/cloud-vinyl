@@ -149,6 +149,8 @@ tests:
           path: spec.template.metadata.annotations["checksum/runtime-catalog"]
           value: 1970d6ff4084b56b356e4e86d75da28755588d13a02f57aae2f51951fe1df230
 
+  # Helm 3 says "Additional property bogus is not allowed", Helm 4 says
+  # "additional properties 'bogus' not allowed"; the pattern accepts both.
   - it: schema rejects an unknown flavor
     template: runtime-catalog.yaml
     set:
@@ -157,7 +159,7 @@ tests:
           default: x
     asserts:
       - failedTemplate:
-          errorPattern: "additional properties 'bogus' not allowed"
+          errorPattern: "[Aa]dditional propert(y|ies) '?bogus'? (is )?not allowed"
 
   - it: schema rejects an unknown image key
     template: runtime-catalog.yaml
@@ -169,7 +171,7 @@ tests:
               sidecar: x
     asserts:
       - failedTemplate:
-          errorPattern: "additional properties 'sidecar' not allowed"
+          errorPattern: "[Aa]dditional propert(y|ies) '?sidecar'? (is )?not allowed"
 
   - it: fails with a hint when the runtime catalog is missing (--reuse-values)
     template: runtime-catalog.yaml
