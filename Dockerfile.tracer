@@ -1,13 +1,25 @@
-# vinyl-tracer: reads the VSL via a varnishlog copied from the SAME varnish
-# image the cache runs (the VSL shm layout is not a stable ABI), and exports
-# OTLP spans. Keep VARNISH_IMAGE in sync with the cache image. Unlike
-# varnishstat, varnishlog does not read across versions: 9.1.0 against an
-# 8.0.2 varnishd (or the reverse) prints nothing and reports no error, so a
-# mismatch shows up only as missing spans.
+# vinyl-tracer: reads the VSL via the log tool copied from the SAME cache image
+# the cache runs (the VSL shm layout is not a stable ABI), and exports OTLP
+# spans:
 #
-# Published as ghcr.io/bluedynamics/cloud-vinyl-tracer:<version>.
+#   FLAVOR=varnish  varnishlog + libvarnishapi.so.3, from VARNISH_IMAGE (default)
+#   FLAVOR=vinyl    vinyllog   + libvinylapi.so.3,   from VINYL_IMAGE (#106)
+#
+# Keep the selected *_IMAGE in sync with the cache image. Unlike varnishstat,
+# the log tool does not read across versions: 9.1.0 against an 8.0.2 daemon (or
+# the reverse) prints nothing and reports no error, so a mismatch shows up only
+# as missing spans. The vinyl variant needs VARNISHLOG_PATH=vinyllog and contains
+# no varnishlog alias.
+#
+# Only the selected source stage is built: `FROM src-${FLAVOR} AS daemon` makes
+# BuildKit prune the other one (see Dockerfile.exporter).
+#
+# Published as ghcr.io/bluedynamics/cloud-vinyl-tracer:<version> and
+# :<version>-vinyl.
 
+ARG FLAVOR=varnish
 ARG VARNISH_IMAGE=varnish:9.1.0
+ARG VINYL_IMAGE=ghcr.io/bluedynamics/vinyl-cache:9.1.0-r1
 
 FROM golang:1.26 AS build
 WORKDIR /workspace
@@ -16,24 +28,43 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o tracer ./cmd/tracer
 
-# Source of a matching varnishlog + its runtime libraries. The guard RUN
-# lives here (a COPY'd-from stage) so BuildKit cannot prune it. varnish 6.0
-# ships libvarnishapi.so.1 and is unsupported; see #91.
-FROM ${VARNISH_IMAGE} AS varnish
+# Source stages: a matching log tool + its runtime libraries, staged under
+# /export so the final stage needs a single COPY whatever the flavor. The guard
+# RUN lives in the source stage (a COPY'd-from stage) so BuildKit cannot prune
+# it. varnish 6.0 ships libvarnishapi.so.1 and is unsupported; see #91.
+FROM ${VARNISH_IMAGE} AS src-varnish
 RUN test -e /usr/lib/libvarnishapi.so.3 || { \
         echo "ERROR: VARNISH_IMAGE ships no libvarnishapi.so.3, found:" >&2; \
         ls -1 /usr/lib/libvarnishapi.so.* >&2; \
         exit 1; }
+USER root
+RUN mkdir -p /export/usr/bin /export/usr/lib \
+    && cp /usr/bin/varnishlog /export/usr/bin/ \
+    && cp -a /usr/lib/libvarnishapi.so.3* /export/usr/lib/ \
+    && cp -L /lib/*-linux-gnu/libpcre2-8.so.0 /export/usr/lib/
 
-# Must match the Debian release of VARNISH_IMAGE (varnish:9.1.0 = Debian 13)
-# so varnishlog finds a compatible glibc.
+FROM ${VINYL_IMAGE} AS src-vinyl
+RUN test -e /usr/lib/libvinylapi.so.3 || { \
+        echo "ERROR: VINYL_IMAGE ships no libvinylapi.so.3, found:" >&2; \
+        ls -1 /usr/lib/libvinylapi.so.* >&2; \
+        echo "Only the .so.3 ABI is supported. See #91." >&2; \
+        exit 1; }
+USER root
+RUN mkdir -p /export/usr/bin /export/usr/lib \
+    && cp /usr/bin/vinyllog /export/usr/bin/ \
+    && cp -a /usr/lib/libvinylapi.so.3* /export/usr/lib/ \
+    && cp -L /lib/*-linux-gnu/libpcre2-8.so.0 /export/usr/lib/
+
+# Selects the flavor: the other source stage is never built.
+FROM src-${FLAVOR} AS daemon
+
+# Must match the Debian release of the source images (varnish:9.1.0 and
+# vinyl-cache:9.1.0-r1 = Debian 13) so the log tool finds a compatible glibc.
 FROM gcr.io/distroless/base-debian13:nonroot
 LABEL org.opencontainers.image.title="vinyl-tracer" \
       org.opencontainers.image.source="https://github.com/bluedynamics/cloud-vinyl" \
       org.opencontainers.image.licenses="Apache-2.0"
-COPY --from=varnish /usr/bin/varnishlog /usr/bin/varnishlog
-COPY --from=varnish /usr/lib/libvarnishapi.so.3* /usr/lib/
-COPY --from=varnish /lib/*-linux-gnu/libpcre2-8.so.0 /usr/lib/libpcre2-8.so.0
+COPY --from=daemon /export/ /
 COPY --from=build /workspace/tracer /tracer
 USER 65532:65532
 EXPOSE 9464

@@ -44,6 +44,19 @@ jobs:
             platform: linux/arm64
             runner: ubuntu-24.04-arm
             build-args: VARNISH_IMAGE=varnish:9.1.0
+          # Vinyl Cache variant (#106): vinyllog from VINYL_IMAGE (Dockerfile default).
+          - dockerfile: Dockerfile.tracer
+            image: ghcr.io/bluedynamics/cloud-vinyl-tracer
+            platform: linux/amd64
+            runner: ubuntu-latest
+            build-args: FLAVOR=vinyl
+            tag-suffix: -vinyl
+          - dockerfile: Dockerfile.tracer
+            image: ghcr.io/bluedynamics/cloud-vinyl-tracer
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            build-args: FLAVOR=vinyl
+            tag-suffix: -vinyl
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
@@ -73,7 +86,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           provenance: false
-          tags: ${{ matrix.image }}:${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.platform_tag }}
+          tags: ${{ matrix.image }}:${{ steps.meta.outputs.version }}${{ matrix.tag-suffix }}-${{ steps.meta.outputs.platform_tag }}
           build-args: ${{ matrix.build-args }}
 
   docker-manifest:
@@ -84,6 +97,10 @@ jobs:
           - image: ghcr.io/bluedynamics/cloud-vinyl-operator
           - image: ghcr.io/bluedynamics/cloud-vinyl-agent
           - image: ghcr.io/bluedynamics/cloud-vinyl-tracer
+          # Variant tag: <ver>-vinyl never moves :latest (pre-release or final).
+          - image: ghcr.io/bluedynamics/cloud-vinyl-tracer
+            tag-suffix: -vinyl
+            moves-latest: "false"
     runs-on: ubuntu-latest
     steps:
       - name: Log in to GHCR
@@ -101,10 +118,14 @@ jobs:
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
           IMAGE="${{ matrix.image }}"
-          docker manifest create "${IMAGE}:${VERSION}" \
-            "${IMAGE}:${VERSION}-linux-amd64" \
-            "${IMAGE}:${VERSION}-linux-arm64"
-          docker manifest push "${IMAGE}:${VERSION}"
+          SUFFIX="${{ matrix.tag-suffix }}"
+          docker manifest create "${IMAGE}:${VERSION}${SUFFIX}" \
+            "${IMAGE}:${VERSION}${SUFFIX}-linux-amd64" \
+            "${IMAGE}:${VERSION}${SUFFIX}-linux-arm64"
+          docker manifest push "${IMAGE}:${VERSION}${SUFFIX}"
+          if [ "${{ matrix.moves-latest }}" = "false" ]; then
+            echo "${IMAGE}:${VERSION}${SUFFIX} is a variant tag, leaving :latest alone"; exit 0
+          fi
           # A SemVer pre-release (v1.0.0-rc.1) must not move :latest, or
           # every unpinned pull would get the release candidate (#123).
           case "${VERSION}" in
