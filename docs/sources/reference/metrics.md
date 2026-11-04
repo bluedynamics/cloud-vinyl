@@ -32,8 +32,11 @@ varnishd's own `MAIN.n_purges` and `MAIN.n_obj_purged` stay at 0 for cloud-vinyl
 Cache hit ratio and backend health are **not** operator-side metrics. They come
 from the `prometheus_varnish_exporter` sidecar (enabled via
 `spec.monitoring.exporter.enabled`), which reads `varnishstat` (VSM) and exposes
-native `varnish_*` metrics scraped via the generated ServiceMonitor. The most
-relevant ones:
+native `varnish_*` metrics scraped via the generated ServiceMonitor. Since 1.1
+the default image is built from the maintained
+[otto-de fork](https://github.com/otto-de/prometheus_varnish_exporter) instead of
+the original exporter, which has had no release since 2021; the metric names
+are the same. The most relevant ones:
 
 | Metric | Type | Description |
 |--------|------|-------------|

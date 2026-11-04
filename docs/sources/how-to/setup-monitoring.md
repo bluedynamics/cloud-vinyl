@@ -129,7 +129,7 @@ The exporter image and resources can be overridden:
       enabled: true
       image:
         repository: ghcr.io/bluedynamics/varnish-exporter
-        tag: "1.6.1-varnish9.1.0"
+        tag: "1.8.3-varnish9.1.0"
       port: 9131
       resources:
         requests: {cpu: 50m, memory: 32Mi}
@@ -138,7 +138,7 @@ The exporter image and resources can be overridden:
 
 ```{note}
 The exporter shells out to `varnishstat`, so the default image
-`ghcr.io/bluedynamics/varnish-exporter:1.6.1-varnish9.1.0` bundles the
+`ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0` bundles the
 `varnishstat` of **Varnish 9.1.0**, matching the `varnish:9.1.0` cache image used
 by default. The tag names the bundled Varnish version. It also reads Varnish 8.0
 caches (see [Varnish version support](../reference/varnish-versions.md)). For

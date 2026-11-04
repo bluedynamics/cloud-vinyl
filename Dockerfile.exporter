@@ -1,25 +1,28 @@
-# varnish-exporter: a thin, distroless image that runs the upstream
-# prometheus_varnish_exporter and bundles a matching `varnishstat` (plus its
+# varnish-exporter: a thin, distroless image that runs prometheus_varnish_exporter
+# from the maintained otto-de fork (#59) and bundles a matching `varnishstat` (plus its
 # shared libraries) copied from the official varnish image. The exporter shells
 # out to varnishstat, so the bundled varnishstat MUST match the varnishd version
 # that writes the VSM — keep VARNISH_IMAGE in sync with the cache image.
 #
-# Published as ghcr.io/bluedynamics/varnish-exporter:<EXPORTER_VERSION>.
+# Published as ghcr.io/bluedynamics/varnish-exporter:<EXPORTER_VERSION>-<VARNISH_IMAGE
+# without the colon>, e.g. 1.8.3-varnish9.1.0 (see release-exporter.yml).
 
 ARG VARNISH_IMAGE=varnish:9.1.0
-ARG EXPORTER_VERSION=1.6.1
+ARG EXPORTER_VERSION=1.8.3
 
-# Build the exporter from source. Upstream ships no arm64 binary for 1.6.1, and
-# the project is pure Go (it execs varnishstat; no cgo), so it cross-compiles.
+# Build the exporter from source. It is pure Go (it execs varnishstat; no cgo),
+# so it cross-compiles. Building it ourselves keeps the image distroless and
+# non-root, which the fork's published images are not (otto-de#19).
 FROM golang:1.26 AS build
 ARG EXPORTER_VERSION
 ARG TARGETOS
 ARG TARGETARCH
-RUN git clone --depth 1 --branch "${EXPORTER_VERSION}" \
-        https://github.com/jonnenauha/prometheus_varnish_exporter /src
+RUN git clone --depth 1 --branch "v${EXPORTER_VERSION}" \
+        https://github.com/otto-de/prometheus_varnish_exporter /src
 WORKDIR /src
 RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
-        go build -trimpath -o /out/prometheus_varnish_exporter .
+        go build -trimpath -ldflags "-X main.Version=${EXPORTER_VERSION}" \
+        -o /out/prometheus_varnish_exporter .
 
 # Source of a matching varnishstat + its runtime libraries.
 #

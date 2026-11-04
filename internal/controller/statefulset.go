@@ -75,7 +75,7 @@ const (
 	// exporterPort is the default prometheus_varnish_exporter listen port.
 	exporterPort = int32(9131)
 	// defaultExporterImage is the default varnish exporter sidecar image.
-	defaultExporterImage = "ghcr.io/bluedynamics/varnish-exporter:1.6.1-varnish9.1.0"
+	defaultExporterImage = "ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0"
 )
 
 const (

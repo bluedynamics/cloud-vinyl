@@ -498,7 +498,7 @@ spec:
                       image:
                         description: |-
                           image overrides the exporter image. Defaults to
-                          ghcr.io/bluedynamics/varnish-exporter:1.6.1-varnish9.1.0.
+                          ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0.
                         properties:
                           repository:
                             type: string
@@ -5234,7 +5234,7 @@ spec:
                       image:
                         description: |-
                           image overrides the exporter image. Defaults to
-                          ghcr.io/bluedynamics/varnish-exporter:1.6.1-varnish9.1.0.
+                          ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0.
                         properties:
                           repository:
                             type: string
