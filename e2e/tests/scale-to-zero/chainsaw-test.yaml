@@ -1,0 +1,136 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: scale-to-zero
+  labels:
+    suite: full
+spec:
+  description: |
+    spec.replicas: 0 switches a cache off on purpose (#174). Proves, on a real
+    cluster: the StatefulSet goes to 0 and its pod disappears, the VinylCache
+    reports phase Stopped with Ready=True/ScaledToZero, and scaling back up
+    returns to Ready with a pod that serves 200 again over real HTTP.
+  timeouts:
+    assert: 180s
+    delete: 60s
+    exec: 90s
+  steps:
+    - name: deploy
+      try:
+        - apply:
+            file: ../../fixtures/backends/echo-service.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-backend
+              status:
+                readyReplicas: 1
+        - apply:
+            file: ../../fixtures/vinylcaches/minimal.yaml
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              status:
+                phase: Ready
+        - apply:
+            file: ../../fixtures/probe/probe-pod.yaml
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: probe
+              status:
+                phase: Running
+        - script:
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://my-cache-0.my-cache:8080/" -expect-status 200 -timeout 60s
+
+    - name: scale-to-zero
+      try:
+        - patch:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              spec:
+                replicas: 0
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: my-cache
+              spec:
+                replicas: 0
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              status:
+                phase: Stopped
+        # The pod's termination can outlast chainsaw's delete timeout, so wait
+        # in a script. A pod that is gone is a cluster fact, not an object we
+        # only created.
+        - script:
+            timeout: 120s
+            content: |
+              set -eu
+              kubectl wait -n $NAMESPACE --for=delete pod/my-cache-0 --timeout=100s
+              reason=$(kubectl get vinylcache my-cache -n $NAMESPACE \
+                -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}')
+              status=$(kubectl get vinylcache my-cache -n $NAMESPACE \
+                -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+              test "$reason" = "ScaledToZero"
+              test "$status" = "True"
+
+    - name: scale-back-up
+      try:
+        - patch:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              spec:
+                replicas: 1
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: my-cache
+              status:
+                readyReplicas: 1
+        - assert:
+            resource:
+              apiVersion: vinyl.bluedynamics.eu/v1
+              kind: VinylCache
+              metadata:
+                name: my-cache
+              status:
+                phase: Ready
+        - script:
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://my-cache-0.my-cache:8080/" -expect-status 200 -timeout 60s
+
+    - name: cleanup
+      try:
+        - delete:
+            file: ../../fixtures/probe/probe-pod.yaml
+        - delete:
+            file: ../../fixtures/vinylcaches/minimal.yaml
+        - delete:
+            file: ../../fixtures/backends/echo-service.yaml
