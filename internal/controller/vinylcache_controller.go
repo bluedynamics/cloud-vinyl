@@ -191,17 +191,12 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	// If any backend has zero resolved endpoints, skip the push and requeue.
-	// This avoids emitting invalid VCL (a director with no add_backend calls
-	// is a runtime error in Varnish). The EndpointSlice watch will trigger
-	// a fresh reconcile as soon as endpoints appear.
-	for _, b := range vc.Spec.Backends {
-		if len(endpoints[b.Name]) == 0 {
-			log.Info("backend has no ready endpoints, waiting",
-				"backend", b.Name, "service", b.ServiceRef.Name)
-			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
-		}
-	}
+	// A backend without endpoints does not block the push: the generator
+	// gives it a never-healthy placeholder, so the pod leaves the bootstrap
+	// VCL and becomes Ready, and routes to the backend answer 503 (#171).
+	// The EndpointSlice watch triggers a reconcile when endpoints appear.
+	obs.backendsWithoutEndpoints = backendsWithoutEndpoints(vc, endpoints)
+	logBackendEndpointTransition(ctx, vc, obs.backendsWithoutEndpoints)
 
 	// #92 migration: see legacyShardByLogFields.
 	if msg, kvs, ok := legacyShardByLogFields(vc); ok {

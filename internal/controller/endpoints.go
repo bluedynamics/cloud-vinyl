@@ -19,10 +19,10 @@ import (
 // resolveBackendEndpoints returns, for each spec.backend, the list of Ready and
 // non-Terminating per-pod endpoints discovered via EndpointSlice.
 //
-// Returning an empty slice for a backend is valid — the generator will emit
-// a director with no add_backend() calls, which Varnish flags as "no healthy
-// backends" until the next endpoint change triggers a reconcile. Callers must
-// not treat missing endpoints as an error.
+// Returning an empty slice for a backend is valid: the generator gives the
+// backend a never-healthy placeholder, so routes to it answer 503 until the
+// next endpoint change triggers a reconcile. Callers must not treat missing
+// endpoints as an error.
 func (r *VinylCacheReconciler) resolveBackendEndpoints(
 	ctx context.Context,
 	vc *vinylv1.VinylCache,
@@ -96,4 +96,16 @@ func pickPort(ports []discoveryv1.EndpointPort, b vinylv1.BackendSpec) int {
 		}
 	}
 	return 0
+}
+
+// backendsWithoutEndpoints lists the spec.backends that resolved to no
+// endpoints, in spec order.
+func backendsWithoutEndpoints(vc *vinylv1.VinylCache, endpoints map[string][]generator.Endpoint) []string {
+	var names []string
+	for _, b := range vc.Spec.Backends {
+		if len(endpoints[b.Name]) == 0 {
+			names = append(names, b.Name)
+		}
+	}
+	return names
 }
