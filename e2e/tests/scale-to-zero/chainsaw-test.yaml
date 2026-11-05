@@ -7,9 +7,10 @@ metadata:
 spec:
   description: |
     spec.replicas: 0 switches a cache off on purpose (#174). Proves, on a real
-    cluster: the StatefulSet goes to 0 and its pod disappears, the VinylCache
-    reports phase Stopped with Ready=True/ScaledToZero, and scaling back up
-    returns to Ready with a pod that serves 200 again over real HTTP.
+    cluster: the StatefulSet goes to 0 and its pod disappears, and scaling
+    back up returns a pod that serves 200 again over real HTTP. The
+    conditions at 0 replicas are unit-tested (status_stopped_test.go); the
+    phase asserts here only wait for the operator.
   timeouts:
     assert: 180s
     delete: 60s
@@ -87,12 +88,6 @@ spec:
             content: |
               set -eu
               kubectl wait -n $NAMESPACE --for=delete pod/my-cache-0 --timeout=100s
-              reason=$(kubectl get vinylcache my-cache -n $NAMESPACE \
-                -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}')
-              status=$(kubectl get vinylcache my-cache -n $NAMESPACE \
-                -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
-              test "$reason" = "ScaledToZero"
-              test "$status" = "True"
 
     - name: scale-back-up
       try:
