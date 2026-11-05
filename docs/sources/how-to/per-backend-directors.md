@@ -161,6 +161,37 @@ and gets no retry; the default `plone.backend()` is.
 See "Watch fetch retries" in [Set up monitoring](setup-monitoring.md) for how
 retries show up in the metrics.
 
+(backends-without-endpoints)=
+
+## Backends without endpoints
+
+A backend whose Service has no ready endpoints, for example because its
+Deployment is scaled to zero, does not keep the cache from starting. The
+operator still pushes the VCL, the cache pods become ready, and the other
+backends keep working.
+
+For the backend without endpoints, the generated VCL contains one placeholder
+backend (`noendpoints_<backend>`) that is never healthy. Requests routed to
+that backend answer `503` instead of reaching an origin. When endpoints
+return, the operator regenerates the VCL and the route recovers without a
+restart.
+
+The `VinylCache` reports it in its status:
+
+- `BackendsAvailable` is `False` with reason `BackendWithoutEndpoints`, and the
+  message names the backends.
+- `phase` is `Degraded`.
+- `Ready` stays `True` while all replicas are ready.
+
+The placeholder shows up as an unhealthy backend, so the
+`VinylCacheBackendUnhealthy` alert fires for it after its usual delay.
+
+```{note}
+Without a `vclRecv` snippet that selects the backend, requests do not use the
+per-backend directors, so a backend without endpoints only matters for the
+routes you send to it.
+```
+
 ## Debounce
 
 Backend pod churn (scale events, rolling updates) triggers reconciles.
