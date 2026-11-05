@@ -1,0 +1,131 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: backend-without-endpoints
+  labels:
+    suite: full
+spec:
+  description: |
+    A backend whose Service has no endpoints must not keep the cache from
+    serving (#171). Before the fix the operator skipped the VCL push while any
+    backend had no endpoints, so the cache pod stayed on the bootstrap VCL and
+    never became Ready, which in turn kept the other backends' traffic away.
+
+    Proves, against a real varnishd: the pod becomes Ready (also when it is
+    replaced) while one backend has no endpoints, that backend's route answers
+    503 while the other route answers 200, and the route recovers when
+    endpoints return.
+  timeouts:
+    assert: 180s
+    delete: 60s
+    exec: 90s
+  steps:
+    - name: deploy-backends
+      description: echo-backend has one pod, echo-idle none.
+      try:
+        - apply:
+            file: ../../fixtures/backends/echo-service.yaml
+        - apply:
+            file: ../../fixtures/backends/echo-idle.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-backend
+              status:
+                readyReplicas: 1
+
+    - name: cache-becomes-ready-without-endpoints
+      try:
+        - apply:
+            file: ../../fixtures/vinylcaches/backend-without-endpoints.yaml
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: gap-cache
+              status:
+                readyReplicas: 1
+        - apply:
+            file: ../../fixtures/probe/probe-pod.yaml
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: probe
+              status:
+                phase: Running
+
+    - name: routes-while-backend-has-no-endpoints
+      try:
+        - script:
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://gap-cache-0.gap-cache:8080/live" -expect-status 200 -timeout 60s
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://gap-cache-0.gap-cache:8080/idle" -expect-status 503 -timeout 60s
+
+    - name: replaced-pod-becomes-ready
+      description: |
+        A restarted cache starts on the bootstrap VCL; it must get the real
+        VCL pushed although a backend still has no endpoints.
+      try:
+        - delete:
+            ref:
+              apiVersion: v1
+              kind: Pod
+              name: gap-cache-0
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: gap-cache
+              status:
+                readyReplicas: 1
+        - script:
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://gap-cache-0.gap-cache:8080/idle" -expect-status 503 -timeout 60s
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://gap-cache-0.gap-cache:8080/live" -expect-status 200 -timeout 60s
+
+    - name: endpoints-return
+      try:
+        - patch:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-idle
+              spec:
+                replicas: 1
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: echo-idle
+              status:
+                readyReplicas: 1
+        - script:
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://gap-cache-0.gap-cache:8080/idle" -expect-status 200 -timeout 90s
+
+    - name: cleanup
+      try:
+        - delete:
+            file: ../../fixtures/probe/probe-pod.yaml
+        - delete:
+            file: ../../fixtures/vinylcaches/backend-without-endpoints.yaml
+        - delete:
+            file: ../../fixtures/backends/echo-idle.yaml
+        - delete:
+            file: ../../fixtures/backends/echo-service.yaml

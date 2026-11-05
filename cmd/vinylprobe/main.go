@@ -57,6 +57,8 @@ const (
 	spanIDHelp     = "assert-spans: only count spans with this exact hex span id"
 	linkSpanIDHelp = "assert-spans: only count spans carrying a link whose span id equals this exact hex value " +
 		"(requires -assert-spans)"
+	expectStatusHelp = "GET -url, polling until it answers with this HTTP status or -timeout elapses; " +
+		"exit 0 on a match, 1 otherwise. Asserts eventual states such as a route answering 503."
 	minDurationHelp = "assert-spans: only count spans whose end-start duration is at least this long " +
 		"(requires -assert-spans)"
 )
@@ -92,6 +94,9 @@ type probeFlags struct {
 	// bodyCapture is a -url-family mode: see bodyCaptureHelp.
 	bodyCapture string
 
+	// expectStatus is a -url-family mode: see expectStatusHelp. 0 means unset.
+	expectStatus int
+
 	expectSet       bool
 	expectStateSet  bool
 	expectPurgedSet bool
@@ -120,6 +125,7 @@ func parseFlags() probeFlags {
 	linkSpanID := flag.String("link-span-id", "", linkSpanIDHelp)
 	minDuration := flag.Duration("min-duration", 0, minDurationHelp)
 	bodyCapture := flag.String("body-capture", "", bodyCaptureHelp)
+	expectStatus := flag.Int("expect-status", 0, expectStatusHelp)
 	var attrPairs []string
 	flag.Func("attr", attrHelp, func(s string) error {
 		if !strings.Contains(s, "=") {
@@ -160,6 +166,7 @@ func parseFlags() probeFlags {
 		linkSpanID:   *linkSpanID,
 		minDuration:  *minDuration,
 		bodyCapture:  *bodyCapture,
+		expectStatus: *expectStatus,
 	}
 	flag.Visit(func(fl *flag.Flag) {
 		switch fl.Name {
@@ -220,14 +227,18 @@ func (f probeFlags) validate() error {
 	// exclusive modes; anything left over falls through to the original
 	// Detect (-expect hit|miss) mode.
 	modes := 0
-	for _, on := range []bool{f.purge, f.seed, f.check != "", f.bodyCapture != ""} {
+	for _, on := range []bool{f.purge, f.seed, f.check != "", f.bodyCapture != "", f.expectStatus != 0} {
 		if on {
 			modes++
 		}
 	}
 	switch {
 	case modes > 1:
-		return errors.New("-purge, -seed, -check and -body-capture are mutually exclusive")
+		return errors.New("-purge, -seed, -check, -body-capture and -expect-status are mutually exclusive")
+	case f.expectStatus != 0 && f.expectSet:
+		return errors.New("-expect has no effect with -expect-status; do not pass it")
+	case f.expectStatus < 0 || f.expectStatus > 599:
+		return errors.New("-expect-status must be an HTTP status code")
 	case (f.purge || f.seed) && f.expectSet:
 		return errors.New("-expect has no effect with -purge or -seed; do not pass it")
 	case f.check != "" && f.expectSet:
@@ -238,8 +249,8 @@ func (f probeFlags) validate() error {
 		return errors.New("-expect-purged only applies to -purge")
 	case f.expectPurgedSet && f.expectPurged < 0:
 		return errors.New("-expect-purged must not be negative")
-	case f.host != "" && !f.purge && !f.seed && f.check == "" && f.bodyCapture == "":
-		return errors.New("-host only applies to -purge, -seed, -check, or -body-capture")
+	case f.host != "" && !f.purge && !f.seed && f.check == "" && f.bodyCapture == "" && f.expectStatus == 0:
+		return errors.New("-host only applies to -purge, -seed, -check, -body-capture, or -expect-status")
 	case f.purgeHost != "" && !f.purge:
 		return errors.New("-purge-host only applies to -purge")
 	}
@@ -284,6 +295,8 @@ func main() {
 		runCheck(ctx, client, f)
 	case f.bodyCapture != "":
 		runBodyCapture(ctx, client, f)
+	case f.expectStatus != 0:
+		runExpectStatus(ctx, client, f)
 	default:
 		runDetect(ctx, client, f)
 	}
@@ -402,6 +415,22 @@ func runBodyCapture(ctx context.Context, client *http.Client, f probeFlags) {
 	// Bare capture on stdout: chainsaw script steps shell-capture it, the
 	// same contract as -seed's token.
 	fmt.Println(got)
+}
+
+// runExpectStatus polls -url until it answers with -expect-status. A cache
+// route without a healthy backend answers 503, which is the expected state
+// here, not an error.
+func runExpectStatus(ctx context.Context, client *http.Client, f probeFlags) {
+	got, err := probe.WaitStatus(ctx, client, f.url, f.host, f.expectStatus)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
+	}
+	if got != f.expectStatus {
+		fmt.Printf("FAIL: %s expected status %d, got %d\n", f.url, f.expectStatus, got)
+		os.Exit(1)
+	}
+	fmt.Printf("OK: %s answered %d\n", f.url, got)
 }
 
 func runDetect(ctx context.Context, client *http.Client, f probeFlags) {

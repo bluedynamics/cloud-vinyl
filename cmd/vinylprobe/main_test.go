@@ -411,3 +411,25 @@ func TestFetchSpans_ContextTimeoutIsError(t *testing.T) {
 		t.Fatal("want error when the context deadline is exceeded")
 	}
 }
+
+func TestValidate_ExpectStatus(t *testing.T) {
+	ok := probeFlags{url: "http://x/", expectStatus: 503}
+	if err := ok.validate(); err != nil {
+		t.Fatalf("valid -expect-status rejected: %v", err)
+	}
+	withHost := probeFlags{url: "http://x/", expectStatus: 200, host: "h"}
+	if err := withHost.validate(); err != nil {
+		t.Fatalf("-host with -expect-status rejected: %v", err)
+	}
+	for name, f := range map[string]probeFlags{
+		"with seed":    {url: "http://x/", expectStatus: 200, seed: true},
+		"with check":   {url: "http://x/", expectStatus: 200, check: "tok"},
+		"with expect":  {url: "http://x/", expectStatus: 200, expectSet: true},
+		"out of range": {url: "http://x/", expectStatus: 700},
+		"negative":     {url: "http://x/", expectStatus: -1},
+	} {
+		if err := f.validate(); err == nil {
+			t.Errorf("%s: want a validation error", name)
+		}
+	}
+}
