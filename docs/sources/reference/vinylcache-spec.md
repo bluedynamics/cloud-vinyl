@@ -97,7 +97,7 @@ Per-backend director override. If unset, the generator emits a `shard` director 
 | `shard.rampup` | duration | no | Ramp-up window after adding a backend. Default `30s`. |
 | `shard.by` | enum | no | `URL` (default and only supported value). Request-time selector passed to `<backend>.backend(by=...)`. |
 | `shard.healthy` | enum | no | `CHOSEN` (vmod default) returns a healthy backend if possible; alternatives skipped on the way are not health-checked. `ALL` also checks health while selecting an alternative. |
-| `hash.header` | string | no | Request header whose value is the hash key of the `hash` director. Must be a valid HTTP header name. Without it the URL is hashed. |
+| `hash.header` | string | no | Request header whose value is the hash key of the `hash` director. A letter, then letters, digits, `-` or `_` (what VCL accepts after `req.http.`). Without it the URL is hashed. |
 
 The first entry of `backends` is the default route: requests that no `vclRecv` snippet routes
 go through its director, using `shard.healthy` and `hash.header` as above. See

@@ -180,7 +180,7 @@ type DirectorInfo struct {
 	// Healthy is the shard health policy (CHOSEN, ALL), empty if unset.
 	Healthy string
 	// HashHeader is the request header the hash director keys on, empty if
-	// unset or not a valid header token (then the URL is hashed).
+	// unset or not a name VCL accepts after req.http. (then the URL is hashed).
 	HashHeader string
 }
 
@@ -503,8 +503,10 @@ func resolveDirectorInfo(ds *vinylv1.DirectorSpec) DirectorInfo {
 	return out
 }
 
-// headerToken matches an HTTP header field name (RFC 7230 token).
-var headerToken = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+// headerToken matches the header names VCL accepts after req.http.: a
+// letter, then letters, digits, "-" or "_". The wider RFC 7230 token set
+// (".", "~", "|", ...) does not compile in varnishd 8.0 and 9.1.
+var headerToken = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
 
 // defaultBackendHint renders the req.backend_hint expression that routes
 // un-snippeted requests through the group's director (#173). Shard is

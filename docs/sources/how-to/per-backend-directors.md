@@ -50,9 +50,10 @@ What the director gets as its key:
 | `round_robin`, `random`, `fallback` | `<backend>.backend()` |
 | `hash` | `<backend>.backend(req.http.<header>)` when `hash.header` is set, otherwise `<backend>.backend(req.url)`. |
 
-`hash.header` must be a valid HTTP header name, because it is written into the
-VCL as `req.http.<header>`. The CRD and the admission webhook reject anything
-else.
+`hash.header` is written into the VCL as `req.http.<header>`, so it must be a
+name VCL accepts there: a letter, then letters, digits, `-` or `_`. The CRD and
+the admission webhook reject anything else, including header names that HTTP
+allows but VCL does not, such as `x.key`.
 
 Other backends are reachable only through a snippet. A cache with a single
 backend needs no snippet at all.

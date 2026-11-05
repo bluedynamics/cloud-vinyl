@@ -409,9 +409,11 @@ type ShardSpec struct {
 // HashSpec configures the Varnish hash director.
 type HashSpec struct {
 	// header is the request header whose value is the hash key. Without it
-	// the request URL is hashed. Must be a valid HTTP header name.
+	// the request URL is hashed. It is rendered as req.http.<header>, so it
+	// must be a name VCL accepts there: a letter, then letters, digits, "-"
+	// or "_" (verified with varnishd 8.0 and 9.1).
 	// +optional
-	// +kubebuilder:validation:Pattern=`^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$`
+	// +kubebuilder:validation:Pattern=`^[A-Za-z][A-Za-z0-9_-]*$`
 	Header string `json:"header,omitempty"`
 }
 

@@ -111,7 +111,8 @@ through that backend's director (see {ref}`default-routing`).
   URL stickiness, so each URL still lands on one pod. With `round_robin` or `random`
   you lose the accidental affinity to a single pod.
 - `shard.healthy` and `hash.header` now take effect for this route. A `hash.header`
-  must be a valid HTTP header name; the CRD rejects other values on apply.
+  must start with a letter and contain only letters, digits, `-` and `_` (what
+  VCL accepts after `req.http.`); the CRD rejects other values on apply.
 - If the first backend has no endpoints, requests without a snippet answer `503`
   instead of silently reaching a pod of another backend.
 - Caches whose snippets always set the backend hint are not affected.

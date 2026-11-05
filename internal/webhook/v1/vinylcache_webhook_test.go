@@ -160,7 +160,7 @@ var _ = Describe("VinylCache Webhook", func() {
 	})
 
 	// hash.header lands in VCL as req.http.<header> (#173); the CRD pattern
-	// rejects anything that is not an HTTP header token.
+	// rejects anything VCL cannot address there.
 	Context("When a hash director names its header", func() {
 		hashVC := func(name, header string) *vinylv1.VinylCache {
 			vc := minimalAdmissibleVC(name)
@@ -187,6 +187,7 @@ var _ = Describe("VinylCache Webhook", func() {
 			Entry("rejects a space", "hash-space", "X Bad", false),
 			Entry("rejects a semicolon", "hash-semicolon", "a;b", false),
 			Entry("rejects a double quote", "hash-quote", `x"y`, false),
+			Entry("rejects a dot (an HTTP token, but not VCL)", "hash-dot", "x.key", false),
 		)
 	})
 

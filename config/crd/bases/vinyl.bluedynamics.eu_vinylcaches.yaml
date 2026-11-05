@@ -114,8 +114,10 @@ spec:
                             header:
                               description: |-
                                 header is the request header whose value is the hash key. Without it
-                                the request URL is hashed. Must be a valid HTTP header name.
-                              pattern: ^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$
+                                the request URL is hashed. It is rendered as req.http.<header>, so it
+                                must be a name VCL accepts there: a letter, then letters, digits, "-"
+                                or "_" (verified with varnishd 8.0 and 9.1).
+                              pattern: ^[A-Za-z][A-Za-z0-9_-]*$
                               type: string
                           type: object
                         shard:
@@ -329,8 +331,10 @@ spec:
                       header:
                         description: |-
                           header is the request header whose value is the hash key. Without it
-                          the request URL is hashed. Must be a valid HTTP header name.
-                        pattern: ^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$
+                          the request URL is hashed. It is rendered as req.http.<header>, so it
+                          must be a name VCL accepts there: a letter, then letters, digits, "-"
+                          or "_" (verified with varnishd 8.0 and 9.1).
+                        pattern: ^[A-Za-z][A-Za-z0-9_-]*$
                         type: string
                     type: object
                   shard:
@@ -4916,8 +4920,10 @@ spec:
                             header:
                               description: |-
                                 header is the request header whose value is the hash key. Without it
-                                the request URL is hashed. Must be a valid HTTP header name.
-                              pattern: ^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$
+                                the request URL is hashed. It is rendered as req.http.<header>, so it
+                                must be a name VCL accepts there: a letter, then letters, digits, "-"
+                                or "_" (verified with varnishd 8.0 and 9.1).
+                              pattern: ^[A-Za-z][A-Za-z0-9_-]*$
                               type: string
                           type: object
                         shard:
@@ -5131,8 +5137,10 @@ spec:
                       header:
                         description: |-
                           header is the request header whose value is the hash key. Without it
-                          the request URL is hashed. Must be a valid HTTP header name.
-                        pattern: ^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$
+                          the request URL is hashed. It is rendered as req.http.<header>, so it
+                          must be a name VCL accepts there: a letter, then letters, digits, "-"
+                          or "_" (verified with varnishd 8.0 and 9.1).
+                        pattern: ^[A-Za-z][A-Za-z0-9_-]*$
                         type: string
                     type: object
                   shard:

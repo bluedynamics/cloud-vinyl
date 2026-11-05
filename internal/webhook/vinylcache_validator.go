@@ -521,10 +521,12 @@ func isValidVarnishParamKey(key string) bool {
 	return true
 }
 
-// httpHeaderToken matches an HTTP header field name (RFC 7230 token / tchar).
-var httpHeaderToken = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+// httpHeaderToken matches the header names VCL accepts after req.http.: a
+// letter, then letters, digits, "-" or "_". The wider RFC 7230 token set
+// (".", "~", "|", ...) does not compile in varnishd 8.0 and 9.1.
+var httpHeaderToken = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
 
-// validateHashHeaders rejects a hash.header that is not an HTTP header token.
+// validateHashHeaders rejects a hash.header VCL cannot address.
 // The value is rendered into VCL as req.http.<header> (#173), so anything
 // else would break VCL compilation or inject VCL.
 func validateHashHeaders(vc *vinylv1.VinylCache) []string {
@@ -535,7 +537,7 @@ func validateHashHeaders(vc *vinylv1.VinylCache) []string {
 		}
 		if !httpHeaderToken.MatchString(d.Hash.Header) {
 			errs = append(errs, fmt.Sprintf(
-				"%s.hash.header %q is not a valid HTTP header name (letters, digits and !#$%%&'*+-.^_`|~ only)",
+				"%s.hash.header %q is not a header name VCL accepts (a letter, then letters, digits, \"-\" or \"_\")",
 				path, d.Hash.Header))
 		}
 	}
