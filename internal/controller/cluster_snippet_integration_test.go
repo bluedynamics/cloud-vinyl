@@ -183,3 +183,61 @@ func TestClusterSnippetsWithReturnCompile(t *testing.T) {
 		"-C", "-f", "/cluster.vcl", "-n", "/tmp/varnishd").CombinedOutput()
 	require.NoError(t, err, "cluster VCL does not compile:\n%s", out)
 }
+
+// TestBackendWithoutEndpointsLoads guards #171 with a real varnishd, on every
+// image the operator supports: generated VCL with an empty backend group, and
+// with every group empty and no cluster (no real static backend at all), must
+// load in vcl_init and answer 503 for the empty route while others work.
+func TestBackendWithoutEndpointsLoads(t *testing.T) {
+	images := []string{"varnish:8.0", "varnish:9.1.0"}
+	if image := os.Getenv("VINYL_TEST_VARNISH_IMAGE"); image != "" {
+		images = []string{image}
+	}
+	for _, image := range images {
+		t.Run(image, func(t *testing.T) {
+			testVarnishImage(t)
+			originIP := startOrigin(t, image)
+
+			for _, tc := range []struct {
+				name      string
+				endpoints map[string][]generator.Endpoint
+				wantPlone int
+			}{
+				{"one empty group", map[string][]generator.Endpoint{
+					"plone": {{IP: originIP, Port: 80}}, "thumbor": {},
+				}, 200},
+				{"all groups empty", map[string][]generator.Endpoint{
+					"plone": {}, "thumbor": {},
+				}, 503},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					spec := &vinylv1.VinylCacheSpec{Backends: []vinylv1.BackendSpec{
+						{Name: "plone", ServiceRef: vinylv1.ServiceRef{Name: "plone"}},
+						{Name: "thumbor", ServiceRef: vinylv1.ServiceRef{Name: "thumbor"}},
+					}}
+					spec.VCL.Snippets.VCLRecv = `if (req.url ~ "^/plone") { set req.backend_hint = plone.backend(); }
+    if (req.url ~ "^/thumbor") { set req.backend_hint = thumbor.backend(); }`
+					res, err := generator.New().Generate(generator.Input{
+						Name: "empty", Namespace: "test", Spec: spec, Endpoints: tc.endpoints,
+					})
+					require.NoError(t, err)
+
+					id := startOperatorVarnishd(t, image, &vinylv1.VinylCache{})
+					loadVCL(t, id, res.VCL)
+
+					assert.Equal(t, fmt.Sprint(tc.wantPlone), status(t, id, "http://127.0.0.1:8080/plone"))
+					assert.Equal(t, "503", status(t, id, "http://127.0.0.1:8080/thumbor"),
+						"the route of the backend without endpoints answers 503")
+					assert.Contains(t, varnishadm(t, id, "backend.list"), "noendpoints_thumbor")
+				})
+			}
+		})
+	}
+}
+
+func status(t *testing.T, id, url string) string {
+	t.Helper()
+	out, err := docker("exec", id, "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", url).Output()
+	require.NoError(t, err, "curl %s: %s", url, stderrText(err))
+	return string(out)
+}
