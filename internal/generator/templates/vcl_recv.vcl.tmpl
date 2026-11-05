@@ -98,6 +98,13 @@ sub vcl_recv {
     }
     unset req.http.X-Vinyl-Shard;
 {{- end }}
+{{- if .DefaultBackendHint }}
+
+    # Default route: the first backend's director, so un-snippeted traffic
+    # spreads across its pods. A vclRecv snippet may still override it. Runs
+    # after the cluster block so the owner hop and ESI fragments get it too.
+    set req.backend_hint = {{ .DefaultBackendHint }};
+{{- end }}
 {{- if .HasProxyProtocol }}
 
     # PROXY Protocol: extract real client IP from X-Forwarded-For

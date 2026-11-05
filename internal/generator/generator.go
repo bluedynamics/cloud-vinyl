@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
@@ -82,6 +83,13 @@ type TemplateData struct {
 	PeerDefs         []BackendDef
 	UseShardDirector bool
 	DirectorName     string
+
+	// DefaultBackendHint is the VCL expression assigned to req.backend_hint
+	// for every request before the vclRecv snippet runs (#173): the first
+	// backend group's director, so un-snippeted traffic spreads across the
+	// group's pods instead of landing on its first pod. Empty without
+	// backend groups.
+	DefaultBackendHint string
 
 	// ClusterShardBy is the hash-key strategy for the cluster-peer shard
 	// director's request-time .backend() call. Always "URL": it is the only
@@ -169,6 +177,11 @@ type DirectorInfo struct {
 	Type   string  // CRD enum: "shard" (default), "round_robin", "random", "hash", "fallback".
 	Warmup float64 // 0.0 if unset; only for shard.
 	Rampup string  // empty if unset; formatted via fmtDuration; only for shard.
+	// Healthy is the shard health policy (CHOSEN, ALL), empty if unset.
+	Healthy string
+	// HashHeader is the request header the hash director keys on, empty if
+	// unset or not a valid header token (then the URL is hashed).
+	HashHeader string
 }
 
 type templateGenerator struct {
@@ -353,6 +366,10 @@ func buildTemplateData(input Input) TemplateData {
 		data.BackendGroups = append(data.BackendGroups, group)
 	}
 
+	if len(data.BackendGroups) > 0 {
+		data.DefaultBackendHint = defaultBackendHint(data.BackendGroups[0])
+	}
+
 	// Build peer defs.
 	for _, p := range input.Peers {
 		data.PeerDefs = append(data.PeerDefs, BackendDef{
@@ -476,8 +493,40 @@ func resolveDirectorInfo(ds *vinylv1.DirectorSpec) DirectorInfo {
 		if ds.Shard.Rampup.Duration > 0 {
 			out.Rampup = fmtDuration(ds.Shard.Rampup.Duration)
 		}
+		out.Healthy = ds.Shard.Healthy
+	}
+	// The header lands in VCL as req.http.<header>. The webhook rejects
+	// invalid names, but a stored object may predate that.
+	if ds.Hash != nil && headerToken.MatchString(ds.Hash.Header) {
+		out.HashHeader = ds.Hash.Header
 	}
 	return out
+}
+
+// headerToken matches an HTTP header field name (RFC 7230 token).
+var headerToken = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+
+// defaultBackendHint renders the req.backend_hint expression that routes
+// un-snippeted requests through the group's director (#173). Shard is
+// resolved immediately (never LAZY: it cannot carry arguments in client
+// context and breaks the fetch retry). The shard key is the URL, matching
+// the retry re-selection.
+func defaultBackendHint(g BackendGroup) string {
+	switch g.Director.Type {
+	case directorShard:
+		args := "by=URL"
+		if g.Director.Healthy != "" {
+			args += ", healthy=" + g.Director.Healthy
+		}
+		return g.Name + ".backend(" + args + ")"
+	case "hash":
+		if g.Director.HashHeader != "" {
+			return g.Name + ".backend(req.http." + g.Director.HashHeader + ")"
+		}
+		return g.Name + ".backend(req.url)"
+	default:
+		return g.Name + ".backend()"
+	}
 }
 
 // sanitizeName replaces hyphens with underscores for VCL identifier compatibility.

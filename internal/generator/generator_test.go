@@ -1370,7 +1370,7 @@ func TestGenerate_Cluster_PurgeHandlingPrecedesShardRedirect(t *testing.T) {
 	// vcl_recv itself — unlike "vinyl_cluster_peers", which also names the
 	// ACL declared much earlier in the file, this marker is unique to the
 	// cluster block under test.
-	clusterIdx := strings.Index(r.VCL, "set req.backend_hint = ")
+	clusterIdx := strings.Index(r.VCL, "set req.backend_hint = director_")
 	require.NotEqual(t, -1, purgeIdx, "PURGE handling must be present")
 	require.NotEqual(t, -1, clusterIdx, "cluster redirect must be present")
 	assert.Less(t, purgeIdx, clusterIdx,
@@ -1388,7 +1388,7 @@ func TestGenerate_Cluster_BanHandlingPrecedesShardRedirect(t *testing.T) {
 	// vcl_recv itself — unlike "vinyl_cluster_peers", which also names the
 	// ACL declared much earlier in the file, this marker is unique to the
 	// cluster block under test.
-	clusterIdx := strings.Index(r.VCL, "set req.backend_hint = ")
+	clusterIdx := strings.Index(r.VCL, "set req.backend_hint = director_")
 	require.NotEqual(t, -1, banIdx, "BAN handling must be present")
 	require.NotEqual(t, -1, clusterIdx, "cluster redirect must be present")
 	assert.Less(t, banIdx, clusterIdx,
@@ -1782,7 +1782,7 @@ func TestGenerate_Cluster_ESI_FragmentsDropInheritedShardHeader(t *testing.T) {
 	guard := "if (req.esi_level > 0) {\n        unset req.http.X-Vinyl-Shard;"
 	spoofIdx := strings.Index(r.VCL, "!(client.ip ~ vinyl_cluster_peers)")
 	guardIdx := strings.Index(r.VCL, guard)
-	routeIdx := strings.Index(r.VCL, "set req.backend_hint = ")
+	routeIdx := strings.Index(r.VCL, "set req.backend_hint = director_")
 	require.NotEqual(t, -1, guardIdx, "ESI subrequests must drop the inherited X-Vinyl-Shard (#156)")
 	assert.Less(t, spoofIdx, guardIdx)
 	assert.Less(t, guardIdx, routeIdx,
@@ -1805,4 +1805,107 @@ func TestGenerate_NoCluster_ESI_NoFragmentGuard(t *testing.T) {
 	assert.NotContains(t, r.VCL, "req.esi_level",
 		"without clustering there is no X-Vinyl-Shard to drop")
 	assert.NotContains(t, r.VCL, "X-Vinyl-Shard")
+}
+
+// --- #173: un-snippeted traffic goes through the first backend's director ---
+
+const defaultHintMarker = "set req.backend_hint = app_backend."
+
+func defaultHintInput(director *vinylv1.DirectorSpec) generator.Input {
+	in := makeMinimalInput()
+	in.Spec.Backends[0].Director = director
+	return in
+}
+
+func TestGenerate_DefaultHint_PerDirectorType(t *testing.T) {
+	warm := 0.1
+	cases := []struct {
+		name string
+		dir  *vinylv1.DirectorSpec
+		want string
+	}{
+		{"unset is shard", nil, "set req.backend_hint = app_backend.backend(by=URL);"},
+		{"shard", &vinylv1.DirectorSpec{Type: "shard", Shard: &vinylv1.ShardSpec{Warmup: &warm}}, "set req.backend_hint = app_backend.backend(by=URL);"},
+		{"shard healthy ALL", &vinylv1.DirectorSpec{Type: "shard", Shard: &vinylv1.ShardSpec{Healthy: "ALL"}}, "set req.backend_hint = app_backend.backend(by=URL, healthy=ALL);"},
+		{"shard healthy CHOSEN", &vinylv1.DirectorSpec{Type: "shard", Shard: &vinylv1.ShardSpec{Healthy: "CHOSEN"}}, "set req.backend_hint = app_backend.backend(by=URL, healthy=CHOSEN);"},
+		{"round_robin", &vinylv1.DirectorSpec{Type: "round_robin"}, "set req.backend_hint = app_backend.backend();"},
+		{"random", &vinylv1.DirectorSpec{Type: "random"}, "set req.backend_hint = app_backend.backend();"},
+		{"fallback", &vinylv1.DirectorSpec{Type: "fallback"}, "set req.backend_hint = app_backend.backend();"},
+		{"hash without header", &vinylv1.DirectorSpec{Type: "hash"}, "set req.backend_hint = app_backend.backend(req.url);"},
+		{"hash empty header", &vinylv1.DirectorSpec{Type: "hash", Hash: &vinylv1.HashSpec{}}, "set req.backend_hint = app_backend.backend(req.url);"},
+		{"hash with header", &vinylv1.DirectorSpec{Type: "hash", Hash: &vinylv1.HashSpec{Header: "X-Session-Id"}}, "set req.backend_hint = app_backend.backend(req.http.X-Session-Id);"},
+	}
+	g := newGenerator(t)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := g.Generate(defaultHintInput(tc.dir))
+			require.NoError(t, err)
+			assert.Equal(t, 1, strings.Count(r.VCL, defaultHintMarker), "exactly one default hint")
+			assert.Contains(t, r.VCL, tc.want)
+		})
+	}
+}
+
+func TestGenerate_DefaultHint_PositionAndSnippet(t *testing.T) {
+	g := newGenerator(t)
+	in := makeMinimalInput()
+	in.Spec.ProxyProtocol.Enabled = true
+	in.Spec.VCL.Snippets.VCLRecv = `set req.backend_hint = other.backend();`
+	r, err := g.Generate(in)
+	require.NoError(t, err)
+	recv := subBody(t, r.VCL, "vcl_recv")
+	hint := strings.Index(recv, defaultHintMarker)
+	require.GreaterOrEqual(t, hint, 0)
+	assert.Less(t, hint, strings.Index(recv, `req.method != "GET"`), "hint precedes the non-GET pass")
+	assert.Less(t, hint, strings.Index(recv, "X-Real-IP"), "hint precedes the PROXY block")
+	assert.Less(t, hint, strings.Index(recv, "# --- custom vcl_recv snippet ---"), "a snippet's hint wins")
+}
+
+func TestGenerate_DefaultHint_PlaceholderFirstGroup(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(emptyEndpointsInput("shard", map[string][]generator.Endpoint{
+		"plone":   {},
+		"thumbor": {{IP: "10.0.0.2", Port: 8080}},
+	}))
+	require.NoError(t, err)
+	recv := subBody(t, r.VCL, "vcl_recv")
+	assert.Contains(t, recv, "set req.backend_hint = plone.backend(by=URL);")
+	assert.NotContains(t, recv, "thumbor.backend")
+}
+
+func TestGenerate_DefaultHint_Cluster(t *testing.T) {
+	g := newGenerator(t)
+	in := clusterInput()
+	in.Spec.ESI.Enabled = true
+	r, err := g.Generate(in)
+	require.NoError(t, err)
+	recv := subBody(t, r.VCL, "vcl_recv")
+	relay := strings.Index(recv, "set req.backend_hint = director_my_cache.backend(by=URL);")
+	unset := strings.Index(recv, "    unset req.http.X-Vinyl-Shard;\n")
+	hint := strings.Index(recv, defaultHintMarker)
+	require.GreaterOrEqual(t, relay, 0, "relay hop unchanged")
+	require.GreaterOrEqual(t, hint, 0)
+	assert.Less(t, relay, hint)
+	assert.Less(t, strings.LastIndex(recv[:hint], "unset req.http.X-Vinyl-Shard;"), hint, "hint comes after the unset")
+	assert.Less(t, unset, hint)
+	assert.Less(t, hint, strings.Index(recv, `req.method != "GET"`))
+}
+
+func TestGenerate_DefaultHint_NoBackendGroups(t *testing.T) {
+	g := newGenerator(t)
+	in := makeMinimalInput()
+	in.Spec.Backends = nil
+	in.Endpoints = nil
+	r, err := g.Generate(in)
+	require.NoError(t, err)
+	assert.NotContains(t, r.VCL, "set req.backend_hint = ")
+}
+
+func TestGenerate_DefaultHint_FullOverrideUntouched(t *testing.T) {
+	g := newGenerator(t)
+	in := makeMinimalInput()
+	in.Spec.VCL.FullOverride = "vcl 4.1;\nsub vcl_recv { return(pass); }"
+	r, err := g.Generate(in)
+	require.NoError(t, err)
+	assert.NotContains(t, r.VCL, "backend_hint")
 }
