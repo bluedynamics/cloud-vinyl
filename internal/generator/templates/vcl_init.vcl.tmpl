@@ -1,6 +1,6 @@
 
 sub vcl_init {
-    # --- per-backend directors (see vcl_recv snippet to route traffic into these) ---
+    # --- per-backend directors (un-snippeted traffic goes to the first one, see vcl_recv; a vcl_recv snippet can route elsewhere) ---
 {{- range $g := .BackendGroups }}
 {{- if eq $g.Director.Type "shard" }}
     new {{ $g.Name }} = directors.shard();

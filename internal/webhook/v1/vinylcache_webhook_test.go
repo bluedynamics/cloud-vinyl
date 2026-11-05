@@ -159,6 +159,38 @@ var _ = Describe("VinylCache Webhook", func() {
 		})
 	})
 
+	// hash.header lands in VCL as req.http.<header> (#173); the CRD pattern
+	// rejects anything VCL cannot address there.
+	Context("When a hash director names its header", func() {
+		hashVC := func(name, header string) *vinylv1.VinylCache {
+			vc := minimalAdmissibleVC(name)
+			vc.Spec.Backends[0].Director = &vinylv1.DirectorSpec{
+				Type: "hash", Hash: &vinylv1.HashSpec{Header: header},
+			}
+			return vc
+		}
+		DescribeTable("validates hash.header",
+			func(name, header string, valid bool) {
+				vc := hashVC(name, header)
+				err := k8sClient.Create(ctx, vc)
+				if !valid {
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("hash"))
+					return
+				}
+				Expect(err).NotTo(HaveOccurred())
+				DeferCleanup(func() {
+					Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, vc))).To(Succeed())
+				})
+			},
+			Entry("admits a plain header name", "hash-ok", "X-Session-Id", true),
+			Entry("rejects a space", "hash-space", "X Bad", false),
+			Entry("rejects a semicolon", "hash-semicolon", "a;b", false),
+			Entry("rejects a double quote", "hash-quote", `x"y`, false),
+			Entry("rejects a dot (an HTTP token, but not VCL)", "hash-dot", "x.key", false),
+		)
+	})
+
 	// varnishd refuses a probe with threshold > window or window > 64, and
 	// every VCL push then fails (#137). The CRD rejects both, comparing the
 	// effective values, so the CEL rule's defaults must match the

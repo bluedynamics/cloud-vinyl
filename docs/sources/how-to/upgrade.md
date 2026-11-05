@@ -99,6 +99,24 @@ your own dashboards, recording rules and alert routes: replace
 `exported_namespace` with `cache_namespace` and `exported_pod` with `pod_addr`
 on `vinyl_*` metrics. The exporter's `varnish_*` metrics are unchanged.
 
+(upgrade-1-1-default-route)=
+
+## Upgrading to 1.1: default route through the first backend's director
+
+Before 1.1, requests that no `vclRecv` snippet routed all went to the first pod of
+the first backend, whatever the director settings said (#173). Since 1.1 they go
+through that backend's director (see {ref}`default-routing`).
+
+- Traffic now spreads across the first backend's pods. `shard` (the default) keeps
+  URL stickiness, so each URL still lands on one pod. With `round_robin` or `random`
+  you lose the accidental affinity to a single pod.
+- `shard.healthy` and `hash.header` now take effect for this route. A `hash.header`
+  must start with a letter and contain only letters, digits, `-` and `_` (what
+  VCL accepts after `req.http.`); the CRD rejects other values on apply.
+- If the first backend has no endpoints, requests without a snippet answer `503`
+  instead of silently reaching a pod of another backend.
+- Caches whose snippets always set the backend hint are not affected.
+
 (upgrade-crd)=
 
 ## Upgrade the CRD

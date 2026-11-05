@@ -10,6 +10,8 @@ spec:
       - spec.backends[].director is accepted, defaulted, and persisted.
       - EndpointSlice watch fires on backend scale events.
       - VinylCache stays Ready under backend replica churn.
+      - Without any vclRecv snippet, requests reach several backend pods through
+        the director instead of all landing on the first pod (#173).
   timeouts:
     assert: 180s
     delete: 60s
@@ -55,6 +57,43 @@ spec:
                       shard:
                         by: URL
                         healthy: CHOSEN
+
+    - name: unsnippeted-traffic-spreads-across-pods
+      description: |
+        The cache has no vclRecv snippet. Before #173 every fetch went to the
+        first declared backend pod, so all responses came from one pod. Now the
+        default route is the first backend's shard director: a dozen distinct
+        URLs must be answered by at least two of the three echo pods. The
+        echo server reports its pod name as HOSTNAME in the response body.
+      try:
+        - apply:
+            file: ../../fixtures/probe/probe-pod.yaml
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: probe
+              status:
+                phase: Running
+        - script:
+            content: |
+              set -eu
+              : > "/tmp/director-hosts-${NAMESPACE}"
+              for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+                kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://director-cache-0.director-cache:8080/spread/$i" \
+                  -body-capture '"HOSTNAME":"(echo-multi-[^"]+)"' \
+                  >> "/tmp/director-hosts-${NAMESPACE}"
+              done
+              echo "answering pods:"
+              sort "/tmp/director-hosts-${NAMESPACE}" | uniq -c
+              N=$(sort -u "/tmp/director-hosts-${NAMESPACE}" | wc -l)
+              rm -f "/tmp/director-hosts-${NAMESPACE}"
+              if [ "$N" -lt 2 ]; then
+                echo "FAIL: all 12 URLs were answered by one pod"
+                exit 1
+              fi
 
     - name: scale-backend-up-to-5
       description: Scale the backend Deployment up to drive EndpointSlice churn.

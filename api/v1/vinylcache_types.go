@@ -399,9 +399,12 @@ type ShardSpec struct {
 	// +kubebuilder:validation:Enum=URL
 	By string `json:"by,omitempty"`
 
-	// healthy controls which backends the director considers when selecting a shard.
-	// "CHOSEN" (default) only considers the chosen backend healthy; "ALL" requires all
-	// backends to be healthy.
+	// healthy is the health policy of the shard director's backend selection.
+	// "CHOSEN" (vmod default) returns a healthy backend if possible; backends
+	// skipped while selecting an alternative are not health-checked. "ALL"
+	// also checks health during alternative selection, so alt=1 is the next
+	// healthy backend. It applies to the default route of un-snippeted
+	// requests and to the cluster-peer director.
 	// +optional
 	// +kubebuilder:validation:Enum=CHOSEN;ALL
 	Healthy string `json:"healthy,omitempty"`
@@ -409,8 +412,12 @@ type ShardSpec struct {
 
 // HashSpec configures the Varnish hash director.
 type HashSpec struct {
-	// header is the request header name used as the hash key.
+	// header is the request header whose value is the hash key. Without it
+	// the request URL is hashed. It is rendered as req.http.<header>, so it
+	// must be a name VCL accepts there: a letter, then letters, digits, "-"
+	// or "_" (verified with varnishd 8.0 and 9.1).
 	// +optional
+	// +kubebuilder:validation:Pattern=`^[A-Za-z][A-Za-z0-9_-]*$`
 	Header string `json:"header,omitempty"`
 }
 
