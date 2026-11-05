@@ -17,7 +17,7 @@ changing `apiVersion` only.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `replicas` | integer | yes | Number of Vinyl Cache pods in the StatefulSet. |
+| `replicas` | integer | yes | Number of Vinyl Cache pods in the StatefulSet. Minimum `0`: `0` switches the cache off on purpose, see {ref}`switch-off-a-cache`. |
 | `flavor` | string | no | Cache daemon family: `varnish` or `vinyl`. Defaults to `varnish`, so existing objects read back as `varnish`. Selects the daemon, exporter and tracer images from the runtime catalog and the binaries they use (`varnishd` or `vinyld`). See {ref}`run-vinyl-cache` and the table below. |
 | `version` | string | no | Daemon version, for example `9.1.0`. Must be listed in the runtime catalog for the flavor; the admission webhook rejects any other value and names the versions it knows. Empty means the catalog's default version for the flavor, resolved at reconcile time and not written back, so it follows the chart's default on operator upgrades. Pin it to stay on a release. |
 | `image` | string | no | Overrides the **daemon** image of the resolved catalog entry. The exporter and tracer still follow `flavor` and `version`. Use it for an emergency fix or an older version; see {ref}`replace-an-image`. The operator runs the flavor's daemon (`varnishd` or `vinyld`) from the image's `PATH` as the container command and passes every flag itself; the image's entrypoint does not run. The webhook warns when `image` is set without `version`, and when the repository name of the image names the other lineage. See [Varnish version support](varnish-versions.md). |
@@ -242,7 +242,7 @@ See [Set up monitoring](../how-to/setup-monitoring.md) for the alerts.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `phase` | string | `Pending`, `Ready`, `Degraded`, or `Error`. `Degraded` also covers a backend without endpoints, see `BackendsAvailable` below. |
+| `phase` | string | `Pending`, `Ready`, `Degraded`, `Error`, or `Stopped`. `Degraded` also covers a backend without endpoints, see `BackendsAvailable` below. `Stopped` means `spec.replicas` is `0`; it takes precedence over `Degraded`. |
 | `readyReplicas` | integer | Number of pods that passed their readiness checks. |
 | `activeVCL.hash` | string | SHA-256 hash of the currently active VCL. |
 | `invalidationURL` | string | Address for `PURGE`, `BAN` and xkey requests, e.g. `http://my-cache-invalidation.app:8090`. The host includes the namespace; the bare Service name is rejected. See [Purge and BAN the cache](../how-to/purge-ban.md). |
@@ -259,11 +259,11 @@ See [Set up monitoring](../how-to/setup-monitoring.md) for the alerts.
 
 | Type | Meaning |
 |------|---------|
-| `Ready` | `True` when all replicas are ready (reason `AllReady`), `False` otherwise (`NotAllReady`, or `ReconcileError` after a failed reconcile). A backend without endpoints does not make the cache not ready. |
-| `VCLSynced` | `True` (reason `VCLPushed`) while the VCL is active on the ready pods, `False` (`VCLPushFailed`) when a push failed. |
+| `Ready` | `True` when all replicas are ready (reason `AllReady`), `False` otherwise (`NotAllReady`, or `ReconcileError` after a failed reconcile). A backend without endpoints does not make the cache not ready. `True` with reason `ScaledToZero` (message `scaled to zero replicas`) when `spec.replicas` is `0`. |
+| `VCLSynced` | `True` (reason `VCLPushed`) while the VCL is active on the ready pods, `False` (`VCLPushFailed`) when a push failed. `True` with reason `ScaledToZero` when `spec.replicas` is `0`, because there is no pod to push to. |
 | `BackendsAvailable` | `True` (reason `BackendsConfigured`) when every backend in `spec.backends` has ready endpoints. `False` (reason `BackendWithoutEndpoints`) when at least one has none; the message lists them. The cache keeps serving, requests routed to those backends answer `503`, and the phase is `Degraded`. See {ref}`backends-without-endpoints`. |
 | `RuntimeResolved` | `True` (reason `Resolved`) when the catalog has an entry for the cache's flavor and version. `False` (reason `NotInCatalog`) when it has none any more; the operator then leaves the StatefulSet unchanged. |
-| `Progressing` | `True` (reason `WaitingForReplicas`) while not all replicas are ready, `False` (reason `ReconcileComplete`) afterwards. `True` with reason `RuntimeNotInCatalog` while the runtime is not in the catalog and the StatefulSet is held back. |
+| `Progressing` | `True` (reason `WaitingForReplicas`) while not all replicas are ready, `False` (reason `ReconcileComplete`) afterwards, or with reason `ScaledToZero` when `spec.replicas` is `0`. `True` with reason `RuntimeNotInCatalog` while the runtime is not in the catalog and the StatefulSet is held back. |
 
 ## Example
 

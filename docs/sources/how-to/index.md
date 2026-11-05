@@ -12,6 +12,7 @@ replace-an-image
 ssd-backed-storage
 size-memory
 spread-pods
+switch-off-a-cache
 per-backend-directors
 purge-ban
 setup-monitoring
