@@ -96,8 +96,12 @@ Per-backend director override. If unset, the generator emits a `shard` director 
 | `shard.warmup` | float | no | `0.0`–`1.0`; share of traffic sent to alternate backend to warm its cache. Default `0.1`. |
 | `shard.rampup` | duration | no | Ramp-up window after adding a backend. Default `30s`. |
 | `shard.by` | enum | no | `URL` (default and only supported value). Request-time selector passed to `<backend>.backend(by=...)`. |
-| `shard.healthy` | enum | no | `CHOSEN` (default) or `ALL`. Which backends must be healthy for the director to route. |
-| `hash.header` | string | no | Header used as hash key for the `hash` director. |
+| `shard.healthy` | enum | no | `CHOSEN` (vmod default) returns a healthy backend if possible; alternatives skipped on the way are not health-checked. `ALL` also checks health while selecting an alternative. |
+| `hash.header` | string | no | Request header whose value is the hash key of the `hash` director. Must be a valid HTTP header name. Without it the URL is hashed. |
+
+The first entry of `backends` is the default route: requests that no `vclRecv` snippet routes
+go through its director, using `shard.healthy` and `hash.header` as above. See
+{ref}`default-routing`.
 
 See the [per-backend directors how-to](../how-to/per-backend-directors.md) for when to override each type.
 
@@ -114,8 +118,9 @@ See the [per-backend directors how-to](../how-to/per-backend-directors.md) for w
 > Note on `shard.by` and `shard.healthy`:
 > - **Cluster-peer director** (when `cluster.enabled: true`): honored automatically —
 >   the operator emits `<director>.backend(by=<by>, healthy=<healthy>)` in `vcl_recv`.
-> - **Per-backend directors**: still request-time arguments. The CRD accepts
->   the fields but you must use them in your own VCL snippet, e.g.
+> - **Per-backend directors**: honored for the default route of the first
+>   backend (requests no `vclRecv` snippet routes). For routes you pick in a
+>   snippet they remain request-time arguments, e.g.
 >   `set req.backend_hint = plone.backend(by=URL, healthy=CHOSEN);`.
 
 ### cluster

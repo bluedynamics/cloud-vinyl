@@ -14,21 +14,48 @@ This removes the class of guru-meditation failures that occurred during
 rolling updates, where VCL snippets referring to `<backend>_0` suddenly
 pointed at a pod that no longer existed. See issue #11 for background.
 
+(default-routing)=
+
 ## Default behaviour
 
 If `spec.backends[].director` is unset, the generator emits a `shard`
-director for that backend with defaults matching Plone-style workloads:
+director for that backend. This is the right default for any application with
+cache locality: the same URL consistently lands on the same backend pod, which
+maximises origin cache-hit rate.
 
-| Parameter | Default |
+The defaults below apply only when `director:` is set on the backend. Without a
+`director:` block the director runs with the vmod defaults: no warmup, no
+rampup, `healthy=CHOSEN`.
+
+| Parameter | Default with `director:` set |
 |-----------|---------|
 | `by` | `URL` |
 | `healthy` | `CHOSEN` |
 | `warmup` | `0.1` |
 | `rampup` | `30s` |
 
-This is the right default for any application with cache locality: the
-same URL consistently lands on the same backend pod, which maximises
-origin cache-hit rate.
+### Requests without a snippet
+
+Requests that no `vclRecv` snippet routes go to the **first** entry of
+`spec.backends`, through that backend's director. The generated `vcl_recv`
+sets the backend hint before your snippet runs, so a snippet's own
+`set req.backend_hint = ...` still wins. With clustering, the hint also applies
+to the owner hop and to ESI fragments.
+
+What the director gets as its key:
+
+| Type | Default route |
+|------|---------------|
+| `shard` | `<backend>.backend(by=URL)`, plus `healthy=<value>` when `shard.healthy` is set. The same URL stays on the same pod. |
+| `round_robin`, `random`, `fallback` | `<backend>.backend()` |
+| `hash` | `<backend>.backend(req.http.<header>)` when `hash.header` is set, otherwise `<backend>.backend(req.url)`. |
+
+`hash.header` must be a valid HTTP header name, because it is written into the
+VCL as `req.http.<header>`. The CRD and the admission webhook reject anything
+else.
+
+Other backends are reachable only through a snippet. A cache with a single
+backend needs no snippet at all.
 
 ## When to override
 
@@ -37,7 +64,7 @@ origin cache-hit rate.
 | `shard` | Default. Sticky consistent-hashing, good for Plone and any app with cache locality. |
 | `round_robin` | Stateless backends where any pod can serve any request equally. |
 | `random` | Rarely needed; prefer `round_robin` for stateless workloads. |
-| `hash` | Consistent hashing on a specific header (e.g. session affinity). You must call `<backend>.backend(<key>)` from your `vcl_recv` snippet. |
+| `hash` | Consistent hashing on a specific header (e.g. session affinity). Set `hash.header` for the default route; for other routes call `<backend>.backend(<key>)` from your `vcl_recv` snippet. |
 | `fallback` | Primary/standby topology; the first healthy backend wins. |
 
 ## Example: mixed workload
@@ -187,9 +214,11 @@ The placeholder shows up as an unhealthy backend, so the
 `VinylCacheBackendUnhealthy` alert fires for it after its usual delay.
 
 ```{note}
-Without a `vclRecv` snippet that selects the backend, requests do not use the
-per-backend directors, so a backend without endpoints only matters for the
-routes you send to it.
+Requests that no `vclRecv` snippet routes go to the first backend's director
+(see {ref}`default-routing`). If the first backend has no endpoints, those
+requests answer `503` instead of reaching a pod of another backend. The
+`BackendsAvailable` condition, the `Degraded` phase and the
+`VinylCacheBackendUnhealthy` alert show it.
 ```
 
 ## Debounce

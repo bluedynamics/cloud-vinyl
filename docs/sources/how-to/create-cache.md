@@ -23,6 +23,11 @@ spec:
 its runtime catalog. To run Vinyl Cache instead, set `flavor: vinyl` (see
 {ref}`run-vinyl-cache`).
 
+Requests that no `vclRecv` snippet routes go to the first backend, spread across
+its pods by the backend's director (`shard` by default, so the same URL stays on
+the same pod). With several backends, choose between them in a `vclRecv` snippet;
+see {ref}`default-routing`.
+
 Apply it:
 
 ```bash
