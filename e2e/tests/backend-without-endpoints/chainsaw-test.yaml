@@ -74,11 +74,15 @@ spec:
         A restarted cache starts on the bootstrap VCL; it must get the real
         VCL pushed although a backend still has no endpoints.
       try:
-        - delete:
-            ref:
-              apiVersion: v1
-              kind: Pod
-              name: gap-cache-0
+        # A script instead of a delete operation: the pod's termination can
+        # take longer than chainsaw's delete timeout, and the wait must finish
+        # before the readiness assert below, which would otherwise pass on the
+        # old pod.
+        - script:
+            timeout: 150s
+            content: |
+              set -eu
+              kubectl delete pod gap-cache-0 -n $NAMESPACE --wait=true --timeout=140s
         - assert:
             resource:
               apiVersion: apps/v1

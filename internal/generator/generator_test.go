@@ -989,7 +989,7 @@ func TestGenerate_BackendGroups_Fallback(t *testing.T) {
 }
 
 func emptyEndpointsInput(directorType string, endpoints map[string][]generator.Endpoint) generator.Input {
-	var backends []vinylv1.BackendSpec
+	backends := make([]vinylv1.BackendSpec, 0, 2)
 	for _, name := range []string{"plone", "thumbor"} {
 		backends = append(backends, vinylv1.BackendSpec{
 			Name:       name,
