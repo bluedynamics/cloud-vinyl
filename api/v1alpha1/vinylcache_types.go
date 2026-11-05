@@ -31,6 +31,8 @@ import (
 // +kubebuilder:printcolumn:name="Replicas",type="string",JSONPath=".status.readyReplicas"
 // +kubebuilder:printcolumn:name="VCL",type="string",JSONPath=".status.conditions[?(@.type=='VCLSynced')].status"
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",priority=1
+// +kubebuilder:printcolumn:name="Flavor",type="string",JSONPath=".status.runtime.flavor"
+// +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".status.runtime.version"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // VinylCache is the Schema for the vinylcaches API.

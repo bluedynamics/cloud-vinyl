@@ -27,3 +27,10 @@ PrometheusRule with 10 alerts has been deployed.
 {{- if .Values.monitoring.serviceMonitor.enabled }}
 ServiceMonitor for Prometheus scraping has been deployed.
 {{- end }}
+
+{{- if or .Values.image.tracer.repository .Values.image.tracer.tag }}
+
+WARNING: image.tracer.repository and image.tracer.tag are deprecated. They
+still set the tracer image of the varnish entries in the runtime catalog. Set
+the tracer under runtimes.<flavor>.versions."<version>".tracer instead.
+{{- end }}

@@ -18,12 +18,15 @@ package v1
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
+	"github.com/bluedynamics/cloud-vinyl/internal/catalog"
 	internalwebhook "github.com/bluedynamics/cloud-vinyl/internal/webhook"
 )
 
@@ -32,9 +35,10 @@ import (
 var vinylcachelog = logf.Log.WithName("vinylcache-resource")
 
 // SetupVinylCacheWebhookWithManager registers the webhook for VinylCache in the manager.
-func SetupVinylCacheWebhookWithManager(mgr ctrl.Manager) error {
+// cat is the runtime catalog flavor and version are validated against.
+func SetupVinylCacheWebhookWithManager(mgr ctrl.Manager, cat *catalog.Catalog) error {
 	return ctrl.NewWebhookManagedBy(mgr, &vinylv1.VinylCache{}).
-		WithValidator(&VinylCacheCustomValidator{}).
+		WithValidator(&VinylCacheCustomValidator{Catalog: cat}).
 		WithDefaulter(&VinylCacheCustomDefaulter{}).
 		Complete()
 }
@@ -64,18 +68,37 @@ func (d *VinylCacheCustomDefaulter) Default(_ context.Context, obj *vinylv1.Viny
 //
 // NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
 // as this struct is used only for temporary operations and does not need to be deeply copied.
-type VinylCacheCustomValidator struct{}
+type VinylCacheCustomValidator struct {
+	// Catalog is the runtime catalog; nil skips the flavor/version check.
+	Catalog *catalog.Catalog
+}
+
+// withRuntime merges the runtime catalog rules into the results of the
+// general validation.
+func (v *VinylCacheCustomValidator) withRuntime(old, vc *vinylv1.VinylCache, warnings admission.Warnings, err error) (admission.Warnings, error) {
+	rtWarnings, rtErrs := internalwebhook.ValidateRuntime(old, vc, v.Catalog)
+	warnings = append(warnings, rtWarnings...)
+	if len(rtErrs) == 0 {
+		return warnings, err
+	}
+	if err != nil {
+		rtErrs = append([]string{err.Error()}, rtErrs...)
+	}
+	return warnings, fmt.Errorf("%s", strings.Join(rtErrs, "; "))
+}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type VinylCache.
 func (v *VinylCacheCustomValidator) ValidateCreate(_ context.Context, obj *vinylv1.VinylCache) (admission.Warnings, error) {
 	vinylcachelog.Info("Validation for VinylCache upon creation", "name", obj.GetName())
-	return internalwebhook.ValidateVinylCache(obj)
+	warnings, err := internalwebhook.ValidateVinylCache(obj)
+	return v.withRuntime(nil, obj, warnings, err)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type VinylCache.
 func (v *VinylCacheCustomValidator) ValidateUpdate(_ context.Context, oldObj, newObj *vinylv1.VinylCache) (admission.Warnings, error) {
 	vinylcachelog.Info("Validation for VinylCache upon update", "name", newObj.GetName())
-	return internalwebhook.ValidateVinylCacheUpdate(oldObj, newObj)
+	warnings, err := internalwebhook.ValidateVinylCacheUpdate(oldObj, newObj)
+	return v.withRuntime(oldObj, newObj, warnings, err)
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type VinylCache.

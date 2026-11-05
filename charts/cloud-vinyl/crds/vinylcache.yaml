@@ -32,6 +32,12 @@ spec:
       name: Phase
       priority: 1
       type: string
+    - jsonPath: .status.runtime.flavor
+      name: Flavor
+      type: string
+    - jsonPath: .status.runtime.version
+      name: Version
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -397,8 +403,21 @@ spec:
                       independent of this field.
                     type: boolean
                 type: object
+              flavor:
+                default: varnish
+                description: |-
+                  flavor selects the cache daemon family: varnish (Varnish Cache) or
+                  vinyl (Vinyl Cache). Defaults to varnish.
+                enum:
+                - varnish
+                - vinyl
+                type: string
               image:
-                description: image is the container image for the Varnish pods.
+                description: |-
+                  image optionally overrides the container image of the cache daemon. It
+                  replaces only the daemon image: the exporter and tracing sidecars still
+                  follow flavor and version. When empty, the daemon image comes from the
+                  runtime catalog.
                 minLength: 1
                 type: string
               invalidation:
@@ -497,8 +516,8 @@ spec:
                         type: boolean
                       image:
                         description: |-
-                          image overrides the exporter image. Defaults to
-                          ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0.
+                          image overrides the exporter image of the runtime catalog entry that
+                          matches spec.flavor and spec.version.
                         properties:
                           repository:
                             type: string
@@ -4149,6 +4168,14 @@ spec:
                         type: string
                     type: object
                 type: object
+              version:
+                description: |-
+                  version is the daemon version to run, for example "9.1.0". It must be
+                  listed in the operator's runtime catalog for the chosen flavor. When
+                  empty, the catalog's default version for the flavor is used. That default
+                  is resolved at reconcile time and not written back to this field, so it
+                  follows the chart's default; pin version to stay on a given release.
+                type: string
               volumeClaimTemplates:
                 description: |-
                   volumeClaimTemplates are appended verbatim to the generated StatefulSet's
@@ -4561,7 +4588,6 @@ spec:
                 type: array
             required:
             - backends
-            - image
             - replicas
             type: object
           status:
@@ -4731,6 +4757,32 @@ spec:
                   StatefulSet.
                 format: int32
                 type: integer
+              runtime:
+                description: runtime is the flavor, version and images the operator
+                  resolved.
+                properties:
+                  daemon:
+                    description: daemon is the resolved image of the cache daemon
+                      container.
+                    type: string
+                  exporter:
+                    description: exporter is the resolved image of the metrics exporter
+                      sidecar.
+                    type: string
+                  flavor:
+                    description: flavor is the resolved daemon family.
+                    type: string
+                  tracer:
+                    description: tracer is the resolved image of the tracing sidecar.
+                    type: string
+                  version:
+                    description: version is the resolved daemon version.
+                    type: string
+                required:
+                - daemon
+                - flavor
+                - version
+                type: object
               selector:
                 description: selector is the label selector string used by the scale
                   subresource.
@@ -4768,6 +4820,12 @@ spec:
     - jsonPath: .status.phase
       name: Phase
       priority: 1
+      type: string
+    - jsonPath: .status.runtime.flavor
+      name: Flavor
+      type: string
+    - jsonPath: .status.runtime.version
+      name: Version
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -5137,8 +5195,21 @@ spec:
                       independent of this field.
                     type: boolean
                 type: object
+              flavor:
+                default: varnish
+                description: |-
+                  flavor selects the cache daemon family: varnish (Varnish Cache) or
+                  vinyl (Vinyl Cache). Defaults to varnish.
+                enum:
+                - varnish
+                - vinyl
+                type: string
               image:
-                description: image is the container image for the Varnish pods.
+                description: |-
+                  image optionally overrides the container image of the cache daemon. It
+                  replaces only the daemon image: the exporter and tracing sidecars still
+                  follow flavor and version. When empty, the daemon image comes from the
+                  runtime catalog.
                 minLength: 1
                 type: string
               invalidation:
@@ -5237,8 +5308,8 @@ spec:
                         type: boolean
                       image:
                         description: |-
-                          image overrides the exporter image. Defaults to
-                          ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0.
+                          image overrides the exporter image of the runtime catalog entry that
+                          matches spec.flavor and spec.version.
                         properties:
                           repository:
                             type: string
@@ -8889,6 +8960,14 @@ spec:
                         type: string
                     type: object
                 type: object
+              version:
+                description: |-
+                  version is the daemon version to run, for example "9.1.0". It must be
+                  listed in the operator's runtime catalog for the chosen flavor. When
+                  empty, the catalog's default version for the flavor is used. That default
+                  is resolved at reconcile time and not written back to this field, so it
+                  follows the chart's default; pin version to stay on a given release.
+                type: string
               volumeClaimTemplates:
                 description: |-
                   volumeClaimTemplates are appended verbatim to the generated StatefulSet's
@@ -9301,7 +9380,6 @@ spec:
                 type: array
             required:
             - backends
-            - image
             - replicas
             type: object
           status:
@@ -9471,6 +9549,32 @@ spec:
                   StatefulSet.
                 format: int32
                 type: integer
+              runtime:
+                description: runtime is the flavor, version and images the operator
+                  resolved.
+                properties:
+                  daemon:
+                    description: daemon is the resolved image of the cache daemon
+                      container.
+                    type: string
+                  exporter:
+                    description: exporter is the resolved image of the metrics exporter
+                      sidecar.
+                    type: string
+                  flavor:
+                    description: flavor is the resolved daemon family.
+                    type: string
+                  tracer:
+                    description: tracer is the resolved image of the tracing sidecar.
+                    type: string
+                  version:
+                    description: version is the resolved daemon version.
+                    type: string
+                required:
+                - daemon
+                - flavor
+                - version
+                type: object
               selector:
                 description: selector is the label selector string used by the scale
                   subresource.

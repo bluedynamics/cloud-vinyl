@@ -18,13 +18,16 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
+	"github.com/bluedynamics/cloud-vinyl/internal/catalog"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 )
 
@@ -104,7 +107,12 @@ func (r *VinylCacheReconciler) updateStatus(
 		fmt.Sprintf("VCL active on %d/%d ready pods", len(peers), vc.Spec.Replicas))
 	setCondition(vc, vinylv1.ConditionBackendsAvailable, metav1.ConditionTrue, "BackendsConfigured", "backend configuration applied")
 
-	if allReplicasReady {
+	if findConditionStatus(vc, vinylv1.ConditionRuntimeResolved) == metav1.ConditionFalse {
+		// The StatefulSet is held back, so the reconciliation is not complete
+		// however many replicas happen to be ready.
+		setCondition(vc, vinylv1.ConditionProgressing, metav1.ConditionTrue, "RuntimeNotInCatalog",
+			"the StatefulSet is held back because the runtime is not in the catalog (see condition RuntimeResolved)")
+	} else if allReplicasReady {
 		setCondition(vc, vinylv1.ConditionProgressing, metav1.ConditionFalse, "ReconcileComplete", "reconciliation complete")
 	} else {
 		setCondition(vc, vinylv1.ConditionProgressing, metav1.ConditionTrue, "WaitingForReplicas",
@@ -200,4 +208,76 @@ func findConditionStatus(vc *vinylv1.VinylCache, condType string) metav1.Conditi
 		}
 	}
 	return ""
+}
+
+// resolveRuntime resolves the runtime of a VinylCache from the catalog and
+// records the outcome (status.runtime and the RuntimeResolved condition) in
+// the persisted status right away. Persisting here, not in updateStatus,
+// keeps the outcome visible when a later step returns early (debounce,
+// backends without endpoints).
+//
+// It returns the effective runtime (catalog entry with the per-cache image
+// overrides applied) and whether it resolved. A catalog entry that has
+// vanished is reported as resolved=false with no error: the caller skips the
+// StatefulSet so running pods keep their images, and there is no hot error
+// loop. A nil catalog is a programming error and returned as an error.
+func (r *VinylCacheReconciler) resolveRuntime(
+	ctx context.Context, vc *vinylv1.VinylCache,
+) (rt catalog.Runtime, resolved bool, err error) {
+	if r.Catalog == nil {
+		return catalog.Runtime{}, false, errors.New("runtime catalog is not configured")
+	}
+	log := logf.FromContext(ctx)
+
+	prevRuntime := vc.Status.Runtime.DeepCopy()
+	prevCond := findCondition(vc, vinylv1.ConditionRuntimeResolved)
+
+	base, rerr := r.Catalog.Resolve(vc.Spec.Flavor, vc.Spec.Version)
+	switch {
+	case rerr == nil:
+		rt = effectiveRuntime(vc, base)
+		status := &vinylv1.RuntimeStatus{
+			Flavor:  rt.Flavor,
+			Version: rt.Version,
+			Daemon:  rt.Daemon,
+		}
+		if exp := vc.Spec.Monitoring.Exporter; exp != nil && exp.Enabled {
+			status.Exporter = rt.Exporter
+		}
+		if vc.Spec.Tracing.Enabled {
+			status.Tracer = rt.Tracer
+		}
+		vc.Status.Runtime = status
+		setCondition(vc, vinylv1.ConditionRuntimeResolved, metav1.ConditionTrue, "Resolved",
+			fmt.Sprintf("runtime %s %s resolved from the catalog", rt.Flavor, rt.Version))
+		resolved = true
+	case errors.Is(rerr, catalog.ErrNotInCatalog):
+		log.Info("runtime not in catalog, leaving the StatefulSet unchanged", "reason", rerr.Error())
+		setCondition(vc, vinylv1.ConditionRuntimeResolved, metav1.ConditionFalse, "NotInCatalog", rerr.Error())
+	default:
+		return catalog.Runtime{}, false, fmt.Errorf("resolving runtime: %w", rerr)
+	}
+
+	// Skip the write when nothing changed: a concurrent writer's conflict
+	// would otherwise abort the reconcile on every pass. Comparing the
+	// condition as a whole is safe, setCondition keeps LastTransitionTime
+	// unless the status flips.
+	if equality.Semantic.DeepEqual(prevRuntime, vc.Status.Runtime) &&
+		equality.Semantic.DeepEqual(prevCond, findCondition(vc, vinylv1.ConditionRuntimeResolved)) {
+		return rt, resolved, nil
+	}
+	if err := r.Status().Update(ctx, vc); err != nil {
+		return catalog.Runtime{}, false, fmt.Errorf("updating runtime status: %w", err)
+	}
+	return rt, resolved, nil
+}
+
+// findCondition returns a copy of the named condition, or nil if absent.
+func findCondition(vc *vinylv1.VinylCache, condType string) *metav1.Condition {
+	for _, c := range vc.Status.Conditions {
+		if c.Type == condType {
+			return c.DeepCopy()
+		}
+	}
+	return nil
 }

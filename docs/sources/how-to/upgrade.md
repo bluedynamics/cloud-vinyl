@@ -5,9 +5,13 @@
 ```bash
 helm upgrade cloud-vinyl oci://ghcr.io/bluedynamics/charts/cloud-vinyl \
   --namespace cloud-vinyl-system \
-  --reuse-values \
+  --reset-then-reuse-values \
   --wait --timeout 120s
 ```
+
+Use `--reset-then-reuse-values` (Helm 3.14+), not `--reuse-values`. The latter keeps the
+values of the previous release and drops the defaults new chart versions add, such as the
+`runtimes` catalog of 1.1; the chart then refuses to render.
 
 The operator Deployment is updated with a rolling strategy. Existing VinylCache clusters
 continue to serve traffic during the upgrade — the operator pushes new VCL only when the
@@ -19,6 +23,14 @@ pods restart one at a time, but each one comes back with an empty cache, and a s
 on an `emptyDir` starts cold. Plan upgrades for a quiet period. Pinning
 `image.agent.tag` avoids the roll, but leaves the agent on a different version than the
 operator, which is not supported.
+
+(upgrade-1-1-crd-first)=
+
+## Upgrading to 1.1: apply the CRD before `helm upgrade`
+
+1.1 adds `spec.flavor`, `spec.version` and `status.runtime`. Apply the new CRD
+(see {ref}`upgrade-crd`) **before** you run `helm upgrade`. Until the
+CRD is applied, the API server prunes these fields from every VinylCache it stores.
 
 (upgrade-1-1-metric-labels)=
 
@@ -40,6 +52,8 @@ The alert rules from the chart and from the operator use the new labels. Update
 your own dashboards, recording rules and alert routes: replace
 `exported_namespace` with `cache_namespace` and `exported_pod` with `pod_addr`
 on `vinyl_*` metrics. The exporter's `varnish_*` metrics are unchanged.
+
+(upgrade-crd)=
 
 ## Upgrade the CRD
 

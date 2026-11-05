@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
+	"github.com/bluedynamics/cloud-vinyl/internal/catalog"
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 	"github.com/bluedynamics/cloud-vinyl/internal/monitoring"
 	"github.com/bluedynamics/cloud-vinyl/internal/proxy"
@@ -53,7 +54,9 @@ type VinylCacheReconciler struct {
 	ObserveTimeout time.Duration
 
 	client.Client
-	Scheme      *runtime.Scheme
+	Scheme *runtime.Scheme
+	// Catalog resolves spec.flavor and spec.version to images. Required.
+	Catalog     *catalog.Catalog
 	Generator   generator.Generator
 	AgentClient AgentClient
 	// OperatorIP is the operator pod's own IP address, used to populate the
@@ -118,9 +121,18 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
-	// 5. Reconcile StatefulSet.
-	if err := r.reconcileStatefulSet(ctx, vc); err != nil {
+	// 5. Resolve the runtime and reconcile the StatefulSet.
+	// The catalog resolves flavor and version to images; spec overrides are
+	// applied on top. A missing entry is not an error: the condition says so
+	// and the StatefulSet stays as it is, while everything else carries on.
+	rt, resolved, err := r.resolveRuntime(ctx, vc)
+	if err != nil {
 		return ctrl.Result{}, err
+	}
+	if resolved {
+		if err := r.reconcileStatefulSet(ctx, vc, rt); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	// 6. Reconcile Services.

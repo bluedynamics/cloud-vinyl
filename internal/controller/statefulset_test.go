@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"testing"
 
@@ -15,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
+	"github.com/bluedynamics/cloud-vinyl/internal/catalog"
 )
 
 func TestStorageArgs_Malloc(t *testing.T) {
@@ -100,10 +102,15 @@ func exporterBaseVC() *vinylv1.VinylCache {
 
 func getStatefulSet(t *testing.T, vc *vinylv1.VinylCache) *appsv1.StatefulSet {
 	t.Helper()
+	return getStatefulSetFor(t, vc, testRuntime(t, vinylv1.FlavorVarnish))
+}
+
+func getStatefulSetFor(t *testing.T, vc *vinylv1.VinylCache, rt catalog.Runtime) *appsv1.StatefulSet {
+	t.Helper()
 	sch := newScheme(t)
 	cli := fake.NewClientBuilder().WithScheme(sch).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
-	require.NoError(t, r.reconcileStatefulSet(context.Background(), vc))
+	require.NoError(t, r.reconcileStatefulSet(context.Background(), vc, rt))
 	ss := &appsv1.StatefulSet{}
 	require.NoError(t, cli.Get(context.Background(),
 		types.NamespacedName{Name: vc.Name, Namespace: vc.Namespace}, ss))
@@ -123,7 +130,7 @@ func TestReconcileStatefulSet_ExporterSidecarWhenEnabled(t *testing.T) {
 		}
 	}
 	require.NotNil(t, exporter, "exporter sidecar must be present when enabled")
-	assert.Equal(t, "ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0", exporter.Image)
+	assert.Equal(t, testRuntime(t, vinylv1.FlavorVarnish).Exporter, exporter.Image)
 	assert.Equal(t, []string{"-n", "/var/lib/varnish/varnishd", "-web.listen-address", ":9131"}, exporter.Args,
 		"varnishstat must read varnishd's explicit -n, not its build default")
 
@@ -209,12 +216,13 @@ func TestReconcileStatefulSet_NoTracerByDefault(t *testing.T) {
 	}
 }
 
-func TestReconcileStatefulSet_TracerImageFromEnv(t *testing.T) {
-	t.Setenv("TRACER_IMAGE", "example.org/tracer:test")
+func TestReconcileStatefulSet_TracerImageFromRuntime(t *testing.T) {
+	t.Setenv("TRACER_IMAGE", "example.org/ignored:env")
+	rt := testRuntime(t, vinylv1.FlavorVarnish)
 	ss := getStatefulSet(t, tracingVC("traced-img"))
 	for _, c := range ss.Spec.Template.Spec.Containers {
 		if c.Name == "vinyl-tracer" {
-			assert.Equal(t, "example.org/tracer:test", c.Image)
+			assert.Equal(t, rt.Tracer, c.Image)
 			return
 		}
 	}
@@ -251,7 +259,7 @@ func TestReconcileStatefulSet_UserVolumesAndMountsAppended(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(sch).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
-	require.NoError(t, r.reconcileStatefulSet(context.Background(), vc))
+	require.NoError(t, r.reconcileStatefulSet(context.Background(), vc, testRuntime(t, vinylv1.FlavorVarnish)))
 
 	ss := &appsv1.StatefulSet{}
 	require.NoError(t, cli.Get(context.Background(),
@@ -331,7 +339,7 @@ func TestReconcileStatefulSet_VolumeClaimTemplatesPassthrough(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(sch).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
-	require.NoError(t, r.reconcileStatefulSet(context.Background(), vc))
+	require.NoError(t, r.reconcileStatefulSet(context.Background(), vc, testRuntime(t, vinylv1.FlavorVarnish)))
 
 	ss := &appsv1.StatefulSet{}
 	require.NoError(t, cli.Get(context.Background(),
@@ -359,7 +367,7 @@ func TestReconcileStatefulSet_NoUserVolumes_DefaultsUnchanged(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(sch).Build()
 	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
-	require.NoError(t, r.reconcileStatefulSet(context.Background(), vc))
+	require.NoError(t, r.reconcileStatefulSet(context.Background(), vc, testRuntime(t, vinylv1.FlavorVarnish)))
 
 	ss := &appsv1.StatefulSet{}
 	require.NoError(t, cli.Get(context.Background(),
@@ -657,4 +665,81 @@ func TestReconcileStatefulSet_AgentStartupProbe(t *testing.T) {
 		return
 	}
 	require.Fail(t, "vinyl-agent container missing")
+}
+
+func containerByName(t *testing.T, ss *appsv1.StatefulSet, name string) *corev1.Container {
+	t.Helper()
+	for i := range ss.Spec.Template.Spec.Containers {
+		if ss.Spec.Template.Spec.Containers[i].Name == name {
+			return &ss.Spec.Template.Spec.Containers[i]
+		}
+	}
+	require.Failf(t, "container missing", "%s must be present", name)
+	return nil
+}
+
+func envMap(c *corev1.Container) map[string]string {
+	m := map[string]string{}
+	for _, e := range c.Env {
+		m[e.Name] = e.Value
+	}
+	return m
+}
+
+func fullVC(name string) *vinylv1.VinylCache {
+	vc := tracingVC(name)
+	vc.Spec.Monitoring.Exporter = &vinylv1.ExporterSpec{Enabled: true}
+	return vc
+}
+
+func TestStatefulSet_VinylFlavor(t *testing.T) {
+	rt := testRuntime(t, vinylv1.FlavorVinyl)
+	ss := getStatefulSetFor(t, fullVC("vinyl"), rt)
+
+	v := varnishContainer(t, ss)
+	assert.Equal(t, []string{"vinyld"}, v.Command)
+	assert.Equal(t, "varnish", v.Name, "container name is the same for both flavors")
+	assert.Equal(t, rt.Daemon, v.Image)
+
+	exp := containerByName(t, ss, "vinyl-exporter")
+	assert.Equal(t, rt.Exporter, exp.Image)
+	idx := slices.Index(exp.Args, "-varnishstat-path")
+	require.GreaterOrEqual(t, idx, 0, "exporter must be pointed at vinylstat")
+	assert.Equal(t, "/usr/bin/vinylstat", exp.Args[idx+1])
+
+	tr := containerByName(t, ss, "vinyl-tracer")
+	assert.Equal(t, rt.Tracer, tr.Image)
+	assert.Equal(t, "vinyllog", envMap(tr)["VARNISHLOG_PATH"])
+}
+
+func TestStatefulSet_VarnishFlavor(t *testing.T) {
+	rt := testRuntime(t, vinylv1.FlavorVarnish)
+	ss := getStatefulSetFor(t, fullVC("varnish"), rt)
+
+	v := varnishContainer(t, ss)
+	assert.Equal(t, []string{"varnishd"}, v.Command)
+	assert.Equal(t, rt.Daemon, v.Image)
+	assert.NotContains(t, containerByName(t, ss, "vinyl-exporter").Args, "-varnishstat-path")
+	assert.Equal(t, "varnishlog", envMap(containerByName(t, ss, "vinyl-tracer"))["VARNISHLOG_PATH"])
+}
+
+func TestStatefulSet_WorkdirSameForBothFlavors(t *testing.T) {
+	for _, f := range []vinylv1.Flavor{vinylv1.FlavorVarnish, vinylv1.FlavorVinyl} {
+		t.Run(string(f), func(t *testing.T) {
+			ss := getStatefulSetFor(t, fullVC("wd"), testRuntime(t, f))
+			for _, c := range []*corev1.Container{varnishContainer(t, ss), containerByName(t, ss, "vinyl-exporter")} {
+				idx := slices.Index(c.Args, "-n")
+				require.GreaterOrEqual(t, idx, 0, c.Name)
+				assert.Equal(t, "/var/lib/varnish/varnishd", c.Args[idx+1], c.Name)
+			}
+			assert.Equal(t, "/var/lib/varnish/varnishd", envMap(containerByName(t, ss, "vinyl-tracer"))["VARNISH_WORKDIR"])
+		})
+	}
+}
+
+func TestStatefulSet_AgentImageFallsBackToDaemon(t *testing.T) {
+	t.Setenv("AGENT_IMAGE", "")
+	rt := testRuntime(t, vinylv1.FlavorVinyl)
+	ss := getStatefulSetFor(t, exporterBaseVC(), rt)
+	assert.Equal(t, rt.Daemon, containerByName(t, ss, agentContainerName).Image)
 }

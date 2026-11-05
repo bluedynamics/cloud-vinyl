@@ -112,6 +112,7 @@ var _ = Describe("VinylCache Controller", func() {
 				Scheme:      k8sClient.Scheme(),
 				Generator:   &stubGenerator{},
 				AgentClient: &mockAgentClient{},
+				Catalog:     testCatalog(GinkgoT()),
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{

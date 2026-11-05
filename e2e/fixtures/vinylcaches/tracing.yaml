@@ -7,7 +7,6 @@ metadata:
   name: traced-cache
 spec:
   replicas: 1
-  image: varnish:9.1.0
   backends:
     - name: echo
       serviceRef:

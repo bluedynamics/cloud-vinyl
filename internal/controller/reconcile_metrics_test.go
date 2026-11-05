@@ -27,7 +27,7 @@ func TestReconcile_RecordsReconcileMetric(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).
 		WithStatusSubresource(vc).Build()
-	r := &VinylCacheReconciler{Client: cli, Scheme: sch, Generator: generator.New(), Metrics: m}
+	r := &VinylCacheReconciler{Client: cli, Scheme: sch, Generator: generator.New(), Metrics: m, Catalog: testCatalog(t)}
 
 	_, _ = r.Reconcile(context.Background(),
 		ctrl.Request{NamespacedName: client.ObjectKey{Name: "c1", Namespace: "ns1"}})
@@ -71,4 +71,14 @@ func TestUpdateStatus_VCLVersionsGauge_NoPodsMeansNoVersions(t *testing.T) {
 
 	assert.Equal(t, float64(0), testutil.ToFloat64(m.VCLVersionsLoaded.WithLabelValues("c1", "ns1")),
 		"no reachable pods means no VCL is loaded anywhere")
+}
+
+func TestReconcile_NilCatalogFailsWithoutFallback(t *testing.T) {
+	sch := newScheme(t)
+	vc := &vinylv1.VinylCache{ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: "ns1"}}
+	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc).WithStatusSubresource(vc).Build()
+	r := &VinylCacheReconciler{Client: cli, Scheme: sch}
+	_, err := r.Reconcile(context.Background(),
+		ctrl.Request{NamespacedName: client.ObjectKey{Name: "c1", Namespace: "ns1"}})
+	assert.ErrorContains(t, err, "catalog")
 }

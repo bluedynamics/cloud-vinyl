@@ -94,3 +94,38 @@ In-cluster DNS name of the Service carrying the metrics port.
 {{- define "cloud-vinyl.metricsServiceHost" -}}
 {{- printf "%s.%s.svc" (include "cloud-vinyl.fullname" .) .Release.Namespace -}}
 {{- end }}
+
+{{/*
+Effective runtime catalog (the content of runtimes.yaml). Fills an empty tracer
+with the tracer of this chart release (<appVersion> for varnish,
+<appVersion>-vinyl for vinyl). While the deprecated image.tracer.repository or
+image.tracer.tag is set, it replaces the tracer of every varnish entry.
+*/}}
+{{- define "cloud-vinyl.runtimes" -}}
+{{- if not .Values.runtimes -}}
+{{- fail "cloud-vinyl: the chart's runtime catalog (values key `runtimes`) is missing. This typically happens with `helm upgrade --reuse-values` across the upgrade to 1.1, which keeps the old values and drops the new defaults. Use `--reset-then-reuse-values` (Helm 3.14+) or pass the values again." -}}
+{{- end -}}
+{{- $rt := deepCopy .Values.runtimes -}}
+{{- $base := "ghcr.io/bluedynamics/cloud-vinyl-tracer" -}}
+{{- $legacy := or .Values.image.tracer.repository .Values.image.tracer.tag -}}
+{{- range $flavor, $spec := $rt -}}
+{{- if not (hasKey (default dict $spec.versions) (toString $spec.default)) -}}
+{{- fail (printf "cloud-vinyl: runtimes.%s.default %q is missing or not among runtimes.%s.versions; the operator would refuse to start" $flavor (toString $spec.default) $flavor) -}}
+{{- end -}}
+{{- range $version, $entry := $spec.versions -}}
+{{- if not $entry.daemon -}}
+{{- fail (printf "cloud-vinyl: runtimes.%s.versions.%q has no daemon image; the operator would refuse to start" $flavor $version) -}}
+{{- end -}}
+{{- if not $entry.exporter -}}
+{{- fail (printf "cloud-vinyl: runtimes.%s.versions.%q has no exporter image; the operator would refuse to start" $flavor $version) -}}
+{{- end -}}
+{{- if and (eq $flavor "varnish") $legacy -}}
+{{- $_ := set $entry "tracer" (printf "%s:%s" ($.Values.image.tracer.repository | default $base) ($.Values.image.tracer.tag | default $.Chart.AppVersion)) -}}
+{{- else if not $entry.tracer -}}
+{{- $suffix := ternary "-vinyl" "" (eq $flavor "vinyl") -}}
+{{- $_ := set $entry "tracer" (printf "%s:%s%s" $base $.Chart.AppVersion $suffix) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- toYaml $rt -}}
+{{- end }}

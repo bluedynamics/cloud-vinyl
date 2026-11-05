@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
+	"github.com/bluedynamics/cloud-vinyl/internal/catalog"
 )
 
 // labelVinylCacheName is the label key used to identify resources belonging to a VinylCache.
@@ -74,15 +75,11 @@ const (
 const (
 	// exporterPort is the default prometheus_varnish_exporter listen port.
 	exporterPort = int32(9131)
-	// defaultExporterImage is the default varnish exporter sidecar image.
-	defaultExporterImage = "ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0"
 )
 
 const (
 	// tracerMetricsPort is the tracer sidecar's Prometheus /metrics port.
 	tracerMetricsPort = int32(9464)
-	// defaultTracerImage is used when TRACER_IMAGE is unset (Helm sets it).
-	defaultTracerImage = "ghcr.io/bluedynamics/cloud-vinyl-tracer:latest"
 )
 
 const (
@@ -104,7 +101,10 @@ const (
 )
 
 // reconcileStatefulSet creates or updates the StatefulSet for the VinylCache.
-func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vinylv1.VinylCache) error {
+// rt is the effective runtime (catalog entry with the spec overrides applied,
+// see effectiveRuntime).
+func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vinylv1.VinylCache, rt catalog.Runtime) error {
+	traits := traitsFor(rt.Flavor)
 	sts := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      vc.Name,
@@ -140,8 +140,8 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vin
 		// than the image entrypoint; see varnishdArgs.
 		varnishContainer := corev1.Container{
 			Name:    "varnish",
-			Image:   vc.Spec.Image,
-			Command: []string{"varnishd"},
+			Image:   rt.Daemon,
+			Command: []string{traits.daemonCommand},
 			Args:    varnishdArgs(vc),
 			Env:     varnishEnv(vc),
 			Ports: []corev1.ContainerPort{
@@ -210,7 +210,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vin
 		// falling back to the varnish image for backward compatibility.
 		agentImage := os.Getenv("AGENT_IMAGE")
 		if agentImage == "" {
-			agentImage = vc.Spec.Image
+			agentImage = rt.Daemon
 		}
 		agentContainer := corev1.Container{
 			Name:  agentContainerName,
@@ -317,10 +317,10 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vin
 
 		containers := []corev1.Container{varnishContainer, agentContainer}
 		if exp := vc.Spec.Monitoring.Exporter; exp != nil && exp.Enabled {
-			containers = append(containers, buildExporterContainer(exp))
+			containers = append(containers, buildExporterContainer(exp, rt.Exporter, traits))
 		}
 		if vc.Spec.Tracing.Enabled {
-			containers = append(containers, buildTracerContainer(vc))
+			containers = append(containers, buildTracerContainer(vc, rt.Tracer, traits))
 		}
 
 		uid := int64(65532)
@@ -368,18 +368,14 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vin
 
 // buildExporterContainer returns the prometheus_varnish_exporter sidecar. It
 // shares the varnish-workdir volume read-only to read the VSM (varnishstat) data.
-func buildExporterContainer(exp *vinylv1.ExporterSpec) corev1.Container {
-	image := defaultExporterImage
-	if exp.Image.Repository != "" {
-		tag := exp.Image.Tag
-		if tag == "" {
-			tag = "latest"
-		}
-		image = exp.Image.Repository + ":" + tag
-	}
+func buildExporterContainer(exp *vinylv1.ExporterSpec, image string, t flavorTraits) corev1.Container {
 	port := exporterPort
 	if exp.Port != 0 {
 		port = exp.Port
+	}
+	args := []string{"-n", varnishWorkdir, "-web.listen-address", fmt.Sprintf(":%d", port)}
+	if t.varnishstatPath != "" {
+		args = append(args, "-varnishstat-path", t.varnishstatPath)
 	}
 	return corev1.Container{
 		Name:  "vinyl-exporter",
@@ -387,7 +383,7 @@ func buildExporterContainer(exp *vinylv1.ExporterSpec) corev1.Container {
 		// -n is handed to varnishstat; see varnishWorkdir. The listen
 		// address follows spec.monitoring.exporter.port, which the
 		// containerPort and the exporter NetworkPolicy already use.
-		Args: []string{"-n", varnishWorkdir, "-web.listen-address", fmt.Sprintf(":%d", port)},
+		Args: args,
 		Ports: []corev1.ContainerPort{
 			{Name: "exporter", ContainerPort: port, Protocol: corev1.ProtocolTCP},
 		},
@@ -406,12 +402,8 @@ func buildExporterContainer(exp *vinylv1.ExporterSpec) corev1.Container {
 // buildTracerContainer returns the vinyl-tracer sidecar. It shares the
 // varnish-workdir volume read-only to read the VSL, and exports OTLP spans
 // to the endpoint from spec.tracing.
-func buildTracerContainer(vc *vinylv1.VinylCache) corev1.Container {
+func buildTracerContainer(vc *vinylv1.VinylCache, image string, t flavorTraits) corev1.Container {
 	tr := vc.Spec.Tracing
-	image := os.Getenv("TRACER_IMAGE")
-	if image == "" {
-		image = defaultTracerImage
-	}
 	protocol := tr.OTLP.Protocol
 	if protocol == "" {
 		protocol = "grpc"
@@ -429,6 +421,7 @@ func buildTracerContainer(vc *vinylv1.VinylCache) corev1.Container {
 			{Name: "OTLP_INSECURE", Value: strconv.FormatBool(tr.OTLP.Insecure)},
 			{Name: "TRACER_SERVICE_NAME", Value: service},
 			{Name: "VARNISH_WORKDIR", Value: varnishWorkdir},
+			{Name: "VARNISHLOG_PATH", Value: t.varnishlogPath},
 		},
 		Ports: []corev1.ContainerPort{
 			{Name: "tracer-metrics", ContainerPort: tracerMetricsPort, Protocol: corev1.ProtocolTCP},

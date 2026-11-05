@@ -3,6 +3,27 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["image"],
+  "definitions": {
+    "flavor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default": {"type": "string"},
+        "versions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "daemon": {"type": "string"},
+              "exporter": {"type": "string"},
+              "tracer": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  },
   "properties": {
     "replicaCount": {
       "type": "integer",
@@ -42,6 +63,14 @@
             "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"]}
           }
         }
+      }
+    },
+    "runtimes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "varnish": {"$ref": "#/definitions/flavor"},
+        "vinyl": {"$ref": "#/definitions/flavor"}
       }
     },
     "imagePullSecrets": {

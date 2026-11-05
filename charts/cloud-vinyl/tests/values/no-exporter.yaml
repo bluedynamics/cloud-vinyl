@@ -1,0 +1,5 @@
+runtimes:
+  varnish:
+    versions:
+      "9.1.0":
+        exporter: ""

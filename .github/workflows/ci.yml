@@ -25,6 +25,16 @@ jobs:
       - name: Check E2E layer boundary
         run: bash hack/check-e2e-boundary.sh
 
+  # Its own job: it talks to registries, so a registry outage shows up as a red
+  # "Catalog Digests" and does not hide real lint results.
+  catalog-digests:
+    name: Catalog Digests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check catalog digests
+        run: bash hack/check-catalog-digests.sh
+
   test:
     name: Unit Tests
     runs-on: ubuntu-latest

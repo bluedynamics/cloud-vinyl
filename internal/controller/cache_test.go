@@ -103,7 +103,7 @@ func TestCacheOptions_EveryCreatedObjectPassesItsSelector(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, r.reconcileSecret(ctx, vc))
 	require.NoError(t, r.reconcileConfigMap(ctx, vc))
-	require.NoError(t, r.reconcileStatefulSet(ctx, vc))
+	require.NoError(t, r.reconcileStatefulSet(ctx, vc, testRuntime(t, vinylv1.FlavorVarnish)))
 	require.NoError(t, r.reconcileServices(ctx, vc))
 	require.NoError(t, r.reconcileEndpointSlice(ctx, vc))
 	require.NoError(t, r.reconcileNetworkPolicies(ctx, vc))

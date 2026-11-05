@@ -93,6 +93,16 @@ var _ = Describe("VinylCache Webhook", func() {
 		// })
 	})
 
+	Context("When the runtime is not in the catalog", func() {
+		It("rejects a cache with an unknown version", func() {
+			vc := minimalAdmissibleVC("unknown-version")
+			vc.Spec.Version = "0.0.1"
+			err := k8sClient.Create(ctx, vc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("is not in the runtime catalog"))
+		})
+	})
+
 	// v1alpha1 stays served and deprecated. The webhooks register for v1 with
 	// matchPolicy Equivalent, so the API server converts a v1alpha1 request
 	// and sends it through the same defaulting and validation (#122).
