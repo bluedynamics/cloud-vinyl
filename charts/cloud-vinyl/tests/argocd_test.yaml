@@ -65,4 +65,7 @@ tests:
           pattern: 'phase == "Ready" then\s+hs.status = "Healthy"'
       - matchRegex:
           path: data["resource.customizations.health.vinyl.bluedynamics.eu_VinylCache"]
+          pattern: 'phase == "Pending" then\s+hs.status = "Progressing"'
+      - matchRegex:
+          path: data["resource.customizations.health.vinyl.bluedynamics.eu_VinylCache"]
           pattern: 'c.type == "Ready" and c.status == "True"'

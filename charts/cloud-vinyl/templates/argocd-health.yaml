@@ -39,6 +39,19 @@ data:
         hs.message = "VinylCache is ready"
         return hs
       end
+      -- Pods still starting (Ready=False) are a rollout, not a failure.
+      if obj.status.phase == "Pending" then
+        hs.status = "Progressing"
+        hs.message = "Waiting for VinylCache to become ready"
+        if obj.status.conditions ~= nil then
+          for _, c in ipairs(obj.status.conditions) do
+            if c.type == "Ready" and c.message ~= nil then
+              hs.message = c.message
+            end
+          end
+        end
+        return hs
+      end
     end
     if obj.status ~= nil and obj.status.conditions ~= nil then
       for _, c in ipairs(obj.status.conditions) do
