@@ -134,6 +134,13 @@ type BackendGroup struct {
 	Director DirectorInfo // Director algorithm + params for this group.
 	Backends []BackendDef // One per resolved Endpoint; Name is "<Group.Name>_<idx>".
 
+	// Placeholder is the name of a never-healthy stand-in backend, set only
+	// when the group has no endpoints (#171). It is the sole member of the
+	// group's director, so the VCL always has a static backend and requests
+	// routed to the group get a 503. Its name does not follow the
+	// "<Group.Name>_<idx>" scheme.
+	Placeholder string
+
 	// Retries is spec.backends[i].retry.maxRetries resolved to its default,
 	// 0 for directors that cannot pick a different backend (hash, fallback)
 	// and for groups without endpoints.
@@ -211,22 +218,11 @@ func (g *templateGenerator) Generate(input Input) (*Result, error) {
 	data := buildTemplateData(input)
 
 	// If fullOverride is set, return it directly (with a comment header).
-	// Full-override bypasses the empty-backend guard — users supplying their
-	// own VCL are not subject to the director constraint.
+	// Full-override bypasses the managed templates entirely.
 	if input.Spec.VCL.FullOverride != "" {
 		vcl := fmt.Sprintf("# cloud-vinyl managed VCL (full override mode)\n# Name: %s/%s\n\n%s",
 			input.Namespace, input.Name, input.Spec.VCL.FullOverride)
 		return &Result{VCL: vcl, Hash: HashVCL(vcl)}, nil
-	}
-
-	// Defensive guard: refuse to emit VCL with an empty director. A shard
-	// director with zero add_backend calls is a runtime error in Varnish at
-	// VCL load time. The controller already skips the push in this case;
-	// this guard ensures invalid VCL can never be produced.
-	for _, g := range data.BackendGroups {
-		if len(g.Backends) == 0 {
-			return nil, fmt.Errorf("backend %q has no resolved endpoints; refusing to emit VCL with empty director", g.Name)
-		}
 	}
 
 	var buf bytes.Buffer
@@ -349,6 +345,9 @@ func buildTemplateData(input Input) TemplateData {
 			}
 			group.Backends = append(group.Backends, def)
 		}
+		if len(group.Backends) == 0 {
+			group.Placeholder = placeholderPrefix + group.Name
+		}
 		setGroupRetry(&group, b)
 		data.HasFetchRetry = data.HasFetchRetry || group.Retries > 0
 		data.BackendGroups = append(data.BackendGroups, group)
@@ -379,6 +378,10 @@ func buildTemplateData(input Input) TemplateData {
 	return data
 }
 
+// placeholderPrefix prefixes the name of the placeholder backend of a group
+// without endpoints. It must not match the "<group>_<idx>" scheme.
+const placeholderPrefix = "noendpoints_"
+
 // directorShard is the shard director type, also the default.
 const directorShard = "shard"
 
@@ -408,7 +411,7 @@ func resolveMaxRetries(r *vinylv1.FetchRetrySpec) int32 {
 //   - hash, fallback: deterministic, they would pick the same backend, so
 //     they never retry.
 func setGroupRetry(g *BackendGroup, b vinylv1.BackendSpec) {
-	// Generate already refuses groups without endpoints; nothing to match.
+	// A group without endpoints only has the placeholder: no retry.
 	if len(g.Backends) == 0 {
 		return
 	}
