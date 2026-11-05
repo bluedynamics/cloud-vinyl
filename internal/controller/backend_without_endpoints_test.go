@@ -103,7 +103,7 @@ func TestReconcile_BackendWithoutEndpoints_StillPushesVCL(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(sch).WithObjects(vc, pod, svc, es).
 		WithStatusSubresource(vc).Build()
 	agent := &mockAgentClient{}
-	r := &VinylCacheReconciler{Client: cli, Scheme: sch, Generator: generator.New(), AgentClient: agent}
+	r := &VinylCacheReconciler{Client: cli, Scheme: sch, Generator: generator.New(), AgentClient: agent, Catalog: testCatalog(t)}
 
 	res, err := r.Reconcile(context.Background(),
 		ctrl.Request{NamespacedName: client.ObjectKey{Name: "c1", Namespace: "ns1"}})
