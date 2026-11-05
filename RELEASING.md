@@ -81,11 +81,31 @@ Five jobs, in this order:
    both `:0.6.0` and `:latest`, or only the version for a release candidate.
 4. **`release`** runs goreleaser, which builds the binaries, generates the changelog and
    creates the GitHub release.
-5. **`helm-chart`** rewrites `version` and `appVersion` in `Chart.yaml` from the tag,
+5. **`helm-chart`** rewrites `version` and `appVersion` in `Chart.yaml` from the tag, pins the tracer digests in the catalog (see below),
    packages the chart and pushes it to `oci://ghcr.io/bluedynamics/charts`.
 
 Note that `helm-chart` depends on `docker-manifest`, so the chart is never published
 pointing at images that do not exist yet.
+
+## The runtime catalog and its digests
+
+`charts/cloud-vinyl/values.yaml` holds the runtime catalog (`runtimes.<flavor>.versions`).
+Every `daemon`, `exporter` and `tracer` image in the packaged chart is pinned by a
+multi-arch index digest.
+
+- **Tracer:** the catalog commits an empty `tracer`. The `helm-chart` job resolves the
+  index digests of `cloud-vinyl-tracer:<version>` (varnish) and
+  `cloud-vinyl-tracer:<version>-vinyl` (vinyl) and writes them into every empty entry
+  before packaging. You do nothing for it.
+- **Daemon and exporter:** their digests are committed. After a Vinyl rebuild
+  (a new `VINYL_REVISION`, i.e. a new `vinyl-cache:<ver>-rN`) or an exporter rebuild,
+  open a PR that updates the image tag and digest in `values.yaml`. Get the index
+  digest with `docker buildx imagetools inspect <image>:<tag>`, never a per-arch one.
+  `hack/check-catalog-digests.sh` runs in CI and fails if the digest is missing or does
+  not exist in the repository; it only warns when an upstream tag has moved on.
+- **Safety net:** before packaging, the job runs `hack/check-catalog-pinned.sh`. It
+  fails the release if any catalog image, including a non-empty tracer of your own
+  build, has no `@sha256:` digest.
 
 ## Verify afterwards
 
