@@ -23,8 +23,12 @@ import (
 	"strings"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	vinylv1 "github.com/bluedynamics/cloud-vinyl/api/v1"
@@ -99,6 +103,7 @@ func (r *VinylCacheReconciler) updateStatus(
 	}
 	vc.Status.ReadyPeers = int32(len(peers))
 	vc.Status.TotalPeers = vc.Spec.Replicas
+	r.setReplicaStatus(ctx, vc)
 
 	allReplicasReady := int32(len(peers)) >= vc.Spec.Replicas
 	scaledToZero := vc.Spec.Replicas == 0
@@ -331,4 +336,32 @@ func logBackendEndpointTransition(ctx context.Context, vc *vinylv1.VinylCache, m
 		return
 	}
 	log.Info("all backends have ready endpoints again")
+}
+
+// podSelectorLabels are the labels the StatefulSet selects its pods by.
+func podSelectorLabels(vc *vinylv1.VinylCache) map[string]string {
+	return map[string]string{labelApp: vc.Name}
+}
+
+// setReplicaStatus copies the replica counts of the owned StatefulSet and
+// sets the pod selector string. Both back the Replicas printer column and the
+// scale subresource (statuspath/selectorpath), which read nothing else (#180).
+// Without a StatefulSet (not created yet, or held back because the runtime is
+// not in the catalog) the counts are 0; the selector is always set.
+func (r *VinylCacheReconciler) setReplicaStatus(ctx context.Context, vc *vinylv1.VinylCache) {
+	vc.Status.Selector = labels.SelectorFromSet(podSelectorLabels(vc)).String()
+
+	sts := &appsv1.StatefulSet{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: vc.Namespace, Name: vc.Name}, sts)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			logf.FromContext(ctx).Error(err, "reading the StatefulSet for the replica status")
+			return
+		}
+		sts.Status = appsv1.StatefulSetStatus{}
+	}
+	vc.Status.Replicas = sts.Status.Replicas
+	vc.Status.ReadyReplicas = sts.Status.ReadyReplicas
+	vc.Status.UpdatedReplicas = sts.Status.UpdatedReplicas
+	vc.Status.AvailableReplicas = sts.Status.AvailableReplicas
 }

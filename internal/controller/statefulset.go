@@ -344,7 +344,7 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vin
 			Replicas:            &replicas,
 			PodManagementPolicy: parallel,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{labelApp: vc.Name},
+				MatchLabels: podSelectorLabels(vc),
 			},
 			ServiceName: vc.Name,
 			Template: corev1.PodTemplateSpec{
