@@ -137,9 +137,14 @@ jobs:
       # tracer, which takes its vinyllog from the daemon image.
       - name: Build Vinyl Cache image (if changed)
         if: matrix.flavor == 'vinyl'
+        # No grep in a pipeline: under pipefail an early `grep -q` exit can
+        # SIGPIPE the producer and flip the result (see CLAUDE.md).
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && \
-             git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD" | grep -qx 'Dockerfile.vinyl'; then
+          changed=""
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            changed="$(git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD")"
+          fi
+          if [[ $'\n'"${changed}"$'\n' == *$'\n'Dockerfile.vinyl$'\n'* ]]; then
             docker build -f Dockerfile.vinyl \
               -t ghcr.io/bluedynamics/vinyl-cache:ci .
             kind load docker-image ghcr.io/bluedynamics/vinyl-cache:ci \
