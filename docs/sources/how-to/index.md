@@ -7,6 +7,8 @@ Step-by-step guides for common tasks with cloud-vinyl.
 
 install
 create-cache
+run-vinyl-cache
+replace-an-image
 ssd-backed-storage
 size-memory
 spread-pods

@@ -50,7 +50,6 @@ metadata:
   name: my-cache
 spec:
   replicas: 2
-  image: varnish:9.1.0
   backends:
     - name: app
       serviceRef:
@@ -87,7 +86,6 @@ metadata:
   name: my-cache
 spec:
   replicas: 2
-  image: varnish:9.1.0
   backends:
     - name: app
       serviceRef:

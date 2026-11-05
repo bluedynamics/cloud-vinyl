@@ -27,6 +27,50 @@ value never had an effect; it is still accepted, and ignored, until 2.0.
 | `image.agent.repository` | string | `ghcr.io/bluedynamics/cloud-vinyl-agent` | vinyl-agent sidecar image repository. |
 | `image.agent.tag` | string | `""` | Agent image tag. Defaults to Chart `appVersion`. |
 | `image.agent.pullPolicy` | string | `IfNotPresent` | Image pull policy. |
+| `image.tracer.repository` | string | `""` | **Deprecated**, planned for removal in 1.2. Use `runtimes.<flavor>.versions."<version>".tracer`. While set, it overrides the tracer of the `varnish` entries only (the `vinyl` tracer is not affected), repository defaulting to `ghcr.io/bluedynamics/cloud-vinyl-tracer`. `helm install` and `helm upgrade` print a deprecation note. |
+| `image.tracer.tag` | string | `""` | **Deprecated**, see above. Defaults to the chart `appVersion`. |
+
+(helm-values-runtimes)=
+
+## runtimes
+
+The runtime catalog: the flavor and version combinations a VinylCache can run, each with
+its daemon, exporter and tracer image. The chart renders it into a ConfigMap that the
+operator reads at startup. An invalid catalog stops the operator with an error, and the
+chart refuses to render a missing or broken one. A change restarts the operator, which
+then reconciles every cache. Leave it alone in the normal case: each chart release ships
+entries that were tested together, pinned by digest.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `runtimes.<flavor>.default` | string | `"9.1.0"` | Version used by caches of this flavor that leave `spec.version` empty. |
+| `runtimes.<flavor>.versions."<version>".daemon` | string | see below | Daemon image. |
+| `runtimes.<flavor>.versions."<version>".exporter` | string | see below | Exporter image. |
+| `runtimes.<flavor>.versions."<version>".tracer` | string | `""` | Tracer image. Empty uses the tracer of this chart release: `ghcr.io/bluedynamics/cloud-vinyl-tracer:<appVersion>` for `varnish`, `...:<appVersion>-vinyl` for `vinyl`. Pinned by digest in the released chart. |
+
+`<flavor>` is `varnish` or `vinyl`; no other flavor exists. Version keys are quoted
+strings. The chart ships these entries:
+
+| Flavor and version | `daemon` | `exporter` |
+|---|---|---|
+| `varnish` 9.1.0 | `docker.io/library/varnish:9.1.0@sha256:...` | `ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0@sha256:...` |
+| `vinyl` 9.1.0 | `ghcr.io/bluedynamics/vinyl-cache:9.1.0-r1@sha256:...` | `ghcr.io/bluedynamics/varnish-exporter:1.8.3-vinyl9.1.0@sha256:...` |
+
+See the chart's `values.yaml` for the digests of the release you installed.
+
+The chart schema accepts tags as well as digests, because CI and end-to-end runs point
+entries at images built in the same job, and because you may need a tag in an emergency.
+The release workflow refuses to package a chart whose catalog has an image without
+digest.
+
+To override an entry on the command line, escape the dots of the version key and quote
+the backslashes:
+
+```bash
+--set 'runtimes.vinyl.versions.9\.1\.0.daemon=registry.example/vinyl-cache@sha256:...'
+```
+
+See {ref}`replace-an-image`.
 
 ## serviceAccount
 

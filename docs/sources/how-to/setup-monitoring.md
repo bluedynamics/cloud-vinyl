@@ -137,14 +137,20 @@ The exporter image and resources can be overridden:
 ```
 
 ```{note}
-The exporter shells out to `varnishstat`, so the default image
-`ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0` bundles the
-`varnishstat` of **Varnish 9.1.0**, matching the `varnish:9.1.0` cache image used
-by default. The tag names the bundled Varnish version. It also reads Varnish 8.0
+The exporter shells out to `varnishstat`, so the exporter of the catalog entry for
+`varnish` 9.1.0, `ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0`, bundles the
+`varnishstat` of **Varnish 9.1.0**, matching the catalog's `varnish:9.1.0` daemon. The tag names the bundled Varnish version. It also reads Varnish 8.0
 caches (see [Varnish version support](../reference/varnish-versions.md)). For
 other versions, override `exporter.image` with a matching build. A mismatched
 `varnishstat` cannot read the VSM, and the sidecar then reports `varnish_up 0`
 and exports no `varnish_*` metrics at all.
+
+You rarely need this override: the exporter normally comes from the runtime catalog
+entry of the cache's `flavor` and `version`, pinned by digest. A cache with
+`flavor: vinyl` needs the exporter built from the Vinyl image,
+`ghcr.io/bluedynamics/varnish-exporter:1.8.3-vinyl9.1.0`, which bundles `vinylstat`.
+The Varnish tag `1.8.3-varnish9.1.0` has no `vinylstat`, so the sidecar would not
+start. The admission webhook warns when the exporter override names the other lineage.
 ```
 
 ## Show the cache hit rate in Grafana

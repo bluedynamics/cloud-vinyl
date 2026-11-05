@@ -1,29 +1,46 @@
 # Varnish Version Support
 
-`spec.image` accepts any Varnish image reference. cloud-vinyl does not validate
-it, so this page states which versions the operator is built and tested against.
+cloud-vinyl runs two lineages of the cache daemon, selected with `spec.flavor`: `varnish`
+(the docker-library `varnish` image) and `vinyl` (Vinyl Cache, in an image we publish).
+This page states which versions the operator is built and tested against. See
+{ref}`explanation-lineages` for the difference and {ref}`run-vinyl-cache` for how to
+choose.
 
 ## Support matrix
 
+The runtime catalog of the chart ships these combinations. Each has a daemon, an
+exporter and a tracer image, pinned by digest.
+
+| Flavor | Version | Status | Daemon image |
+|--------|---------|--------|--------------|
+| `varnish` | 9.1.0 | **Supported**, default | `docker.io/library/varnish:9.1.0` |
+| `vinyl` | 9.1.0 | **Supported** | `ghcr.io/bluedynamics/vinyl-cache:9.1.0-r1` |
+
+The end-to-end suite runs against both rows. A flavor and version that is not in the
+catalog is rejected by the admission webhook. For a daemon version the catalog does not
+list, add an entry in the chart values (see {ref}`helm-values-runtimes`).
+
+Older Varnish versions are not in the catalog. They still run with `spec.image` as a
+daemon override; the sidecars then follow the catalog's default version, and the
+webhook warns about it (see {ref}`replace-an-image`).
+
 | Varnish | Status | Notes |
 |---------|--------|-------|
-| 9.1.x | **Supported** | The end-to-end suite runs against `varnish:9.1.0`. |
-| 9.0.x | Works, not tested in CI | Tracing needs a tracer built for 9.0, see below. |
-| 8.0.x | Works, end of life | No upstream updates since September 2026, and affected by [VSV00020](https://vinyl-cache.org/security/VSV00020.html). Tracing needs a tracer built for 8.0. |
-| 7.6.x | Works, end of life | No longer receives upstream updates. |
-| 7.7.x | Works, end of life | No longer receives upstream updates. |
+| 9.1.x | **Supported** | In the catalog. |
+| 9.0.x | Works, not tested in CI | Needs `spec.image`. Tracing needs a tracer built for 9.0, see below. |
+| 8.0.x | Works, end of life | Needs `spec.image`. No upstream updates since September 2026, and affected by [VSV00020](https://vinyl-cache.org/security/VSV00020.html). Tracing needs a tracer built for 8.0. |
+| 7.6.x | Works, end of life | Needs `spec.image`. No longer receives upstream updates. |
+| 7.7.x | Works, end of life | Needs `spec.image`. No longer receives upstream updates. |
 | 6.0.x LTS | **Not supported** | See below. |
 
-The default cache image in the documentation and end-to-end fixtures is
-`varnish:9.1.0`.
+The default cache in the documentation and end-to-end fixtures is `varnish` 9.1.0.
 
-The versions above are those of the docker-library `varnish` image, which
+The Varnish versions above are those of the docker-library `varnish` image, which
 Varnish Software builds. The open source project formerly called Varnish Cache
 is now [Vinyl Cache](https://vinyl-cache.org/). It uses the same version
-numbers for different builds, renames the binaries (`vinyld`, `vinylstat`,
-`vinyllog`) and publishes no container images. cloud-vinyl does not support
-Vinyl Cache images yet, see
-[#106](https://github.com/bluedynamics/cloud-vinyl/issues/106).
+numbers for different builds. For Vinyl we publish
+`ghcr.io/bluedynamics/vinyl-cache`, with the immutable tags `<version>-r<N>` and a moving
+tag `<version>`.
 
 ## Upgrading to Varnish 9.1
 
@@ -75,6 +92,8 @@ guarantee. You must keep `VARNISH_IMAGE` in `Dockerfile.exporter` aligned with
 the cache image you run.
 ```
 
+(tracing-version-match)=
+
 ## Tracing needs an exact version match
 
 The tracer sidecar reads the shared memory log with a `varnishlog` copied from
@@ -82,15 +101,16 @@ the cache image it was built against, and `varnishlog` does not read across
 versions. A 9.1.0 `varnishlog` against an 8.0.2 `varnishd`, or the reverse,
 prints nothing and reports no error: the tracer runs, and no spans arrive.
 
-The tracer image is set for the whole operator, not per VinylCache, and the
-release build bundles `varnishlog` 9.1.0. With `spec.tracing` enabled, run a
-9.1 cache image.
+The tracer image comes from the runtime catalog entry of the cache's flavor and
+version, and each release bundles the log tool of 9.1.0 (`varnishlog` or `vinyllog`).
+With `spec.tracing` enabled, run a 9.1 cache, or add a catalog entry with a tracer
+built for your version.
 
 ## Version-specific behavior
 
 | Requirement | Reason |
 |-------------|--------|
-| `varnishd` on `PATH` | The operator sets the container command to `varnishd` and passes every flag itself, including `-F`, `-f`, `-a`, `-n` and `-s`. The image's entrypoint does not run, so its environment variables (`VARNISH_HTTP_PORT`, `VARNISH_SIZE` and so on) have no effect. |
+| `varnishd` (flavor `vinyl`: `vinyld`) on `PATH` | The operator sets the container command to the daemon binary and passes every flag itself, including `-F`, `-f`, `-a`, `-n` and `-s`. The image's entrypoint does not run, so its environment variables (`VARNISH_HTTP_PORT`, `VARNISH_SIZE` and so on) have no effect. |
 | `vcl 4.1` | The generated VCL and the bootstrap VCL both declare `vcl 4.1`. |
 | `-j none` | The pods run as UID 65532. The default jail requires root for chroot setup. |
 

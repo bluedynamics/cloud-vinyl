@@ -12,13 +12,16 @@ metadata:
   namespace: default
 spec:
   replicas: 2
-  image: varnish:9.1.0
   backends:
     - name: app
       serviceRef:
         name: app-service
       port: 8080
 ```
+
+`spec.image` is optional. Without it, the operator runs the default `varnish` version of
+its runtime catalog. To run Vinyl Cache instead, set `flavor: vinyl` (see
+{ref}`run-vinyl-cache`).
 
 Apply it:
 
@@ -62,7 +65,6 @@ spec:
 ```yaml
 spec:
   replicas: 2
-  image: varnish:9.1.0
   backends:
     - name: app
       serviceRef:

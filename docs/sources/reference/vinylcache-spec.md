@@ -18,7 +18,9 @@ changing `apiVersion` only.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `replicas` | integer | yes | Number of Vinyl Cache pods in the StatefulSet. |
-| `image` | string | yes | Cache image. The operator runs `varnishd` from the image's `PATH` as the container command and passes every flag itself; the image's entrypoint does not run. See [Varnish version support](varnish-versions.md). |
+| `flavor` | string | no | Cache daemon family: `varnish` or `vinyl`. Defaults to `varnish`, so existing objects read back as `varnish`. Selects the daemon, exporter and tracer images from the runtime catalog and the binaries they use (`varnishd` or `vinyld`). See {ref}`run-vinyl-cache` and the table below. |
+| `version` | string | no | Daemon version, for example `9.1.0`. Must be listed in the runtime catalog for the flavor; the admission webhook rejects any other value and names the versions it knows. Empty means the catalog's default version for the flavor, resolved at reconcile time and not written back, so it follows the chart's default on operator upgrades. Pin it to stay on a release. |
+| `image` | string | no | Overrides the **daemon** image of the resolved catalog entry. The exporter and tracer still follow `flavor` and `version`. Use it for an emergency fix or an older version; see {ref}`replace-an-image`. The operator runs the flavor's daemon (`varnishd` or `vinyld`) from the image's `PATH` as the container command and passes every flag itself; the image's entrypoint does not run. The webhook warns when `image` is set without `version`, and when the repository name of the image names the other lineage. See [Varnish version support](varnish-versions.md). |
 | `storage` | list | no | Cache storages, each with `name`, `type` (`malloc` or `file`), `size` and, for `file`, an optional `path`. A `file` storage without `path` gets a volume provisioned by the operator and needs a `size`; see {ref}`file-storage-provisioned`. When set, these are the only cache storages. When empty, varnishd creates its default storage `s0` (malloc, 100 MB). The name `synth` is reserved. |
 | `backends` | list | yes | One or more backend services. |
 | `director` | object | no | Director configuration (defaults: `type: shard`). |
@@ -43,6 +45,21 @@ changing `apiVersion` only.
 | `pod.env` | list | no | Environment variables on the varnish container (`value` or `valueFrom`). An entry named like an operator default replaces it; `MALLOC_CONF` replaces the operator's jemalloc tuning, an empty value restores jemalloc's defaults. See [Size memory for malloc storage](../how-to/size-memory.md). |
 | `monitoring` | object | no | Metrics scraping and alerting. See the `monitoring` section below. |
 | `volumeClaimTemplates` | list | no | StatefulSet-native per-replica PVC templates. Reference the claim `name` from `spec.pod.volumeMounts`. Immutable after creation. |
+
+(reference-flavor)=
+
+### Flavor
+
+| | `varnish` | `vinyl` |
+|---|---|---|
+| daemon command | `varnishd` | `vinyld` |
+| exporter `-varnishstat-path` | default (`varnishstat`) | `/usr/bin/vinylstat` |
+| tracer `VARNISHLOG_PATH` | `varnishlog` | `vinyllog` |
+
+`spec.monitoring.exporter.image` keeps working and wins over the exporter of the catalog.
+The webhook warns when it names an exporter of the other lineage: a `vinyl` cache needs
+a tag such as `1.8.3-vinyl9.1.0`, a `varnish` cache one such as `1.8.3-varnish9.1.0`.
+Changing `flavor` or `version` is a rolling restart.
 
 ### backends
 
@@ -229,7 +246,16 @@ See [Set up monitoring](../how-to/setup-monitoring.md) for the alerts.
 | `readyReplicas` | integer | Number of pods that passed their readiness checks. |
 | `activeVCL.hash` | string | SHA-256 hash of the currently active VCL. |
 | `invalidationURL` | string | Address for `PURGE`, `BAN` and xkey requests, e.g. `http://my-cache-invalidation.app:8090`. The host includes the namespace; the bare Service name is rejected. See [Purge and BAN the cache](../how-to/purge-ban.md). |
-| `conditions` | list | Standard Kubernetes conditions (`Ready`, `VCLSynced`). |
+| `runtime.flavor` | string | Resolved flavor. Shown in the printer column `Flavor`. |
+| `runtime.version` | string | Resolved version, including a default that followed the chart. Shown in the printer column `Version`. |
+| `runtime.daemon` | string | Resolved daemon image reference, after a `spec.image` override. |
+| `runtime.exporter` | string | Resolved exporter image. Set while the exporter is enabled. |
+| `runtime.tracer` | string | Resolved tracer image. Set while `spec.tracing` is enabled. |
+| `conditions` | list | Standard Kubernetes conditions (`Ready`, `VCLSynced`, `RuntimeResolved`, and others). |
+
+The condition `RuntimeResolved` is `False` when the catalog has no entry for the cache's
+flavor and version any more. The operator then leaves the StatefulSet unchanged and sets
+`Progressing` with the reason `RuntimeNotInCatalog`.
 
 ## Example
 
