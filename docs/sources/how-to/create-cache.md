@@ -87,4 +87,4 @@ The status shows:
 - `Ready` condition — all pods running and VCL synced.
 - `VCLSynced` condition — VCL hash matches on all pods.
 - `readyReplicas` — number of healthy pods.
-- `phase` — one of `Pending`, `Ready`, `Degraded`, `Error`.
+- `phase` — one of `Pending`, `Ready`, `Degraded`, `Error`, `Stopped`.

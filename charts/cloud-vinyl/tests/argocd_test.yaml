@@ -47,3 +47,25 @@ tests:
       - equal:
           path: metadata.namespace
           value: custom-argocd
+
+  - it: should map the phase first, then fall back to the Ready condition (#174)
+    set:
+      argocd:
+        resourceCustomizations:
+          enabled: true
+    asserts:
+      - matchRegex:
+          path: data["resource.customizations.health.vinyl.bluedynamics.eu_VinylCache"]
+          pattern: 'phase == "Stopped" then\s+hs.status = "Suspended"'
+      - matchRegex:
+          path: data["resource.customizations.health.vinyl.bluedynamics.eu_VinylCache"]
+          pattern: 'phase == "Degraded" or obj.status.phase == "Error" then\s+hs.status = "Degraded"'
+      - matchRegex:
+          path: data["resource.customizations.health.vinyl.bluedynamics.eu_VinylCache"]
+          pattern: 'phase == "Ready" then\s+hs.status = "Healthy"'
+      - matchRegex:
+          path: data["resource.customizations.health.vinyl.bluedynamics.eu_VinylCache"]
+          pattern: 'phase == "Pending" then\s+hs.status = "Progressing"'
+      - matchRegex:
+          path: data["resource.customizations.health.vinyl.bluedynamics.eu_VinylCache"]
+          pattern: 'c.type == "Ready" and c.status == "True"'

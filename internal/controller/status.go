@@ -32,6 +32,10 @@ import (
 	"github.com/bluedynamics/cloud-vinyl/internal/generator"
 )
 
+// reasonScaledToZero is the reason of the conditions that report a cache
+// switched off on purpose (spec.replicas: 0).
+const reasonScaledToZero = "ScaledToZero"
+
 // updateStatus refreshes the VinylCache status after a successful reconciliation.
 func (r *VinylCacheReconciler) updateStatus(
 	ctx context.Context,
@@ -97,6 +101,7 @@ func (r *VinylCacheReconciler) updateStatus(
 	vc.Status.TotalPeers = vc.Spec.Replicas
 
 	allReplicasReady := int32(len(peers)) >= vc.Spec.Replicas
+	scaledToZero := vc.Spec.Replicas == 0
 
 	// VCLSynced reflects whether VCL was pushed to all available peers (not blocked).
 	// It stays True even when waiting for more replicas to start.
@@ -104,8 +109,13 @@ func (r *VinylCacheReconciler) updateStatus(
 	// condition, not push targets. The old wording ("VCL pushed to 0/1 pods")
 	// read like a push failure during the #77 investigation when it was in fact
 	// reporting readiness.
-	setCondition(vc, vinylv1.ConditionVCLSynced, metav1.ConditionTrue, "VCLPushed",
-		fmt.Sprintf("VCL active on %d/%d ready pods", len(peers), vc.Spec.Replicas))
+	if scaledToZero {
+		setCondition(vc, vinylv1.ConditionVCLSynced, metav1.ConditionTrue, reasonScaledToZero,
+			"scaled to zero replicas, no pods to push the VCL to")
+	} else {
+		setCondition(vc, vinylv1.ConditionVCLSynced, metav1.ConditionTrue, "VCLPushed",
+			fmt.Sprintf("VCL active on %d/%d ready pods", len(peers), vc.Spec.Replicas))
+	}
 	if len(obs.backendsWithoutEndpoints) > 0 {
 		// The VCL is pushed regardless: the cache serves its other routes and
 		// answers 503 for these, so Ready stays True. Degraded makes the
@@ -121,6 +131,9 @@ func (r *VinylCacheReconciler) updateStatus(
 		// however many replicas happen to be ready.
 		setCondition(vc, vinylv1.ConditionProgressing, metav1.ConditionTrue, "RuntimeNotInCatalog",
 			"the StatefulSet is held back because the runtime is not in the catalog (see condition RuntimeResolved)")
+	} else if scaledToZero {
+		setCondition(vc, vinylv1.ConditionProgressing, metav1.ConditionFalse, reasonScaledToZero,
+			"reconciliation complete, scaled to zero replicas")
 	} else if allReplicasReady {
 		setCondition(vc, vinylv1.ConditionProgressing, metav1.ConditionFalse, "ReconcileComplete", "reconciliation complete")
 	} else {
@@ -128,13 +141,18 @@ func (r *VinylCacheReconciler) updateStatus(
 			fmt.Sprintf("waiting for %d/%d replicas to become ready", len(peers), vc.Spec.Replicas))
 	}
 
-	vc.Status.Phase = calculatePhase(vc)
-	if allReplicasReady {
+	// Ready is set before the phase is derived: a cache scaled to zero is
+	// reported through Ready=True/ScaledToZero, which calculatePhase reads.
+	switch {
+	case scaledToZero:
+		setCondition(vc, vinylv1.ConditionReady, metav1.ConditionTrue, reasonScaledToZero, "scaled to zero replicas")
+	case allReplicasReady:
 		setCondition(vc, vinylv1.ConditionReady, metav1.ConditionTrue, "AllReady", "VinylCache is ready")
-	} else {
+	default:
 		setCondition(vc, vinylv1.ConditionReady, metav1.ConditionFalse, "NotAllReady",
 			fmt.Sprintf("%d/%d replicas ready", len(peers), vc.Spec.Replicas))
 	}
+	vc.Status.Phase = calculatePhase(vc)
 
 	if err := r.Status().Update(ctx, vc); err != nil {
 		log.Error(err, "updating VinylCache status")
@@ -157,12 +175,19 @@ func (r *VinylCacheReconciler) setErrorStatus(ctx context.Context, vc *vinylv1.V
 
 // calculatePhase derives the overall phase from the current conditions and replica state.
 //
+//   - Stopped:  Ready=True with reason ScaledToZero (spec.replicas is 0). Takes
+//     precedence over Degraded: a stopped site usually has backends without
+//     endpoints, which must not paint it as degraded.
 //   - Ready:    VCLSynced=True and BackendsAvailable=True and all replicas ready
 //   - Degraded: VCLSynced=False (VCL push failed or partial) or
 //     BackendsAvailable=False (a backend has no endpoints)
 //   - Error:    set explicitly via setErrorStatus
 //   - Pending:  initial state or waiting for replicas
 func calculatePhase(vc *vinylv1.VinylCache) string {
+	if c := findCondition(vc, vinylv1.ConditionReady); c != nil &&
+		c.Status == metav1.ConditionTrue && c.Reason == reasonScaledToZero {
+		return vinylv1.PhaseStopped
+	}
 	vclSynced := findConditionStatus(vc, vinylv1.ConditionVCLSynced)
 	backendsAvailable := findConditionStatus(vc, vinylv1.ConditionBackendsAvailable)
 

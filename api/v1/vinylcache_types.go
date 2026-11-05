@@ -28,6 +28,8 @@ const (
 	PhaseReady    = "Ready"
 	PhaseDegraded = "Degraded"
 	PhaseError    = "Error"
+	// PhaseStopped means spec.replicas is 0: the cache is switched off on purpose.
+	PhaseStopped = "Stopped"
 )
 
 // Condition type constants for VinylCache status conditions.
@@ -73,7 +75,9 @@ type RuntimeStatus struct {
 // VinylCacheSpec defines the desired state of VinylCache.
 type VinylCacheSpec struct {
 	// replicas is the desired number of Varnish pods in the cluster.
-	// +kubebuilder:validation:Minimum=1
+	// 0 switches the cache off on purpose (phase Stopped); the StatefulSet
+	// and the other resources stay in place.
+	// +kubebuilder:validation:Minimum=0
 	Replicas int32 `json:"replicas"`
 
 	// flavor selects the cache daemon family: varnish (Varnish Cache) or
@@ -904,7 +908,7 @@ type ServiceMonitorSpec struct {
 // VinylCacheStatus defines the observed state of VinylCache.
 type VinylCacheStatus struct {
 	// phase is the high-level lifecycle state derived from conditions.
-	// One of: Pending, Ready, Degraded, Error.
+	// One of: Pending, Ready, Degraded, Error, Stopped.
 	// +optional
 	Phase string `json:"phase,omitempty"`
 

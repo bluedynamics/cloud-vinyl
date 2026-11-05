@@ -10,6 +10,49 @@ metadata:
 data:
   resource.customizations.health.vinyl.bluedynamics.eu_VinylCache: |
     hs = {}
+    local function message(default)
+      if obj.status.message ~= nil and obj.status.message ~= "" then
+        return obj.status.message
+      end
+      if obj.status.conditions ~= nil then
+        for _, c in ipairs(obj.status.conditions) do
+          if c.type == "BackendsAvailable" and c.status == "False" and c.message ~= nil then
+            return c.message
+          end
+        end
+      end
+      return default
+    end
+    if obj.status ~= nil and obj.status.phase ~= nil then
+      if obj.status.phase == "Stopped" then
+        hs.status = "Suspended"
+        hs.message = "scaled to zero replicas"
+        return hs
+      end
+      if obj.status.phase == "Degraded" or obj.status.phase == "Error" then
+        hs.status = "Degraded"
+        hs.message = message(obj.status.phase)
+        return hs
+      end
+      if obj.status.phase == "Ready" then
+        hs.status = "Healthy"
+        hs.message = "VinylCache is ready"
+        return hs
+      end
+      -- Pods still starting (Ready=False) are a rollout, not a failure.
+      if obj.status.phase == "Pending" then
+        hs.status = "Progressing"
+        hs.message = "Waiting for VinylCache to become ready"
+        if obj.status.conditions ~= nil then
+          for _, c in ipairs(obj.status.conditions) do
+            if c.type == "Ready" and c.message ~= nil then
+              hs.message = c.message
+            end
+          end
+        end
+        return hs
+      end
+    end
     if obj.status ~= nil and obj.status.conditions ~= nil then
       for _, c in ipairs(obj.status.conditions) do
         if c.type == "Ready" and c.status == "True" then
