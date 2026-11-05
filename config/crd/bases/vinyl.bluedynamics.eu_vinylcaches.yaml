@@ -112,8 +112,10 @@ spec:
                             when type is "hash".
                           properties:
                             header:
-                              description: header is the request header name used
-                                as the hash key.
+                              description: |-
+                                header is the request header whose value is the hash key. Without it
+                                the request URL is hashed. Must be a valid HTTP header name.
+                              pattern: ^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$
                               type: string
                           type: object
                         shard:
@@ -132,9 +134,12 @@ spec:
                               type: string
                             healthy:
                               description: |-
-                                healthy controls which backends the director considers when selecting a shard.
-                                "CHOSEN" (default) only considers the chosen backend healthy; "ALL" requires all
-                                backends to be healthy.
+                                healthy is the health policy of the shard director's backend selection.
+                                "CHOSEN" (vmod default) returns a healthy backend if possible; backends
+                                skipped while selecting an alternative are not health-checked. "ALL"
+                                also checks health during alternative selection, so alt=1 is the next
+                                healthy backend. It applies to the default route of un-snippeted
+                                requests and to the cluster-peer director.
                               enum:
                               - CHOSEN
                               - ALL
@@ -322,8 +327,10 @@ spec:
                       type is "hash".
                     properties:
                       header:
-                        description: header is the request header name used as the
-                          hash key.
+                        description: |-
+                          header is the request header whose value is the hash key. Without it
+                          the request URL is hashed. Must be a valid HTTP header name.
+                        pattern: ^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$
                         type: string
                     type: object
                   shard:
@@ -342,9 +349,12 @@ spec:
                         type: string
                       healthy:
                         description: |-
-                          healthy controls which backends the director considers when selecting a shard.
-                          "CHOSEN" (default) only considers the chosen backend healthy; "ALL" requires all
-                          backends to be healthy.
+                          healthy is the health policy of the shard director's backend selection.
+                          "CHOSEN" (vmod default) returns a healthy backend if possible; backends
+                          skipped while selecting an alternative are not health-checked. "ALL"
+                          also checks health during alternative selection, so alt=1 is the next
+                          healthy backend. It applies to the default route of un-snippeted
+                          requests and to the cluster-peer director.
                         enum:
                         - CHOSEN
                         - ALL
@@ -4904,8 +4914,10 @@ spec:
                             when type is "hash".
                           properties:
                             header:
-                              description: header is the request header name used
-                                as the hash key.
+                              description: |-
+                                header is the request header whose value is the hash key. Without it
+                                the request URL is hashed. Must be a valid HTTP header name.
+                              pattern: ^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$
                               type: string
                           type: object
                         shard:
@@ -4924,9 +4936,12 @@ spec:
                               type: string
                             healthy:
                               description: |-
-                                healthy controls which backends the director considers when selecting a shard.
-                                "CHOSEN" (default) only considers the chosen backend healthy; "ALL" requires all
-                                backends to be healthy.
+                                healthy is the health policy of the shard director's backend selection.
+                                "CHOSEN" (vmod default) returns a healthy backend if possible; backends
+                                skipped while selecting an alternative are not health-checked. "ALL"
+                                also checks health during alternative selection, so alt=1 is the next
+                                healthy backend. It applies to the default route of un-snippeted
+                                requests and to the cluster-peer director.
                               enum:
                               - CHOSEN
                               - ALL
@@ -5114,8 +5129,10 @@ spec:
                       type is "hash".
                     properties:
                       header:
-                        description: header is the request header name used as the
-                          hash key.
+                        description: |-
+                          header is the request header whose value is the hash key. Without it
+                          the request URL is hashed. Must be a valid HTTP header name.
+                        pattern: ^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$
                         type: string
                     type: object
                   shard:
@@ -5134,9 +5151,12 @@ spec:
                         type: string
                       healthy:
                         description: |-
-                          healthy controls which backends the director considers when selecting a shard.
-                          "CHOSEN" (default) only considers the chosen backend healthy; "ALL" requires all
-                          backends to be healthy.
+                          healthy is the health policy of the shard director's backend selection.
+                          "CHOSEN" (vmod default) returns a healthy backend if possible; backends
+                          skipped while selecting an alternative are not health-checked. "ALL"
+                          also checks health during alternative selection, so alt=1 is the next
+                          healthy backend. It applies to the default route of un-snippeted
+                          requests and to the cluster-peer director.
                         enum:
                         - CHOSEN
                         - ALL

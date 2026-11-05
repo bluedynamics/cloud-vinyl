@@ -939,3 +939,48 @@ func TestValidate_FileStorage_WarnsWhenPathIsNotOnAVolume(t *testing.T) {
 	warnings, _ = webhook.ValidateVinylCache(vc)
 	assert.Len(t, warnings, 1, "/cach is no parent of /cache/disk.bin")
 }
+
+// --- #173: hash.header lands in VCL as req.http.<header> ---
+
+func TestValidate_HashHeader(t *testing.T) {
+	cases := []struct {
+		header string
+		valid  bool
+	}{
+		{"", true},
+		{"X-Session-Id", true},
+		{"Authorization", true},
+		{"x_user.id~1", true},
+		{"X Bad", false},
+		{"a;b", false},
+		{`x"y`, false},
+		{"a:b", false},
+		{"a\nb", false},
+		{"ä", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.header, func(t *testing.T) {
+			perBackend := minimalValidVC()
+			perBackend.Spec.Backends[0].Director = &vinylv1.DirectorSpec{
+				Type: "hash", Hash: &vinylv1.HashSpec{Header: tc.header},
+			}
+			_, err := webhook.ValidateVinylCache(perBackend)
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "hash.header")
+			}
+
+			topLevel := minimalValidVC()
+			topLevel.Spec.Director.Hash = &vinylv1.HashSpec{Header: tc.header}
+			_, err = webhook.ValidateVinylCache(topLevel)
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "hash.header")
+			}
+		})
+	}
+}

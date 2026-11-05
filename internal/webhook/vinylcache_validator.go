@@ -195,6 +195,8 @@ func ValidateVinylCache(vc *vinylv1.VinylCache) (admission.Warnings, error) {
 		}
 	}
 
+	errs = append(errs, validateHashHeaders(vc)...)
+
 	// Validate CIDR syntax in all invalidation allowedSources fields.
 	for _, sources := range [][]string{
 		purgeAllowedSources(vc),
@@ -517,4 +519,29 @@ func isValidVarnishParamKey(key string) bool {
 		}
 	}
 	return true
+}
+
+// httpHeaderToken matches an HTTP header field name (RFC 7230 token / tchar).
+var httpHeaderToken = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+
+// validateHashHeaders rejects a hash.header that is not an HTTP header token.
+// The value is rendered into VCL as req.http.<header> (#173), so anything
+// else would break VCL compilation or inject VCL.
+func validateHashHeaders(vc *vinylv1.VinylCache) []string {
+	var errs []string
+	check := func(path string, d *vinylv1.DirectorSpec) {
+		if d == nil || d.Hash == nil || d.Hash.Header == "" {
+			return
+		}
+		if !httpHeaderToken.MatchString(d.Hash.Header) {
+			errs = append(errs, fmt.Sprintf(
+				"%s.hash.header %q is not a valid HTTP header name (letters, digits and !#$%%&'*+-.^_`|~ only)",
+				path, d.Hash.Header))
+		}
+	}
+	check("spec.director", &vc.Spec.Director)
+	for i := range vc.Spec.Backends {
+		check(fmt.Sprintf("spec.backends[%q].director", vc.Spec.Backends[i].Name), vc.Spec.Backends[i].Director)
+	}
+	return errs
 }
