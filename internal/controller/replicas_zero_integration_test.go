@@ -49,6 +49,24 @@ var _ = Describe("spec.replicas validation", func() {
 		Expect(got.Spec.Replicas).To(Equal(int32(0)))
 	})
 
+	// The scale subresource reads status.replicas and status.selector, the
+	// fields setReplicaStatus fills (#180). A real API server proves the paths.
+	It("reports status.replicas and status.selector through the scale subresource", func() {
+		vc := newCache("scale-status", 2)
+		Expect(k8sClient.Create(ctx, vc)).To(Succeed())
+		DeferCleanup(func() { _ = k8sClient.Delete(ctx, vc) })
+
+		vc.Status.Replicas = 2
+		vc.Status.Selector = "app=scale-status"
+		Expect(k8sClient.Status().Update(ctx, vc)).To(Succeed())
+
+		scale := &autoscalingv1.Scale{}
+		Expect(k8sClient.SubResource("scale").Get(ctx, vc, scale)).To(Succeed())
+		Expect(scale.Spec.Replicas).To(Equal(int32(2)))
+		Expect(scale.Status.Replicas).To(Equal(int32(2)))
+		Expect(scale.Status.Selector).To(Equal("app=scale-status"))
+	})
+
 	It("still rejects a negative replica count", func() {
 		err := k8sClient.Create(ctx, newCache("negative-replicas", -1))
 		Expect(apierrors.IsInvalid(err)).To(BeTrue(), "got %v", err)
