@@ -38,3 +38,22 @@ backend {{ .Name }} {
 }
 {{ end }}
 {{- end }}
+{{- /* Placeholders come last so they never become the default backend. */}}
+{{- range .BackendGroups }}
+{{- if .Placeholder }}
+
+# {{ .Name }} has no endpoints: a backend that is sick from the start keeps
+# the director non-empty and answers 503 until endpoints appear.
+backend {{ .Placeholder }} {
+    .host = "127.0.0.1";
+    .port = "1";
+    .probe = {
+        .interval = 1h;
+        .timeout = 1s;
+        .window = 1;
+        .threshold = 1;
+        .initial = 0;
+    }
+}
+{{- end }}
+{{- end }}

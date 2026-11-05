@@ -988,24 +988,73 @@ func TestGenerate_BackendGroups_Fallback(t *testing.T) {
 	assert.Contains(t, r.VCL, "primary.add_backend(primary_1);")
 }
 
-func TestGenerate_EmptyBackendEndpoints_ReturnsError(t *testing.T) {
-	g := newGenerator(t)
-	input := generator.Input{
-		Namespace: "ns", Name: "cache",
-		Spec: &vinylv1.VinylCacheSpec{
-			Replicas: 1, Image: "vinyl:test",
-			Backends: []vinylv1.BackendSpec{{
-				Name:       "empty",
-				ServiceRef: vinylv1.ServiceRef{Name: "some-svc"},
-			}},
-		},
-		Endpoints: map[string][]generator.Endpoint{
-			"empty": {},
-		},
+func emptyEndpointsInput(directorType string, endpoints map[string][]generator.Endpoint) generator.Input {
+	backends := make([]vinylv1.BackendSpec, 0, 2)
+	for _, name := range []string{"plone", "thumbor"} {
+		backends = append(backends, vinylv1.BackendSpec{
+			Name:       name,
+			ServiceRef: vinylv1.ServiceRef{Name: name + "-svc"},
+			Director:   &vinylv1.DirectorSpec{Type: directorType},
+		})
 	}
-	_, err := g.Generate(input)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no resolved endpoints")
+	return generator.Input{
+		Namespace: "ns", Name: "cache",
+		Spec:      &vinylv1.VinylCacheSpec{Replicas: 1, Image: "vinyl:test", Backends: backends},
+		Endpoints: endpoints,
+	}
+}
+
+// A backend without endpoints gets a placeholder (#171): an empty shard
+// director is fine for varnishd, but a VCL without any static backend is not.
+func TestGenerate_EmptyBackendGroup_GetsPlaceholder(t *testing.T) {
+	g := newGenerator(t)
+	for _, dt := range []string{"shard", "round_robin", "random", "hash", "fallback"} {
+		t.Run(dt, func(t *testing.T) {
+			r, err := g.Generate(emptyEndpointsInput(dt, map[string][]generator.Endpoint{
+				"plone":   {{IP: "10.0.0.1", Port: 8080}},
+				"thumbor": {},
+			}))
+			require.NoError(t, err)
+			assert.Contains(t, r.VCL, "backend noendpoints_thumbor {")
+			assert.Contains(t, r.VCL, `.host = "127.0.0.1";`)
+			assert.Contains(t, r.VCL, ".initial = 0;")
+			assert.Contains(t, r.VCL, "thumbor.add_backend(noendpoints_thumbor")
+			assert.NotContains(t, r.VCL, "noendpoints_plone")
+			assert.Contains(t, r.VCL, "plone.add_backend(plone_0")
+			assert.NotContains(t, r.VCL, "thumbor_0")
+		})
+	}
+}
+
+func TestGenerate_EmptyBackendGroup_PlaceholderAfterRealBackends(t *testing.T) {
+	g := newGenerator(t)
+	// The default backend of a VCL is the first one declared; a placeholder
+	// must not take that role from a real backend (#173 is separate).
+	r, err := g.Generate(emptyEndpointsInput("shard", map[string][]generator.Endpoint{
+		"plone":   {},
+		"thumbor": {{IP: "10.0.0.2", Port: 8080}},
+	}))
+	require.NoError(t, err)
+	assert.Less(t, strings.Index(r.VCL, "backend thumbor_0 {"), strings.Index(r.VCL, "backend noendpoints_plone {"))
+}
+
+func TestGenerate_AllBackendGroupsEmpty_StillHasStaticBackend(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(emptyEndpointsInput("shard", map[string][]generator.Endpoint{
+		"plone": {}, "thumbor": {},
+	}))
+	require.NoError(t, err)
+	assert.Contains(t, r.VCL, "backend noendpoints_plone {")
+	assert.Contains(t, r.VCL, "backend noendpoints_thumbor {")
+}
+
+func TestGenerate_EmptyBackendGroup_NoRetry(t *testing.T) {
+	g := newGenerator(t)
+	in := emptyEndpointsInput("shard", map[string][]generator.Endpoint{"plone": {}, "thumbor": {}})
+	r, err := g.Generate(in)
+	require.NoError(t, err)
+	assert.NotContains(t, r.VCL, "bereq.retries > 0")
+	assert.NotContains(t, r.VCL, "noendpoints_plone ||")
 }
 
 func TestGenerate_ProbeFields_PropagatedToPerPodBackends(t *testing.T) {

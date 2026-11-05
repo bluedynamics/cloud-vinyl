@@ -39,6 +39,10 @@ type podObservation struct {
 	// varnishd is the source of truth here, which is what makes a restarted
 	// pod heal by itself.
 	vclNames map[string]string
+	// backendsWithoutEndpoints names the spec.backends whose Service has no
+	// ready endpoints, in spec order. It feeds the BackendsAvailable
+	// condition (#171).
+	backendsWithoutEndpoints []string
 }
 
 // defaultObserveTimeout bounds a single ActiveVCLName query when

@@ -1,0 +1,61 @@
+# Same as echo-service.yaml but scaled to 0 at the start: a Service whose
+# backend has no endpoints (#171). Tests scale it up and down.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-idle
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: echo-idle
+  template:
+    metadata:
+      labels:
+        app: echo-idle
+    spec:
+      # echo-server exits on SIGTERM immediately. Declaring that keeps the
+      # namespace controller's teardown estimate low; the 30s default made
+      # namespace deletion overshoot Chainsaw's cleanup timeout (#63).
+      terminationGracePeriodSeconds: 5
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: echo
+          image: ealen/echo-server:0.9.2
+          ports:
+            - containerPort: 80
+          env:
+            - name: PORT
+              value: "80"
+            # Make the echo server add Cache-Control and Xkey headers
+            # so tests can verify caching and xkey invalidation.
+            - name: ECHO__ENABLE__HEADER
+              value: "true"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-idle
+spec:
+  selector:
+    app: echo-idle
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP

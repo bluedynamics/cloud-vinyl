@@ -242,7 +242,7 @@ See [Set up monitoring](../how-to/setup-monitoring.md) for the alerts.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `phase` | string | `Pending`, `Ready`, `Degraded`, or `Error`. |
+| `phase` | string | `Pending`, `Ready`, `Degraded`, or `Error`. `Degraded` also covers a backend without endpoints, see `BackendsAvailable` below. |
 | `readyReplicas` | integer | Number of pods that passed their readiness checks. |
 | `activeVCL.hash` | string | SHA-256 hash of the currently active VCL. |
 | `invalidationURL` | string | Address for `PURGE`, `BAN` and xkey requests, e.g. `http://my-cache-invalidation.app:8090`. The host includes the namespace; the bare Service name is rejected. See [Purge and BAN the cache](../how-to/purge-ban.md). |
@@ -251,11 +251,19 @@ See [Set up monitoring](../how-to/setup-monitoring.md) for the alerts.
 | `runtime.daemon` | string | Resolved daemon image reference, after a `spec.image` override. |
 | `runtime.exporter` | string | Resolved exporter image. Set while the exporter is enabled. |
 | `runtime.tracer` | string | Resolved tracer image. Set while `spec.tracing` is enabled. |
-| `conditions` | list | Standard Kubernetes conditions (`Ready`, `VCLSynced`, `RuntimeResolved`, and others). |
+| `conditions` | list | Standard Kubernetes conditions, see {ref}`vinylcache-conditions`. |
 
-The condition `RuntimeResolved` is `False` when the catalog has no entry for the cache's
-flavor and version any more. The operator then leaves the StatefulSet unchanged and sets
-`Progressing` with the reason `RuntimeNotInCatalog`.
+(vinylcache-conditions)=
+
+### Conditions
+
+| Type | Meaning |
+|------|---------|
+| `Ready` | `True` when all replicas are ready (reason `AllReady`), `False` otherwise (`NotAllReady`, or `ReconcileError` after a failed reconcile). A backend without endpoints does not make the cache not ready. |
+| `VCLSynced` | `True` (reason `VCLPushed`) while the VCL is active on the ready pods, `False` (`VCLPushFailed`) when a push failed. |
+| `BackendsAvailable` | `True` (reason `BackendsConfigured`) when every backend in `spec.backends` has ready endpoints. `False` (reason `BackendWithoutEndpoints`) when at least one has none; the message lists them. The cache keeps serving, requests routed to those backends answer `503`, and the phase is `Degraded`. See {ref}`backends-without-endpoints`. |
+| `RuntimeResolved` | `True` (reason `Resolved`) when the catalog has an entry for the cache's flavor and version. `False` (reason `NotInCatalog`) when it has none any more; the operator then leaves the StatefulSet unchanged. |
+| `Progressing` | `True` (reason `WaitingForReplicas`) while not all replicas are ready, `False` (reason `ReconcileComplete`) afterwards. `True` with reason `RuntimeNotInCatalog` while the runtime is not in the catalog and the StatefulSet is held back. |
 
 ## Example
 

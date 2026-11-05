@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -105,7 +106,15 @@ func (r *VinylCacheReconciler) updateStatus(
 	// reporting readiness.
 	setCondition(vc, vinylv1.ConditionVCLSynced, metav1.ConditionTrue, "VCLPushed",
 		fmt.Sprintf("VCL active on %d/%d ready pods", len(peers), vc.Spec.Replicas))
-	setCondition(vc, vinylv1.ConditionBackendsAvailable, metav1.ConditionTrue, "BackendsConfigured", "backend configuration applied")
+	if len(obs.backendsWithoutEndpoints) > 0 {
+		// The VCL is pushed regardless: the cache serves its other routes and
+		// answers 503 for these, so Ready stays True. Degraded makes the
+		// condition visible without taking the pods out of service.
+		setCondition(vc, vinylv1.ConditionBackendsAvailable, metav1.ConditionFalse, "BackendWithoutEndpoints",
+			"no ready endpoints for backend(s): "+strings.Join(obs.backendsWithoutEndpoints, ", "))
+	} else {
+		setCondition(vc, vinylv1.ConditionBackendsAvailable, metav1.ConditionTrue, "BackendsConfigured", "all backends have ready endpoints")
+	}
 
 	if findConditionStatus(vc, vinylv1.ConditionRuntimeResolved) == metav1.ConditionFalse {
 		// The StatefulSet is held back, so the reconciliation is not complete
@@ -149,7 +158,8 @@ func (r *VinylCacheReconciler) setErrorStatus(ctx context.Context, vc *vinylv1.V
 // calculatePhase derives the overall phase from the current conditions and replica state.
 //
 //   - Ready:    VCLSynced=True and BackendsAvailable=True and all replicas ready
-//   - Degraded: VCLSynced=False (VCL push failed or partial)
+//   - Degraded: VCLSynced=False (VCL push failed or partial) or
+//     BackendsAvailable=False (a backend has no endpoints)
 //   - Error:    set explicitly via setErrorStatus
 //   - Pending:  initial state or waiting for replicas
 func calculatePhase(vc *vinylv1.VinylCache) string {
@@ -160,7 +170,7 @@ func calculatePhase(vc *vinylv1.VinylCache) string {
 		vc.Status.ReadyPeers >= vc.Status.TotalPeers {
 		return vinylv1.PhaseReady
 	}
-	if vclSynced == metav1.ConditionFalse {
+	if vclSynced == metav1.ConditionFalse || backendsAvailable == metav1.ConditionFalse {
 		return vinylv1.PhaseDegraded
 	}
 	return vinylv1.PhasePending
@@ -280,4 +290,20 @@ func findCondition(vc *vinylv1.VinylCache, condType string) *metav1.Condition {
 		}
 	}
 	return nil
+}
+
+// logBackendEndpointTransition logs when the set of backends without
+// endpoints changes, not on every reconcile. The previous state is the
+// BackendsAvailable condition from the last status update.
+func logBackendEndpointTransition(ctx context.Context, vc *vinylv1.VinylCache, missing []string) {
+	wasMissing := findConditionStatus(vc, vinylv1.ConditionBackendsAvailable) == metav1.ConditionFalse
+	if (len(missing) > 0) == wasMissing {
+		return
+	}
+	log := logf.FromContext(ctx)
+	if len(missing) > 0 {
+		log.Info("backends without ready endpoints, serving 503 for them", "backends", missing)
+		return
+	}
+	log.Info("all backends have ready endpoints again")
 }

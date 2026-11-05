@@ -1,0 +1,46 @@
+# Two backends; the second one (echo-idle) has no endpoints at first (#171).
+# The vclRecv snippet routes by path, because without a snippet requests do
+# not use the per-backend directors at all.
+apiVersion: vinyl.bluedynamics.eu/v1
+kind: VinylCache
+metadata:
+  name: gap-cache
+spec:
+  replicas: 1
+  flavor: ($values.flavor)
+  backends:
+    - name: live
+      serviceRef:
+        name: echo-backend
+      port: 80
+      probe:
+        url: /
+        interval: 2s
+        timeout: 1s
+        threshold: 2
+        window: 3
+      director:
+        type: round_robin
+    - name: idle
+      serviceRef:
+        name: echo-idle
+      port: 80
+      probe:
+        url: /
+        interval: 2s
+        timeout: 1s
+        threshold: 2
+        window: 3
+      director:
+        type: round_robin
+  vcl:
+    snippets:
+      vclRecv: |
+        if (req.url ~ "^/idle") {
+          set req.backend_hint = idle.backend();
+          return (pass);
+        }
+        set req.backend_hint = live.backend();
+        return (pass);
+  debounce:
+    duration: 2s

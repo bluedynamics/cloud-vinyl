@@ -7,6 +7,9 @@ sub vcl_init {
 {{- range $b := $g.Backends }}
     {{ $g.Name }}.add_backend({{ $b.Name }});
 {{- end }}
+{{- if $g.Placeholder }}
+    {{ $g.Name }}.add_backend({{ $g.Placeholder }});
+{{- end }}
 {{- if $g.Director.Warmup }}
     {{ $g.Name }}.set_warmup({{ $g.Director.Warmup }});
 {{- end }}
@@ -19,20 +22,32 @@ sub vcl_init {
 {{- range $b := $g.Backends }}
     {{ $g.Name }}.add_backend({{ $b.Name }});
 {{- end }}
+{{- if $g.Placeholder }}
+    {{ $g.Name }}.add_backend({{ $g.Placeholder }});
+{{- end }}
 {{- else if eq $g.Director.Type "random" }}
     new {{ $g.Name }} = directors.random();
 {{- range $b := $g.Backends }}
     {{ $g.Name }}.add_backend({{ $b.Name }}, 1.0);
+{{- end }}
+{{- if $g.Placeholder }}
+    {{ $g.Name }}.add_backend({{ $g.Placeholder }}, 1.0);
 {{- end }}
 {{- else if eq $g.Director.Type "hash" }}
     new {{ $g.Name }} = directors.hash();
 {{- range $b := $g.Backends }}
     {{ $g.Name }}.add_backend({{ $b.Name }}, 1.0);
 {{- end }}
+{{- if $g.Placeholder }}
+    {{ $g.Name }}.add_backend({{ $g.Placeholder }}, 1.0);
+{{- end }}
 {{- else if eq $g.Director.Type "fallback" }}
     new {{ $g.Name }} = directors.fallback();
 {{- range $b := $g.Backends }}
     {{ $g.Name }}.add_backend({{ $b.Name }});
+{{- end }}
+{{- if $g.Placeholder }}
+    {{ $g.Name }}.add_backend({{ $g.Placeholder }});
 {{- end }}
 {{- end }}
 {{- end }}
