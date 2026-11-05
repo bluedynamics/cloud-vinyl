@@ -3825,10 +3825,12 @@ spec:
                     type: integer
                 type: object
               replicas:
-                description: replicas is the desired number of Varnish pods in the
-                  cluster.
+                description: |-
+                  replicas is the desired number of Varnish pods in the cluster.
+                  0 switches the cache off on purpose (phase Stopped); the StatefulSet
+                  and the other resources stay in place.
                 format: int32
-                minimum: 1
+                minimum: 0
                 type: integer
               resources:
                 description: resources sets CPU and memory requests/limits for the
@@ -4741,7 +4743,7 @@ spec:
               phase:
                 description: |-
                   phase is the high-level lifecycle state derived from conditions.
-                  One of: Pending, Ready, Degraded, Error.
+                  One of: Pending, Ready, Degraded, Error, Stopped.
                 type: string
               readyPeers:
                 description: readyPeers is the number of cluster peers in Ready state.
@@ -8617,10 +8619,12 @@ spec:
                     type: integer
                 type: object
               replicas:
-                description: replicas is the desired number of Varnish pods in the
-                  cluster.
+                description: |-
+                  replicas is the desired number of Varnish pods in the cluster.
+                  0 switches the cache off on purpose (phase Stopped); the StatefulSet
+                  and the other resources stay in place.
                 format: int32
-                minimum: 1
+                minimum: 0
                 type: integer
               resources:
                 description: resources sets CPU and memory requests/limits for the
@@ -9533,7 +9537,7 @@ spec:
               phase:
                 description: |-
                   phase is the high-level lifecycle state derived from conditions.
-                  One of: Pending, Ready, Degraded, Error.
+                  One of: Pending, Ready, Degraded, Error, Stopped.
                 type: string
               readyPeers:
                 description: readyPeers is the number of cluster peers in Ready state.
