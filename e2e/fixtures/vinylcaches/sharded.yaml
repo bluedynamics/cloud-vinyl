@@ -34,6 +34,7 @@ kind: VinylCache
 metadata:
   name: my-cache
 spec:
+  flavor: ($values.flavor)
   replicas: 3
   backends:
     - name: echo
