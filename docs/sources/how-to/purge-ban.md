@@ -2,43 +2,44 @@
 
 This guide shows how to send cache-invalidation requests to a running VinylCache cluster.
 
+(purge-ban-find-address)=
+
 ## Find the invalidation address
 
-Every VinylCache gets a Service named `<cache>-invalidation` in its own namespace, on port
-`8090`. The operator reports the address to use in the cache's status:
+Every VinylCache gets a Service named `<cache>-invalidation` in its own namespace, on port `8090`.
+The operator reports the address to use in the cache's status:
 
-```bash
-kubectl get vinylcache my-cache -n app -o jsonpath='{.status.invalidationURL}'
-# http://my-cache-invalidation.app:8090
+```console
+$ kubectl get vinylcache my-cache -n app -o jsonpath='{.status.invalidationURL}'
+http://my-cache-invalidation.app:8090
 ```
 
-Send all requests in this guide to that address. The examples use a cache `my-cache` in
-the namespace `app`.
+Send all requests in this guide to that address.
+The examples use a cache `my-cache` in the namespace `app`.
 
 ```{important}
-The host must include the namespace: `my-cache-invalidation.app` or the full
-`my-cache-invalidation.app.svc.cluster.local`. One operator serves the caches of all
-namespaces and tells them apart by the `Host` header alone, so the bare Service name
-`my-cache-invalidation` is rejected with `404 unknown cache`, even from inside the
-cache's own namespace. The error names the host to use, and the operator counts every
-rejection in `vinyl_invalidation_unknown_host_total`.
+The host must include the namespace: `my-cache-invalidation.app` or the full `my-cache-invalidation.app.svc.cluster.local`.
+One operator serves the caches of all namespaces and tells them apart by the `Host` header alone.
+The bare Service name `my-cache-invalidation` is rejected with `404 unknown cache`, even from inside the cache's own namespace.
+The error names the host to use, and the operator counts every rejection in `vinyl_invalidation_unknown_host_total`.
 ```
+
+(purge-ban-purge-url)=
 
 ## PURGE a URL
 
-Varnish keys a cached page by its URL and its site host, e.g. `example.org`. The request
-to the proxy carries the invalidation host instead, so the proxy has to be told the site
-host to purge under. Name it in the `X-Vinyl-Purge-Host` header, comma-separated for
-several hosts:
+The cache keys a cached page by its URL and its site host, for example `example.org`.
+The request to the proxy carries the invalidation host instead.
+You must tell the proxy which site host to purge under.
+Name it in the `X-Vinyl-Purge-Host` header, comma-separated for several hosts:
 
-```bash
+```shell
 curl -X PURGE -H "X-Vinyl-Purge-Host: example.org" \
   http://my-cache-invalidation.app:8090/path/to/resource
 ```
 
-Clients that cannot set headers, such as `plone.cachepurging`, rely on
-`spec.invalidation.purge.hosts` instead. For a purge without the header, the proxy sends
-one purge per listed host:
+Clients that cannot set headers, such as `plone.cachepurging`, rely on `spec.invalidation.purge.hosts` instead.
+For a purge without the header, the proxy sends one purge per listed host:
 
 ```yaml
 spec:
@@ -50,46 +51,52 @@ spec:
         - www.example.org
 ```
 
-The header wins over the list. With neither, the proxy purges under the invalidation host
-itself, which matches nothing that real traffic cached, and says so in a `warning` field
-of the response and in the operator log.
+The header wins over the list.
+With neither, the proxy purges under the invalidation host itself.
+That matches nothing that real traffic cached, and the proxy says so in a `warning` field of the response and in the operator log.
 
-Response:
+Response, with one entry per pod in `results`:
 
+```json
+{"status":"ok","total":3,"succeeded":3,"objectsPurged":1,"results":[{"pod":"10.0.1.12:8080","status":200,"objectsPurged":1},{"pod":"10.0.1.13:8080","status":200,"objectsPurged":0},{"pod":"10.0.1.14:8080","status":200,"objectsPurged":0}]}
 ```
-{"status":"ok","total":3,"succeeded":3,"objectsPurged":1,"results":[...]}
-```
 
-With several hosts, every pod result carries the `host` it purged, and `total`,
-`succeeded` and `objectsPurged` cover all of them.
+With several hosts, every pod result carries the `host` it purged.
+`total`, `succeeded` and `objectsPurged` cover all of them.
 
 `status` is one of:
-- `ok` — all pods purged successfully.
-- `partial` — some pods failed (cache is partially stale).
-- `failed` — all pods failed.
 
-`succeeded` counts pods that *answered*, not objects that were *removed* —
-HTTP 200 from a pod means it ran the purge, not that anything was there to
-purge. `objectsPurged` is the actual count, summed from every pod's
-`X-Vinyl-Purged` response header (each pod's own count is on its entry in
-`results`). Once cluster sharding routes a URL to a single owner pod, a
-correct broadcast purge legitimately removes 0 objects on every other pod —
-that is expected, not a failure, and `status` stays `ok`.
+- `ok`: all pods purged successfully.
+- `partial`: some pods failed (cache is partially stale).
+- `failed`: all pods failed.
 
-`objectsPurged` is **omitted** from the response — not `0` — when no pod
-reported a parseable count (e.g. an older `varnishd`, or every pod's request
-failed outright). Treat a missing field as "unknown", never as "confirmed
-zero"; the two mean very different things.
+`succeeded` counts pods that *answered*.
+It does not count objects that were *removed*.
+HTTP 200 from a pod means it ran the purge.
+It does not mean anything was there to purge.
+`objectsPurged` is the actual count, summed from every pod's `X-Vinyl-Purged` response header.
+Each pod's own count is on its entry in `results`.
+Once cluster sharding routes a URL to a single owner pod, a correct broadcast purge legitimately removes 0 objects on every other pod.
+That is expected and `status` stays `ok`.
+
+`objectsPurged` is **omitted** from the response, not `0`, when no pod reported a parseable count.
+This happens with an older `varnishd`, or when every pod's request failed outright.
+Treat a missing field as "unknown".
+Do not treat it as "confirmed zero", because the two mean very different things.
+
+(purge-ban-ban-expression)=
 
 ## BAN by expression
 
-Two routes are available, with different semantics. Pick based on where your client sits and how much control you want over the validation step.
+Two routes are available, with different semantics.
+Pick based on where your client sits and how much control you want over the validation step.
 
-### Route 1 — via the operator invalidation proxy (recommended for most callers)
+### Route 1: via the operator invalidation proxy (recommended for most callers)
 
-The proxy accepts BAN as either a JSON POST or the native BAN HTTP method, validates the expression, and forwards to `varnishadm ban` on every pod via the agent:
+The proxy accepts BAN as either a JSON POST or the native BAN HTTP method.
+It validates the expression and forwards it to `varnishadm ban` on every pod via the agent:
 
-```bash
+```shell
 # JSON form:
 curl -X POST http://my-cache-invalidation.app:8090/ban \
   -H "Content-Type: application/json" \
@@ -100,13 +107,15 @@ curl -X BAN http://my-cache-invalidation.app:8090/ \
   -H "X-Ban-Expression: obj.http.X-Cache-Tag ~ \"product-42\""
 ```
 
-The proxy enforces: only `obj.http.*` expressions on the left-hand side; wildcard-only expressions (`.` / `.*`) are rejected. This validation is a defence-in-depth layer on top of Varnish's own ban-expression compiler.
+The proxy accepts only `obj.http.*` expressions on the left-hand side and rejects wildcard-only expressions (`.` and `.*`).
+This validation is a defense-in-depth layer on top of the ban-expression compiler of the cache.
 
-Does **not** require any opt-in on the VinylCache spec.
+This route needs no opt-in on the VinylCache spec.
 
-### Route 2 — directly to Varnish (BAN method on the traffic port)
+### Route 2: directly to the cache (BAN method on the traffic port)
 
-Available from v0.4.2 onwards. Requires opt-in on the VinylCache:
+This route is available from v0.4.2 onwards.
+It requires opt-in on the VinylCache:
 
 ```yaml
 spec:
@@ -119,26 +128,34 @@ spec:
 
 Then send the BAN with the `X-Vinyl-Ban` header:
 
-```bash
+```shell
 curl -X BAN http://my-cache-traffic.my-namespace.svc:8080/ \
   -H 'X-Vinyl-Ban: obj.http.x-url ~ "^/news/"'
 ```
 
 Responses:
-- `200 Banned` — expression compiled and registered.
-- `400 Missing X-Vinyl-Ban header` — header absent.
-- `400 Invalid ban expression: <compiler message>` — `std.ban()` rejected the expression; the compiler error is returned verbatim for diagnosis.
-- `403 Forbidden` — client IP is not in `vinyl_ban_allowed` (the localhost + operator IP + `ban.allowedSources`).
 
-Use `obj.http.x-url` / `obj.http.x-host` rather than `req.*` — only the former can be processed by the Varnish ban lurker, so `req.*` bans accumulate and degrade performance O(n*m). The operator emits these helper headers on every cached object when `ban.enabled: true` is set (or when xkey is enabled).
+- `200 Banned`: expression compiled and registered.
+- `400 Missing X-Vinyl-Ban header`: header absent.
+- `400 Invalid ban expression: <compiler message>`: `std.ban()` rejected the expression.
+  The compiler error is returned verbatim for diagnosis.
+- `403 Forbidden`: client IP is not in `vinyl_ban_allowed` (the localhost, the operator IP and `ban.allowedSources`).
 
-**Security**: any client inside `vinyl_ban_allowed` can invalidate the entire cache with an arbitrary expression. Scope `ban.allowedSources` tightly.
+Use `obj.http.x-url` and `obj.http.x-host` rather than `req.*`.
+Only the former can be processed by the ban lurker.
+`req.*` bans accumulate and degrade performance O(n*m).
+The operator emits these helper headers on every cached object when `ban.enabled: true` is set (or when xkey is enabled).
+
+**Security**: any client inside `vinyl_ban_allowed` can invalidate the entire cache with an arbitrary expression.
+Scope `ban.allowedSources` tightly.
+
+(purge-ban-xkey)=
 
 ## Purge by xkey (surrogate key)
 
-Requires `spec.invalidation.xkey` to be enabled in the `VinylCache`.
+This requires `spec.invalidation.xkey` to be enabled in the `VinylCache`.
 
-```bash
+```shell
 curl -X POST http://my-cache-invalidation.app:8090/purge/xkey \
   -H "Content-Type: application/json" \
   -d '{"keys": ["product-42", "category-home"]}'

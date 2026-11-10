@@ -1,19 +1,20 @@
-# Metrics Reference
+# Metrics reference
 
 The cloud-vinyl operator exposes Prometheus metrics on port `8080` at `/metrics`.
 
+(metrics-operator)=
+
 ## Metrics
 
-These `vinyl_*` metrics describe the **operator domain** (reconcile, VCL push,
-invalidation). They are always recorded. Duration histograms are aggregated over
-all caches and therefore carry no labels.
+These `vinyl_*` metrics describe the **operator domain** (reconcile, VCL push, invalidation).
+They are always recorded.
+Duration histograms are aggregated over all caches and therefore carry no labels.
 
-The cache's namespace is in `cache_namespace`, not `namespace`, and the broadcast
-target in `pod_addr`, not `pod`. Prometheus attaches the operator pod's own
-`namespace` and `pod` as target labels and, unless the scrape honors labels,
-renames colliding scraped labels to `exported_namespace` and `exported_pod`.
-Before 1.1 that happened to the operator's labels; see the
-{ref}`1.1 upgrade notes <upgrade-1-1-metric-labels>`.
+The cache's namespace is in `cache_namespace` and the broadcast target in `pod_addr`.
+Prometheus attaches the operator pod's own `namespace` and `pod` as target labels.
+Unless the scrape honors labels, it renames colliding scraped labels to `exported_namespace` and `exported_pod`.
+Before 1.1 that happened to the operator's labels.
+See the {ref}`1.1 upgrade notes <upgrade-1-1-metric-labels>`.
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
@@ -23,27 +24,31 @@ Before 1.1 that happened to the operator's labels; see the
 | `vinyl_vcl_push_duration_seconds` | Histogram | — | VCL push duration in seconds (whole push operation). |
 | `vinyl_invalidation_total` | Counter | `cache`, `cache_namespace`, `type`, `result` | Invalidation requests. `type` is `purge`, `ban`, or `xkey`; `result` is `success` or `error`. |
 | `vinyl_invalidation_duration_seconds` | Histogram | — | Invalidation operation duration in seconds. |
-| `vinyl_broadcast_total` | Counter | `cache`, `cache_namespace`, `pod_addr`, `result` | Broadcast requests to individual Varnish pods. `pod_addr` is the pod's address (`ip:port`) the request went to; `result` is `success` or `error`. |
+| `vinyl_broadcast_total` | Counter | `cache`, `cache_namespace`, `pod_addr`, `result` | Broadcast requests to individual cache pods. `pod_addr` is the pod's address (`ip:port`) the request went to; `result` is `success` or `error`. |
 | `vinyl_partial_failure_total` | Counter | `cache`, `cache_namespace` | Broadcasts where some but not all pods failed. |
-| `vinyl_objects_purged_total` | Counter | `cache`, `cache_namespace`, `type` | Objects actually removed by invalidation requests, as reported by Varnish's `X-Vinyl-Purged` response header. Only advances on a *known* count — a broadcast where no pod reported a parseable count adds nothing, rather than adding a fabricated 0. `type` is `purge` or `xkey` only — `ban` is routed to the agent's `POST /ban`, never to `varnishd`'s purge synth, and so never sets this header and never appears here. A healthy cluster issuing purges but never advancing this counter is the signal #103 exists to surface: 200 OK and zero removed are not the same thing, and zero is often legitimate (see below), but *never knowing* the count is not. |
-| `vinyl_objects_purged_unknown_total` | Counter | `cache`, `cache_namespace`, `type` | Individual pod purge responses that answered 2xx but did not carry a parseable `X-Vinyl-Purged` count — a pod that *didn't say*, as opposed to one that reported a known 0. `type` is `purge` or `xkey` only, same reason as above. Kept separate from `vinyl_objects_purged_total` on purpose: a regression that drops the header on only a subset of pods (a partial VCL rollout, or the broadcast-path shape behind #101) just nudges that counter's sum down a little and would otherwise be invisible; this counter climbs instead, on exactly the pods that stopped reporting. |
+| `vinyl_objects_purged_total` | Counter | `cache`, `cache_namespace`, `type` | Objects actually removed by invalidation requests, as reported by the cache's `X-Vinyl-Purged` response header. Only advances on a *known* count: a broadcast where no pod reported a parseable count adds nothing, rather than adding a fabricated 0. `type` is `purge` or `xkey` only. `ban` is routed to the agent's `POST /ban`, never to `varnishd`'s purge synth, and so never sets this header and never appears here. A healthy cluster issuing purges but never advancing this counter is the signal #103 exists to surface: 200 OK and zero removed are not the same thing, and zero is often legitimate (see below), but *never knowing* the count is not. |
+| `vinyl_objects_purged_unknown_total` | Counter | `cache`, `cache_namespace`, `type` | Individual pod purge responses that answered 2xx but did not carry a parseable `X-Vinyl-Purged` count: a pod that *didn't say*, as opposed to one that reported a known 0. `type` is `purge` or `xkey` only, same reason as above. Kept separate from `vinyl_objects_purged_total` on purpose: a regression that drops the header on only a subset of pods (a partial VCL rollout, or the broadcast-path shape behind #101) just nudges that counter's sum down a little and would otherwise be invisible; this counter climbs instead, on exactly the pods that stopped reporting. |
 | `vinyl_invalidation_unknown_host_total` | Counter | none | Invalidation requests rejected with `404 unknown cache` because their `Host` names no registered cache, most often the bare `<cache>-invalidation` Service name without the namespace. Clients such as `plone.cachepurging` do not log failed purges, so a rising counter is the signal that one of them is misconfigured. Unlabelled on purpose: the host is client-controlled. |
-| `vinyl_vcl_versions_loaded` | Gauge | `cache`, `cache_namespace` | Number of VCL versions currently loaded in Varnish (drift indicator). |
+| `vinyl_vcl_versions_loaded` | Gauge | `cache`, `cache_namespace` | Number of VCL versions currently loaded in the cache (drift indicator). |
 
 ```{note}
-varnishd's own `MAIN.n_purges` and `MAIN.n_obj_purged` stay at 0 for cloud-vinyl purges, because `vmod_purge` does not count into them. Whether purges remove anything shows only in `vinyl_objects_purged_total`.
+varnishd's own `MAIN.n_purges` and `MAIN.n_obj_purged` stay at 0 for cloud-vinyl purges.
+`vmod_purge` does not count into them.
+Whether purges remove anything shows only in `vinyl_objects_purged_total`.
 ```
 
-## Varnish cache metrics (exporter)
+(metrics-exporter)=
 
-Cache hit ratio and backend health are **not** operator-side metrics. They come
-from the `prometheus_varnish_exporter` sidecar (enabled via
-`spec.monitoring.exporter.enabled`), which reads `varnishstat` (VSM) and exposes
-native `varnish_*` metrics scraped via the generated ServiceMonitor. Since 1.1
-the default image is built from the maintained
-[otto-de fork](https://github.com/otto-de/prometheus_varnish_exporter) instead of
-the original exporter, which has had no release since 2021; the metric names
-are the same. The most relevant ones:
+## Cache metrics (exporter)
+
+Cache hit ratio and backend health come from the `prometheus_varnish_exporter` sidecar.
+The operator does not export them.
+Enable the sidecar with `spec.monitoring.exporter.enabled`.
+It reads `varnishstat` (VSM) and exposes native `varnish_*` metrics, which Prometheus scrapes via the generated ServiceMonitor.
+Since 1.1 the default image is built from the maintained [otto-de fork](https://github.com/otto-de/prometheus_varnish_exporter).
+The original exporter has had no release since 2021.
+The metric names are the same.
+The most relevant ones:
 
 | Metric | Type | Description |
 |--------|------|-------------|
@@ -59,26 +64,27 @@ sum(rate(varnish_main_cache_hit[5m])) by (namespace)
      + sum(rate(varnish_main_cache_miss[5m])) by (namespace))
 ```
 
+(metrics-alerts)=
+
 ## Alerts
 
 The same ten alerts come from two places:
 
-- the chart, with `monitoring.prometheusRules.enabled: true`: one `PrometheusRule` in
-  the operator namespace that covers every cache in the cluster;
-- the operator, with `spec.monitoring.prometheusRules.enabled: true` on a VinylCache:
-  a `PrometheusRule` named `<cache>-alerts` next to the cache that covers only that
-  cache. `VinylCacheOperatorDown` watches the operator as a whole and is not
-  filtered. Before 1.0.2 every cache's rule was
-  named `cloud-vinyl-alerts`; the operator deletes that rule.
+- The chart, with `monitoring.prometheusRules.enabled: true`.
+  It creates one `PrometheusRule` in the operator namespace that covers every cache in the cluster.
+- The operator, with `spec.monitoring.prometheusRules.enabled: true` on a VinylCache.
+  It creates a `PrometheusRule` named `<cache>-alerts` next to the cache that covers only that cache.
+  `VinylCacheOperatorDown` watches the operator as a whole and is not filtered.
+  Before 1.0.2 every cache's rule was named `cloud-vinyl-alerts`.
+  The operator deletes that rule.
 
-Enable one of the two per cache, or the alerts fire twice. See
-{ref}`tune-hit-ratio-alert`.
+Enable one of the two per cache, or the alerts fire twice.
+See {ref}`tune-hit-ratio-alert`.
 
-The exporter's metrics carry no cache name. `VinylCacheLowHitRatio` and
-`VinylCacheBackendUnhealthy` derive a `cache` label from the pod name, so the
-alerts name the cache and Alertmanager can route on it. The hit ratio is
-evaluated per pod, as each pod holds its own shard.
-
+The exporter's metrics carry no cache name.
+`VinylCacheLowHitRatio` and `VinylCacheBackendUnhealthy` derive a `cache` label from the pod name.
+The alerts therefore name the cache, and Alertmanager can route on it.
+The hit ratio is evaluated per pod, as each pod holds its own shard.
 
 | Alert | Severity | Condition |
 |-------|----------|-----------|

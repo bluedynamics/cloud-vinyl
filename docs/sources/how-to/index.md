@@ -1,4 +1,4 @@
-# How-To Guides
+# How-to guides
 
 Step-by-step guides for common tasks with cloud-vinyl.
 

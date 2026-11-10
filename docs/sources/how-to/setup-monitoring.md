@@ -1,26 +1,27 @@
 # Set up monitoring
 
-This guide enables Prometheus monitoring for a `VinylCache`: operator metrics,
-generated `ServiceMonitor`/`PrometheusRule` objects, and the Varnish exporter
-sidecar that surfaces the cache hit rate.
+This guide enables Prometheus monitoring for a `VinylCache`.
+It covers operator metrics, the generated `ServiceMonitor` and `PrometheusRule` objects, and the exporter sidecar that surfaces the cache hit rate.
+
+(setup-monitoring-prerequisites)=
 
 ## Prerequisites
 
 - A running cloud-vinyl operator (see [install](install.md)).
-- The [Prometheus Operator](https://prometheus-operator.dev/) installed in the
-  cluster, providing the `monitoring.coreos.com` CRDs (`ServiceMonitor`,
-  `PrometheusRule`). Without these CRDs the operator skips creating those objects
-  (it logs and continues — it does not error).
+- The [Prometheus Operator](https://prometheus-operator.dev/) installed in the cluster, providing the `monitoring.coreos.com` CRDs (`ServiceMonitor`, `PrometheusRule`).
+  Without these CRDs the operator skips creating those objects.
+  It logs the skip and continues without an error.
+
+(setup-monitoring-operator-metrics)=
 
 ## Scrape the operator's own metrics
 
-The operator exports `vinyl_*` metrics: VCL pushes, invalidations, objects purged,
-rejected invalidation hosts. The chart scrapes them with a `ServiceMonitor` when
-`monitoring.serviceMonitor.enabled` is set.
+The operator exports `vinyl_*` metrics: VCL pushes, invalidations, objects purged, rejected invalidation hosts.
+The chart scrapes them with a `ServiceMonitor` when `monitoring.serviceMonitor.enabled` is set.
 
-By default the operator serves `/metrics` over HTTPS and checks every scrape: the
-scraper presents a service account token, and that account needs permission to `get`
-the `/metrics` URL. Bind the Prometheus service account to the chart's reader role:
+By default the operator serves `/metrics` over HTTPS and checks every scrape.
+The scraper presents a service account token, and that account needs permission to `get` the `/metrics` URL.
+Bind the Prometheus service account to the chart's reader role:
 
 ```yaml
 monitoring:
@@ -35,15 +36,14 @@ monitoring:
         namespace: monitoring
 ```
 
-The ServiceMonitor then scrapes `https` with Prometheus' own token. The operator
-generates a self-signed certificate, so the scrape skips verification. To verify it,
-set `monitoring.metrics.tls.certManager: true`: the chart issues the certificate
-through cert-manager and the ServiceMonitor checks it against the issuer's CA. An
-existing TLS Secret works too, through `monitoring.metrics.tls.secretName` and your
-own `monitoring.serviceMonitor.tlsConfig`.
+The ServiceMonitor then scrapes `https` with the token of Prometheus.
+The operator generates a self-signed certificate.
+The scrape skips verification.
+To verify it, set `monitoring.metrics.tls.certManager: true`.
+The chart then issues the certificate through cert-manager and the ServiceMonitor checks it against the issuer's CA.
+An existing TLS Secret works too, through `monitoring.metrics.tls.secretName` and your own `monitoring.serviceMonitor.tlsConfig`.
 
-If network policy already limits who reaches the operator, plain HTTP without
-authentication is simpler:
+If network policy already limits who reaches the operator, plain HTTP without authentication is simpler:
 
 ```yaml
 monitoring:
@@ -51,13 +51,14 @@ monitoring:
     secure: false
 ```
 
-The ServiceMonitor follows that setting. Extra scrape settings, such as
-`metricRelabelings` or a different `authorization`, go into
-`monitoring.serviceMonitor.endpointConfig`.
+The ServiceMonitor follows that setting.
+Extra scrape settings, such as `metricRelabelings` or a different `authorization`, go into `monitoring.serviceMonitor.endpointConfig`.
 
-To check, query `up` for the operator's target: its `job` is the chart's Service
-name, `cloud-vinyl` for a release of that name, and the value must be `1`. A `401` or
-`403` on Prometheus' target page means the token or the reader binding is missing.
+To check, query `up` for the operator's target.
+Its `job` is the chart's Service name, `cloud-vinyl` for a release of that name, and the value must be `1`.
+A `401` or `403` on the target page of Prometheus means the token or the reader binding is missing.
+
+(setup-monitoring-enable-vinylcache)=
 
 ## Enable monitoring on a VinylCache
 
@@ -69,7 +70,7 @@ kind: VinylCache
 metadata:
   name: my-cache
 spec:
-  # ... backends, replicas, etc.
+  # backends, replicas and the rest of the spec go here
   monitoring:
     serviceMonitor:
       enabled: true        # generate a ServiceMonitor for Prometheus to scrape
@@ -81,25 +82,22 @@ spec:
 
 What each toggle does:
 
-- **`serviceMonitor.enabled`** — the operator creates a `ServiceMonitor` (owned by
-  the `VinylCache`, so it is garbage-collected with it) targeting the cache's
-  `exporter` service port.
-- **`prometheusRules.enabled`** — the operator creates a `PrometheusRule` named
-  `<cache>-alerts` with the default cloud-vinyl alerts for this cache (see
-  [metrics reference](../reference/metrics.md)). The chart value
-  `monitoring.prometheusRules.enabled` deploys the same alerts for all caches at
-  once; see {ref}`tune-hit-ratio-alert` before enabling both.
-- **`exporter.enabled`** — adds the `prometheus_varnish_exporter` sidecar to each
-  Varnish pod. It mounts the Varnish working directory read-only and exposes
-  native `varnish_*` metrics (cache hit/miss, backend health) on port `9131`.
+- **`serviceMonitor.enabled`**: the operator creates a `ServiceMonitor` targeting the cache's `exporter` service port.
+  The `VinylCache` owns it.
+  The operator garbage-collects it with the cache.
+- **`prometheusRules.enabled`**: the operator creates a `PrometheusRule` named `<cache>-alerts` with the default cloud-vinyl alerts for this cache (see [metrics reference](../reference/metrics.md)).
+  The chart value `monitoring.prometheusRules.enabled` deploys the same alerts for all caches at once.
+  See {ref}`tune-hit-ratio-alert` before enabling both.
+- **`exporter.enabled`**: adds the `prometheus_varnish_exporter` sidecar to each cache pod.
+  It mounts the working directory of the daemon read-only and exposes native `varnish_*` metrics (cache hit/miss, backend health) on port `9131`.
 
 (tune-hit-ratio-alert)=
 
 ### Tune the hit ratio alert
 
-The right hit ratio depends on the site. One with a lot of uncacheable traffic sits
-well below 0.5 without any fault, while another should stay far above it. Set the
-threshold and duration of `VinylCacheLowHitRatio` for one cache in its own rule:
+The right hit ratio depends on the site.
+One with a lot of uncacheable traffic sits well below 0.5 without any fault, while another should stay far above it.
+Set the threshold and duration of `VinylCacheLowHitRatio` for one cache in its own rule:
 
 ```yaml
 spec:
@@ -111,16 +109,14 @@ spec:
         for: 1h          # for this long (default 15m)
 ```
 
-`threshold` is a hit ratio above 0 and at most 1. `for` is a Prometheus duration
-(`30s`, `15m`, `1h30m`, `1d`); the API server rejects anything else. Changing either
-updates the existing rule on the next reconcile.
+`threshold` is a hit ratio above 0 and at most 1.
+`for` is a Prometheus duration (`30s`, `15m`, `1h30m`, `1d`), and the API server rejects anything else.
+Changing either updates the existing rule on the next reconcile.
 
-The chart's cluster-wide rule has the same two settings in
-`monitoring.prometheusRules.lowHitRatio`, one value for every cache. Use one of the
-two per cache: the chart rule when a uniform threshold fits, the per-cache rule when
-a site needs its own. The chart rule does not skip caches that have their own rule,
-so enabling both fires `VinylCacheLowHitRatio` twice for such a cache, once per
-threshold.
+The chart's cluster-wide rule has the same two settings in `monitoring.prometheusRules.lowHitRatio`, one value for every cache.
+Use one of the two per cache: the chart rule when a uniform threshold fits, the per-cache rule when a site needs its own.
+The chart rule does not skip caches that have their own rule.
+Enabling both fires `VinylCacheLowHitRatio` twice for such a cache, once per threshold.
 
 The exporter image and resources can be overridden:
 
@@ -136,27 +132,28 @@ The exporter image and resources can be overridden:
         limits: {cpu: 200m, memory: 64Mi}
 ```
 
-```{note}
-The exporter shells out to `varnishstat`, so the exporter of the catalog entry for
-`varnish` 9.1.0, `ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0`, bundles the
-`varnishstat` of **Varnish 9.1.0**, matching the catalog's `varnish:9.1.0` daemon. The tag names the bundled Varnish version. It also reads Varnish 8.0
-caches (see [Varnish version support](../reference/varnish-versions.md)). For
-other versions, override `exporter.image` with a matching build. A mismatched
-`varnishstat` cannot read the VSM, and the sidecar then reports `varnish_up 0`
-and exports no `varnish_*` metrics at all.
+The exporter shells out to `varnishstat`.
+The exporter of the catalog entry for `varnish` 9.1.0, `ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0`, bundles the `varnishstat` of Varnish 9.1.0, matching the catalog's `varnish:9.1.0` daemon.
+The tag names the bundled Varnish version.
+It also reads Varnish 8.0 caches (see [Varnish version support](../reference/varnish-versions.md)).
+For other versions, override `exporter.image` with a matching build.
+A mismatched `varnishstat` cannot read the VSM.
+The sidecar then reports `varnish_up 0` and exports no `varnish_*` metrics at all.
 
-You rarely need this override: the exporter normally comes from the runtime catalog
-entry of the cache's `flavor` and `version`, pinned by digest. A cache with
-`flavor: vinyl` needs the exporter built from the Vinyl image,
-`ghcr.io/bluedynamics/varnish-exporter:1.8.3-vinyl9.1.0`, which bundles `vinylstat`.
-The Varnish tag `1.8.3-varnish9.1.0` has no `vinylstat`, so the sidecar would not
-start. The admission webhook warns when the exporter override names the other lineage.
-```
+You rarely need this override.
+The exporter normally comes from the runtime catalog entry of the cache's `flavor` and `version`, pinned by digest.
+A cache with `flavor: vinyl` needs the exporter built from the Vinyl image, `ghcr.io/bluedynamics/varnish-exporter:1.8.3-vinyl9.1.0`, which bundles `vinylstat`.
+The Varnish tag `1.8.3-varnish9.1.0` has no `vinylstat`.
+The sidecar would not start.
+The admission webhook warns when the exporter override names the other lineage.
+
+(setup-monitoring-grafana)=
 
 ## Show the cache hit rate in Grafana
 
-The hit ratio is computed from the exporter's raw counters, not from an operator
-gauge. Use this PromQL for a hit-rate panel:
+The exporter's raw counters give the hit ratio.
+No operator gauge provides it.
+Use this PromQL for a hit-rate panel:
 
 ```promql
 sum(rate(varnish_main_cache_hit[5m])) by (namespace)
@@ -164,15 +161,14 @@ sum(rate(varnish_main_cache_hit[5m])) by (namespace)
      + sum(rate(varnish_main_cache_miss[5m])) by (namespace))
 ```
 
+(setup-monitoring-fetch-retries)=
+
 ## Watch fetch retries
 
-Varnish has no counter for retries made in VCL. `varnish_main_backend_retry`
-counts something else (the internal retry on a reused connection) and stays
-at 0. A fetch that is retried on another backend increments
-`varnish_main_backend_fail` and `varnish_main_fetch_failed` even though the
-client gets a normal response. So a rise in those counters without a matching
-rise in 5xx responses at your ingress means the retries are absorbing backend
-failures:
+The cache has no counter for retries made in VCL.
+`varnish_main_backend_retry` counts something else (the internal retry on a reused connection) and stays at 0.
+A fetch that is retried on another backend increments `varnish_main_backend_fail` and `varnish_main_fetch_failed`, even though the client gets a normal response.
+A rise in those counters without a matching rise in 5xx responses at your ingress means the retries are absorbing backend failures:
 
 ```promql
 sum(rate(varnish_main_backend_fail[5m])) by (namespace, pod)
@@ -180,9 +176,11 @@ sum(rate(varnish_main_backend_fail[5m])) by (namespace, pod)
 
 To see individual retries, run `varnishlog` in the varnish container:
 
-```bash
+```shell
 kubectl exec <pod> -c varnish -- varnishlog -g request -q 'VCL_return eq "retry"'
 ```
+
+(setup-monitoring-verify)=
 
 ## Verify
 
@@ -192,5 +190,5 @@ $ kubectl get pod <cache-pod> -o jsonpath='{.spec.containers[*].name}'
 varnish vinyl-agent vinyl-exporter
 ```
 
-Operator metrics (`vinyl_*`) are always available on the operator's `/metrics`
-endpoint regardless of these toggles — see the [metrics reference](../reference/metrics.md).
+Operator metrics (`vinyl_*`) are always available on the operator's `/metrics` endpoint regardless of these toggles.
+See the [metrics reference](../reference/metrics.md).
