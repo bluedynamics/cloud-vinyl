@@ -22,7 +22,7 @@ Move manifests to `v1` by changing `apiVersion` only.
 | `replicas` | integer | yes | Number of Vinyl Cache pods in the StatefulSet. Minimum `0`: `0` switches the cache off on purpose, see {ref}`switch-off-a-cache`. |
 | `flavor` | string | no | Cache daemon family: `varnish` or `vinyl`. Defaults to `varnish`, so existing objects read back as `varnish`. Selects the daemon, exporter and tracer images from the runtime catalog and the binaries they use (`varnishd` or `vinyld`). See {ref}`run-vinyl-cache` and the table below. |
 | `version` | string | no | Daemon version, for example `9.1.0`. Must be listed in the runtime catalog for the flavor; the admission webhook rejects any other value and names the versions it knows. Empty means the catalog's default version for the flavor, resolved at reconcile time and not written back, so it follows the chart's default on operator upgrades. Pin it to stay on a release. |
-| `image` | string | no | Overrides the **daemon** image of the resolved catalog entry. The exporter and tracer still follow `flavor` and `version`. Use it for an emergency fix or an older version; see {ref}`replace-an-image`. The operator runs the flavor's daemon (`varnishd` or `vinyld`) from the image's `PATH` as the container command and passes every flag itself; the image's entrypoint does not run. The webhook warns when `image` is set without `version`, and when the repository name of the image names the other lineage. See [Varnish version support](varnish-versions.md). |
+| `image` | string | no | Overrides the **daemon** image of the resolved catalog entry. The exporter and tracer still follow `flavor` and `version`. Use it for an emergency fix or an older version; see {ref}`replace-an-image`. The operator runs the flavor's daemon (`varnishd` or `vinyld`) from the image's `PATH` as the container command and passes every flag itself; the image's entrypoint does not run. The webhook warns when `image` is set without `version`, and when the repository name of the image names the other lineage. See {ref}`Supported versions <versions-support-matrix>`. |
 | `storage` | list | no | Cache storages, each with `name`, `type` (`malloc` or `file`), `size` and, for `file`, an optional `path`. A `file` storage without `path` gets a volume provisioned by the operator and needs a `size`; see {ref}`file-storage-provisioned`. When set, these are the only cache storages. When empty, varnishd creates its default storage `s0` (malloc, 100 MB). The name `synth` is reserved. |
 | `backends` | list | yes | One or more backend services. |
 | `director` | object | no | Director configuration (defaults: `type: shard`). |
@@ -82,7 +82,7 @@ Each entry in `spec.backends` defines an upstream service:
 | `probe.window` | integer | no | Number of recent probes evaluated (default: `5`, at most `64`). |
 | `probe.threshold` | integer | no | Successful probes within the window required to mark the backend healthy (default: `3`). Must not exceed the effective window; varnishd would refuse the VCL. |
 | `probe.expectedResponse` | integer | no | Expected HTTP status of the probe (default: `200`). |
-| `retry.maxRetries` | integer | no | Retries of a `GET`/`HEAD` fetch on another backend when no response arrived (default: `1`, `0` disables, maximum `3`). Not allowed above `0` for `hash` and `fallback` directors. See [Per-backend directors](../how-to/per-backend-directors.md). |
+| `retry.maxRetries` | integer | no | Retries of a `GET`/`HEAD` fetch on another backend when no response arrived (default: `1`, `0` disables, maximum `3`). Not allowed above `0` for `hash` and `fallback` directors. See {ref}`backend-routing-retry`. |
 
 How long idle backend connections are kept is varnishd's global `backend_idle_timeout`.
 Set it through `varnishParameters`, for example `{backend_idle_timeout: "50s"}`.
@@ -106,7 +106,29 @@ The first entry of `backends` is the default route.
 Requests that no `vclRecv` snippet routes go through its director, using `shard.healthy` and `hash.header` as above.
 See {ref}`default-routing`.
 
-See the [per-backend directors how-to](../how-to/per-backend-directors.md) for when to override each type.
+Without a `director:` block the director runs with the vmod defaults: no warmup, no ramp-up, `healthy=CHOSEN`.
+These defaults apply only when `director:` is set on the backend:
+
+| Parameter | Default with `director:` set |
+|-----------|------------------------------|
+| `by` | `URL` |
+| `healthy` | `CHOSEN` |
+| `warmup` | `0.1` |
+| `rampup` | `30s` |
+
+The default route passes this key to the director:
+
+| Type | Default route |
+|------|---------------|
+| `shard` | `<backend>.backend(by=URL)`, plus `healthy=<value>` when `shard.healthy` is set. The same URL stays on the same pod. |
+| `round_robin`, `random`, `fallback` | `<backend>.backend()` |
+| `hash` | `<backend>.backend(req.http.<header>)` when `hash.header` is set, otherwise `<backend>.backend(req.url)`. |
+
+`hash.header` is written into the VCL as `req.http.<header>`.
+It must be a letter, then letters, digits, `-` or `_`.
+The CRD and the admission webhook reject anything else, including header names that HTTP allows but VCL does not, such as `x.key`.
+
+See the [route requests how-to](../how-to/route-requests.md) for when to override each type.
 
 ### director
 
@@ -141,7 +163,7 @@ See [Custom snippets in cluster mode](cluster-snippets).
 
 Snippets that reference a per-pod backend name such as `plone_0` are admitted.
 The admission webhook returns a warning for each snippet field and backend involved, because per-pod names are renumbered whenever the endpoints change.
-Use `<backend>.backend()` instead, see [Per-backend directors](../how-to/per-backend-directors.md).
+Use `<backend>.backend()` instead, see [Route requests to backends](../how-to/route-requests.md).
 
 ### `varnishParameters`
 

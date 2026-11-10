@@ -1,125 +1,82 @@
 # Cache invalidation
 
-cloud-vinyl supports three invalidation mechanisms, all broadcast to every pod in the cluster.
+cloud-vinyl offers three ways to remove cached content: PURGE, BAN and xkey.
+All three reach every pod of a cache.
+This page explains how they differ and where access control applies.
+For the requests and settings, see {doc}`/how-to/purge-ban`.
 
 (invalidation-purge)=
 
 ## PURGE (object-level)
 
-A standard HTTP `PURGE` request removes a single cached object by URL.
-The cache must have `return(purge)` in `vcl_recv` for the PURGE method (generated automatically).
+A PURGE removes the cached object of one URL and site host.
+The generated VCL handles the PURGE method in `vcl_recv` with `return(purge)`.
 
-**Soft purge** (default, `spec.invalidation.purge.soft: true`) marks objects as stale instead of removing them.
-Subsequent requests revalidate in the background (stale-while-revalidate).
-This prevents cache stampedes on busy endpoints.
+By default a purge is soft (`spec.invalidation.purge.soft: true`).
+A soft purge marks the object as stale instead of removing it.
+The next request still gets the stale object while the cache revalidates it in the background.
+The origin then sees one refresh instead of a burst of misses.
+This protects busy endpoints from a cache stampede right after a purge.
 
-Send a purge via the operator proxy:
-
-```text
-PURGE http://<operator-svc>:8090/path/to/resource
-```
+A purge sent to the operator's invalidation proxy fans out to every pod.
+With clustering, only the pod that owns the URL holds the object.
+The other pods purge nothing, and that is expected.
 
 (invalidation-ban)=
 
 ## BAN (expression-based)
 
-Bans invalidate sets of objects matching a VCL expression.
-Two routes are available.
-They differ in where the expression is validated and in how the ACL is enforced.
+A ban invalidates every object that matches a VCL expression, such as all objects with a given cache tag.
+Two routes lead to a ban.
+They differ in where the expression is checked and in which access control applies.
 
-### Via the operator invalidation proxy (default, always available)
+The **invalidation proxy** route is always available.
+The operator validates the expression before it reaches any pod.
+It accepts only `obj.http.*` on the left-hand side and rejects wildcard-only expressions.
+The agent on each pod then runs `varnishadm ban`.
+A client never talks to the cache directly on this route.
 
-The proxy listens on port `8090` of the operator Service.
-It validates the expression (only `obj.http.*` on the left-hand side, no wildcard-only expressions).
-It then forwards the expression to every pod via `vinyl-agent POST /ban`, which runs `varnishadm ban <expr>`:
+The **direct** route, added in v0.4.2, sends the BAN method to the cache's traffic port.
+It is off by default and needs `spec.invalidation.ban.enabled`.
+The cache validates the expression itself with `std.ban()` and answers `400` for a malformed one.
+This route suits clients that already sit next to the cache and do not want the extra hop through the operator.
+The cost is that the cache-side ACL becomes the only gate.
 
-```text
-POST http://<operator-svc>:8090/ban
-Content-Type: application/json
-
-{"expression": "obj.http.X-Cache-Tag ~ \"product-42\""}
-```
-
-The native BAN HTTP method with the `X-Ban-Expression` header is equivalent:
-
-```text
-BAN http://<operator-svc>:8090/
-X-Ban-Expression: obj.http.X-Cache-Tag ~ "product-42"
-```
-
-No opt-in is needed.
-Proxy-side ACL enforcement is currently advisory (see "ACLs" below).
-
-### Directly to the cache (BAN method on the traffic port)
-
-From v0.4.2, VinylCache can expose a BAN handler directly in VCL, bypassing the operator proxy:
-
-```yaml
-spec:
-  invalidation:
-    ban:
-      enabled: true
-      allowedSources:
-        - "10.0.0.0/8"
-```
-
-The generator then emits a `vinyl_ban_allowed` ACL (localhost + operator pod IP + `allowedSources`).
-It also emits a `vcl_recv` BAN handler that calls `std.ban(req.http.X-Vinyl-Ban)`:
-
-```text
-BAN http://<cache-traffic-svc>:8080/
-X-Vinyl-Ban: obj.http.x-url ~ "^/news/"
-```
-
-On malformed expressions the handler returns `400 Invalid ban expression: <std.ban_error()>` and never silently succeeds.
-When the header is missing, it returns `400 Missing X-Vinyl-Ban header`.
-An unauthorised source gets `403 Forbidden`.
-
-Use `obj.http.x-url` and `obj.http.x-host` instead of `req.*` so the ban lurker can compact bans.
-Bans on `req.*` accumulate in `O(n*m)`.
-The operator emits `beresp.http.x-url` and `beresp.http.x-host` on every cached object when `ban.enabled: true` is set (or xkey is enabled).
+Both routes work best with expressions on `obj.http.*`.
+The ban lurker can test those against stored objects in the background and drop the ban afterwards.
+A ban on `req.*` can only be tested when a request arrives.
+Such bans pile up, and every lookup checks every active ban against the object, in `O(n*m)`.
+The operator therefore stores `x-url` and `x-host` on every cached object when bans or xkey are enabled.
 
 (invalidation-xkey)=
 
-## Xkey (surrogate-key)
+## Xkey (surrogate keys)
 
-Xkey (also called surrogate keys or cache tags) allows grouping objects under arbitrary string keys.
-When the cached response includes an `Xkey: key1 key2` header, a single request can purge all objects with that key.
+Xkey groups objects under arbitrary string keys, also called surrogate keys or cache tags.
+The origin names the keys in an `Xkey` response header, such as `Xkey: product-42 category-home`.
+One request can later invalidate every object that carries a key.
+This matches how content management systems think: one change affects all pages that show the changed item.
 
-```text
-POST http://<operator-svc>:8090/purge/xkey
-Content-Type: application/json
-
-{"keys": ["product-42", "category-home"]}
-```
-
-The operator issues one `PURGE` with `X-Xkey-Purge: <key>` per key to every pod.
-
-Xkey requires the `vmod_xkey` module.
-Enable it in the spec:
-
-```yaml
-spec:
-  invalidation:
-    xkey:
-      enabled: true
-```
+Xkey needs the `vmod_xkey` module in the cache and `spec.invalidation.xkey.enabled`.
+The operator turns one xkey request into one PURGE per key on every pod.
 
 (invalidation-acls)=
 
-## ACLs
+## Access control
 
-Two layers of access control apply, enforced at different points:
+Two layers of access control apply, at different points.
 
-- **Proxy-side** (`spec.invalidation.purge.allowedSources`, `spec.invalidation.ban.allowedSources`): the operator's invalidation proxy checks the source CIDR before forwarding to pods.
-  By default all sources are allowed.
-  Scope them tightly in production.
-- **Cache-side** (new in v0.4.2): the generated VCL contains `vinyl_purge_allowed` (always) and `vinyl_ban_allowed` (when `ban.enabled: true`).
-  Both include `127.0.0.1` and the operator pod IP automatically.
-  The `allowedSources` CIDRs from the spec are appended.
-  This is the ACL enforced in `vcl_recv` against the BAN/PURGE method coming directly to the traffic port.
+The **proxy-side** ACL is `spec.invalidation.purge.allowedSources` and `spec.invalidation.ban.allowedSources`.
+The invalidation proxy checks the source CIDR before it forwards anything to the pods.
+By default it allows all sources.
+Scope it tightly in production.
 
-In the common deployment, clients send PURGE/BAN to the proxy and the proxy forwards to the cache.
-The operator's pod IP is then the only source the cache ever sees.
-The cache-side ACL is effectively a safety net.
-When direct-to-cache traffic is enabled, both layers apply.
+The **cache-side** ACL, new in v0.4.2, lives in the generated VCL.
+`vinyl_purge_allowed` always exists, and `vinyl_ban_allowed` exists when `ban.enabled` is set.
+Both contain `127.0.0.1` and the operator pod IP, followed by the `allowedSources` CIDRs from the spec.
+`vcl_recv` checks them for PURGE and BAN requests that arrive on the traffic port.
+
+In the common deployment, clients send PURGE and BAN to the proxy, and the proxy forwards them to the cache.
+The operator pod IP is then the only source the cache ever sees.
+The cache-side ACL acts as a safety net.
+Once the direct BAN route is enabled, both layers matter.

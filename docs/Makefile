@@ -105,7 +105,7 @@ DOCS_LINKCHECK_FOLDER?=docs/linkcheck
 
 # Documentation Python requirements to be installed (via pip).
 # No default value.
-DOCS_REQUIREMENTS?=myst_parser sphinxcontrib.mermaid shibuya sphinx-design sphinx-copybutton
+DOCS_REQUIREMENTS?=myst_parser sphinxcontrib.mermaid shibuya sphinx-design sphinx-copybutton sphinx-reredirects
 
 ##############################################################################
 # END SETTINGS - DO NOT EDIT BELOW THIS LINE

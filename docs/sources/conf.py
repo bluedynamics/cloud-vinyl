@@ -14,6 +14,7 @@ extensions = [
     "sphinxcontrib.mermaid",
     "sphinx_design",
     "sphinx_copybutton",
+    "sphinx_reredirects",
 ]
 
 myst_enable_extensions = [
@@ -26,6 +27,13 @@ myst_fence_as_directive = ["mermaid"]
 
 templates_path = ["_templates"]
 exclude_patterns = []
+
+# Old page names keep working after a rename. Targets are relative to the
+# redirecting page.
+redirects = {
+    "reference/varnish-versions": "versions.html",
+    "how-to/per-backend-directors": "route-requests.html",
+}
 
 # mermaid options
 mermaid_output_format = "raw"

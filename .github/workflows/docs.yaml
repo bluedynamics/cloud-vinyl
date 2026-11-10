@@ -39,7 +39,7 @@ jobs:
           uv venv .venv
           uv pip install sphinx sphinx-autobuild \
             myst_parser sphinxcontrib.mermaid shibuya \
-            sphinx-design sphinx-copybutton
+            sphinx-design sphinx-copybutton sphinx-reredirects
 
       - name: Build documentation
         working-directory: docs
