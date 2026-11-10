@@ -63,7 +63,7 @@ kubectl expose deployment nginx --port=80 --name=nginx
 
 (quickstart-create-vinylcache)=
 
-## 5. Create a VinylCache
+## 5. Create a `VinylCache`
 
 Save the following to `quickstart.yaml`:
 
@@ -137,7 +137,7 @@ Port-forward the operator proxy:
 kubectl port-forward svc/cloud-vinyl 8090:8090 -n cloud-vinyl-system &
 ```
 
-Send the purge:
+Send the {term}`purge <PURGE>`:
 
 ```console
 $ curl -X PURGE http://localhost:8090/

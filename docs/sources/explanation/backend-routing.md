@@ -1,21 +1,21 @@
 # Backend routing
 
 This page explains how cloud-vinyl routes requests to backends.
-It covers the director per backend, the default route, retries, backends without endpoints, and debounce.
+It covers the {term}`director` per backend, the default route, retries, backends without endpoints, and debounce.
 To change any of this, see [Route requests to backends](../how-to/route-requests.md).
 
 (backend-routing-why-one-director)=
 
 ## Why one director per backend
 
-Each `spec.backends[]` entry is resolved via `EndpointSlice` to the current set of backend pods.
+The operator resolves each `spec.backends[]` entry through `EndpointSlice` to the current set of backend pods.
 The generator emits one per-pod `backend` declaration plus a director that groups them.
-In VCL, you address backends by `<backend>.backend()`.
+In {term}`VCL`, you address backends by `<backend>.backend()`.
 Hardcoded per-pod names are not part of that contract.
 
 Earlier versions exposed the per-pod names directly.
 The set of resolved pods is re-numbered as pods come and go.
-A snippet referring to `<backend>_0` could suddenly point at a pod that no longer existed.
+A snippet referring to `<backend>_0` could point at a pod that no longer existed.
 That caused guru-meditation failures during rolling updates.
 See issue #11 for background.
 One director per backend removes this class of failure.
@@ -32,7 +32,7 @@ This is the right default for any application with cache locality.
 Requests that no `vclRecv` snippet routes go to the **first** entry of `spec.backends`, through that backend's director.
 The generated `vcl_recv` sets the backend hint before your snippet runs.
 A snippet's own `set req.backend_hint = ...` still wins.
-With clustering, the hint also applies to the owner hop and to ESI fragments.
+With clustering, the hint also applies to the owner hop and to {term}`ESI` fragments.
 
 Other backends are reachable only through a snippet.
 A cache with a single backend needs no snippet at all.
@@ -40,7 +40,7 @@ The reference lists which key each director type gets on the default route.
 
 (backend-routing-retry)=
 
-## When a fetch is retried
+## When the cache retries a fetch
 
 A backend pod can disappear without draining (OOMKill, crash, node failure).
 The cache then keeps sending it requests until the health probe marks it sick or the operator pushes a VCL without it.
@@ -56,7 +56,7 @@ A retry happens under these conditions:
 Whether a retry can pick another backend depends on the director type.
 `shard` directors ask for the next alternative backend of the same key.
 The retry never lands on the backend that just failed.
-`round_robin` and `random` ask the director again, which usually picks another backend.
+`round_robin` and `random` ask the director again, which can pick another backend.
 `hash` and `fallback` directors would pick the same backend.
 They never retry.
 
@@ -65,7 +65,7 @@ They never retry.
 ## Backends without endpoints
 
 A backend whose Service has no ready endpoints does not keep the cache from starting.
-An example is a backend whose Deployment is scaled to zero.
+An example is a backend whose Deployment has zero replicas.
 The operator still pushes the VCL, the cache pods become ready, and the other backends keep working.
 
 For the backend without endpoints, the generated VCL contains one placeholder backend (`noendpoints_<backend>`) that is never healthy.

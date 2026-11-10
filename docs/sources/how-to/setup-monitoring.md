@@ -16,8 +16,8 @@ It covers operator metrics, the generated `ServiceMonitor` and `PrometheusRule` 
 
 ## Scrape the operator's own metrics
 
-The operator exports `vinyl_*` metrics: VCL pushes, invalidations, objects purged, rejected invalidation hosts.
-The chart scrapes them with a `ServiceMonitor` when `monitoring.serviceMonitor.enabled` is set.
+The operator exports `vinyl_*` metrics: {term}`VCL` pushes, invalidations, objects purged, rejected invalidation hosts.
+The chart scrapes them with a `ServiceMonitor` when you set `monitoring.serviceMonitor.enabled`.
 
 By default the operator serves `/metrics` over HTTPS and checks every scrape.
 The scraper presents a service account token, and that account needs permission to `get` the `/metrics` URL.
@@ -137,11 +137,11 @@ The exporter of the catalog entry for `varnish` 9.1.0, `ghcr.io/bluedynamics/var
 The tag names the bundled Varnish version.
 See {ref}`tracing-version-match`.
 For other versions, override `exporter.image` with a matching build.
-A mismatched `varnishstat` cannot read the VSM.
+A mismatched `varnishstat` cannot read the {term}`VSM`.
 The sidecar then reports `varnish_up 0` and exports no `varnish_*` metrics at all.
 
-You rarely need this override.
-The exporter normally comes from the runtime catalog entry of the cache's `flavor` and `version`, pinned by digest.
+You seldom need this override.
+The exporter normally comes from the {term}`runtime catalog` entry of the cache's `flavor` and `version`, pinned by digest.
 A cache with `flavor: vinyl` needs the exporter built from the Vinyl image, `ghcr.io/bluedynamics/varnish-exporter:1.8.3-vinyl9.1.0`, which bundles `vinylstat`.
 The Varnish tag `1.8.3-varnish9.1.0` has no `vinylstat`.
 The sidecar would not start.
@@ -167,7 +167,7 @@ sum(rate(varnish_main_cache_hit[5m])) by (namespace)
 
 The cache has no counter for retries made in VCL.
 `varnish_main_backend_retry` counts something else (the internal retry on a reused connection) and stays at 0.
-A fetch that is retried on another backend increments `varnish_main_backend_fail` and `varnish_main_fetch_failed`, even though the client gets a normal response.
+A fetch that the cache retries on another backend increments `varnish_main_backend_fail` and `varnish_main_fetch_failed`, even though the client gets a normal response.
 A rise in those counters without a matching rise in 5xx responses at your ingress means the retries are absorbing backend failures:
 
 ```promql

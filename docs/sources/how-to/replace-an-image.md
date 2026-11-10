@@ -3,7 +3,8 @@
 # Replace an image in an emergency
 
 Normally new daemon versions and security rebuilds arrive with a chart release.
-If you need a fix before the next release, you can replace an image yourself, for one cache or for the whole cluster.
+If you need a fix before the next release, replace an image yourself.
+You can do so for one cache or for the whole cluster.
 Both ways are an ordinary rolling restart.
 
 (replace-an-image-one-cache)=
@@ -33,8 +34,8 @@ Remove `spec.image` once the fix is part of the catalog.
 ## For the whole cluster: the catalog in the chart values
 
 Override one catalog entry.
-All caches on that flavor and version roll to the new image.
-Dots in the version key must be escaped for `--set`.
+All caches on that {term}`flavor` and version roll to the new image.
+Escape the dots in the version key for `--set`.
 The quotes keep the shell from eating the backslashes:
 
 ```shell
@@ -46,7 +47,7 @@ helm upgrade cloud-vinyl oci://ghcr.io/bluedynamics/charts/cloud-vinyl \
 ```
 
 The form `runtimes.vinyl.versions."9.1.0".daemon` does not work in Helm.
-In a values file no escaping is needed:
+A values file needs no escaping:
 
 ```yaml
 runtimes:
@@ -64,7 +65,7 @@ Each StatefulSet rolls one pod at a time, with no throttling across caches.
 
 ## Remove the override
 
-An override stays in your values after the fix is released.
+An override stays in your values after a release ships the fix.
 Remove it when you upgrade to the release that contains the fix.
 Otherwise the cluster keeps running your image instead of the tested one.
 `--reset-then-reuse-values` reuses the user-supplied values of the last release.
@@ -75,10 +76,10 @@ Keep your overrides in a values file under version control.
 
 (replace-an-image-own-builds)=
 
-## Own builds and versions we do not ship
+## Own builds and versions the chart does not ship
 
 Add an entry under `runtimes.<flavor>.versions` for a version the chart does not list.
-`default` stays as it is unless you want it to change.
+`default` keeps its value unless you change it.
 The entry needs `daemon` and `exporter`, and the chart fails without them.
 An empty `tracer` defaults to this release's tracer, built for 9.1.0.
 That tracer cannot read the log of another version.

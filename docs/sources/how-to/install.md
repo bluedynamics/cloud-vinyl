@@ -88,7 +88,7 @@ Since 1.1 that cache holds only the Pods, Services, ConfigMaps, NetworkPolicies 
 Two types are still cached for the whole cluster:
 
 - EndpointSlices of all Services.
-  The backend Services of a VinylCache are yours and carry no label of ours.
+  The backend Services of a VinylCache are yours and carry no label of cloud-vinyl.
 - StatefulSets.
   Those created before 1.1 carry no label yet.
   1.1 labels every StatefulSet it reconciles.
@@ -114,7 +114,7 @@ The ClusterRole stays cluster-wide.
 
 ## Troubleshoot a failed VCL push
 
-The operator pushes the generated VCL to the `vinyl-agent` sidecar of every cache pod over HTTP on port 9090.
+The operator pushes the generated {term}`VCL` to the `vinyl-agent` sidecar of every cache pod over HTTP on port 9090.
 When that fails, the pods keep serving with the bootstrap VCL and the `VinylCache` reports phase `Error`:
 
 ```text
@@ -140,7 +140,7 @@ env:
         fieldPath: status.podIP
 ```
 
-Alternatively, label the namespace the operator runs in:
+Or label the namespace the operator runs in:
 
 ```shell
 kubectl label namespace cloud-vinyl-system vinyl.bluedynamics.eu/operator-namespace=true

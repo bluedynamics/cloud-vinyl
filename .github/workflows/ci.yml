@@ -131,10 +131,16 @@ jobs:
           curl -fsSL "https://github.com/errata-ai/vale/releases/download/v${VALE_VERSION}/vale_${VALE_VERSION}_Linux_64-bit.tar.gz" \
             | tar -xz -C /usr/local/bin vale
           vale --version
-      # Errors fail the build: spelling against the project vocabulary and the
-      # rules the docs already pass. Warnings and suggestions show in `make vale`.
+      # Every alert fails the build, suggestions included: the docs are clean,
+      # and a new acronym must be defined in reference/glossary.md and the
+      # vocabulary before Microsoft.Acronyms lets it pass.
       - name: Lint docs prose
         working-directory: docs
+        # Vale exits non-zero on errors only, so fail on any output line.
+        # "shell: bash" adds pipefail: without it a crashing vale (missing
+        # styles, bad config) is masked by tee and the step passes.
+        shell: bash
         run: |
           vale sync
-          vale --minAlertLevel=error sources
+          vale --output=line sources | tee "$RUNNER_TEMP/vale.out"
+          test ! -s "$RUNNER_TEMP/vale.out"

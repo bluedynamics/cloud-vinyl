@@ -1,7 +1,7 @@
 # Size memory for malloc storage
 
 A `malloc` storage lives in the heap of the varnishd child process.
-The container memory limit therefore has to cover more than `spec.storage[].size`.
+The container memory limit has to cover more than `spec.storage[].size`.
 This guide explains what else needs room, how the operator tunes the heap, and which counters show that a cache is too small.
 
 (size-memory-budget)=
@@ -11,13 +11,13 @@ This guide explains what else needs room, how the operator tunes the heap, and w
 Plan the container memory limit as the sum of:
 
 - the `malloc` storage sizes from `spec.storage` (100 MB for the default storage when `spec.storage` is empty),
-- the `Transient` storage, which holds uncacheable and short-lived objects and is unbounded by default,
+- the `Transient` storage, which holds uncacheable and short-lived objects and has no size limit by default,
 - per-thread workspaces (`thread_pool_max` threads, each with its own workspaces),
-- heap overhead: memory that was freed but not yet returned to the kernel, and fragmentation.
+- heap overhead: memory that varnishd freed but did not yet return to the kernel, and fragmentation.
 
 The last item is the one that surprises.
 Under eviction churn (objects constantly nuked to make room for new ones) the heap overhead can exceed the storage size itself.
-A cache with `malloc,1G` has been observed at 2.5 GiB RSS with jemalloc's default settings.
+A cache with `malloc,1G` reached 2.5 GiB RSS with jemalloc's default settings.
 With the operator's tuning described below it stays much closer to the storage size.
 Leave a generous margin anyway:
 
@@ -50,12 +50,12 @@ The operator sets `MALLOC_CONF` on the varnish container to
 thp:never,background_thread:true,dirty_decay_ms:5000,muzzy_decay_ms:0,narenas:<4 × CPU limit>
 ```
 
-- `thp:never` keeps transparent huge pages away from the heap.
+- `thp:never` keeps {term}`THP` away from the heap.
   On hosts with THP set to `always`, sparsely used extents are otherwise backed by 2 MiB pages.
   The setting uses `MADV_NOHUGEPAGE` and works whatever the host setting is.
 - `background_thread:true` returns freed pages to the kernel asynchronously.
   Without it, pages return only when an arena happens to see allocation activity.
-- `dirty_decay_ms:5000` and `muzzy_decay_ms:0` give freed pages back after 5 seconds and skip the lazily reclaimed "muzzy" state.
+- `dirty_decay_ms:5000` and `muzzy_decay_ms:0` give freed pages back after 5 seconds and skip the "muzzy" state of deferred reclaim.
 - `narenas` follows the CPU limit, rounded up to whole CPUs (0.5 CPU gives 4 arenas).
   jemalloc itself counts the node's CPUs and ignores the container limit.
   A pod limited to 0.5 CPU on a 20-core node would otherwise get 80 arenas.
@@ -69,7 +69,7 @@ If the image uses a different allocator, `MALLOC_CONF` has no effect.
 
 Set `MALLOC_CONF` in `spec.pod.env`.
 Your value replaces the operator's value as a whole.
-It is not merged with it.
+The operator does not merge the two.
 An empty value restores jemalloc's own defaults:
 
 ```yaml
@@ -106,4 +106,4 @@ spec:
 
 A higher limit lets one fetch evict more objects, which costs time on that fetch.
 The right value depends on the object size distribution.
-The operator therefore keeps varnishd's default.
+The operator keeps varnishd's default.
