@@ -69,6 +69,8 @@ budget time to break your own check on purpose before relying on it.
   together, or `kind load` fails with an unreadable containerd config error.
 - golangci-lint is pinned in both `.github/workflows/ci.yml` and the `Makefile`.
   They must match, or local and CI lint with different rule sets.
+- Vale is pinned as `VALE_VERSION` in both `.github/workflows/ci.yml` and the
+  `Makefile`. A new Vale release can change spelling and rule results.
 - Raising the `go` directive in `go.mod` forces a golangci-lint bump: the linter
   refuses to run when it was built with an older Go than the module targets.
 

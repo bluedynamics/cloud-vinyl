@@ -36,7 +36,7 @@ Use option 1 or 2 when you need a different volume type, a StorageClass, or pers
 
 (ssd-backed-storage-emptydir)=
 
-## Option 1: EmptyDir with sizeLimit
+## Option 1: EmptyDir with `sizeLimit`
 
 Useful when you want to cap cache disk use and isolate it from node ephemeral capacity, without per-pod persistence.
 
@@ -114,7 +114,7 @@ spec:
         mountPath: /var/lib/varnish-cache
 ```
 
-The StatefulSet creates one PVC per replica: `cache-ssd-my-cache-0`, `cache-ssd-my-cache-1`, and so on.
+The StatefulSet creates one PVC per replica, named after the pod ordinal: `cache-ssd-my-cache-0`, `cache-ssd-my-cache-1`.
 They persist across pod deletion (StatefulSet semantics).
 A rolling restart therefore keeps the warmed cache.
 

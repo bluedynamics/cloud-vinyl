@@ -57,11 +57,11 @@ It also fails the build if a chainsaw test reaches for `curl` or `wget`.
 Both directions have been demonstrated to fail on a real violation.
 The check itself once had a bug, a `pipefail`/`grep` interaction that let the `k8s.io` direction pass silently.
 That bug was caught and fixed before the check was trusted.
-`CLAUDE.md` at the repo root has the general warning this incident prompted.
+`CLAUDE.md` at the repository root has the general warning this incident prompted.
 
 Both halves are individually tempting to extend in the wrong direction.
 A quick `curl` in a chainsaw step looks harmless.
-So does importing a client to look up a pod name.
+Importing a client to look up a pod name breaks it too.
 A few of those and the suite has no structure left.
 
 ### How cache state is checked over HTTP
@@ -136,7 +136,7 @@ Together these are the end-to-end proof for defects that were fixed without any 
   An immediately-following request can legitimately still see the pre-purge object for a short, unbounded window.
   That is exactly the kind of nondeterminism this suite exists not to reintroduce.
   The two tests therefore do not assert against it.
-- Hard purge unrequestable at all (#95).
+- Hard purge could not be requested at all (#95).
   The defaulting webhook coerced `spec.invalidation.purge.soft` back to `true` on every admission.
   Both fixtures set an explicit `false`, and it is honored.
 - Shard-by-URL hashing nothing at request time (#92).

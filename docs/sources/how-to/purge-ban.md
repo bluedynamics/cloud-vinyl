@@ -81,8 +81,8 @@ That is expected and `status` stays `ok`.
 
 `objectsPurged` is **omitted** from the response, not `0`, when no pod reported a parseable count.
 This happens with an older `varnishd`, or when every pod's request failed outright.
-Treat a missing field as "unknown".
-Do not treat it as "confirmed zero", because the two mean very different things.
+Treat a missing field as unknown.
+Do not treat it as a confirmed zero, because the two mean very different things.
 
 (purge-ban-ban-expression)=
 
@@ -114,7 +114,7 @@ This route needs no opt-in on the VinylCache spec.
 
 ### Route 2: directly to the cache (BAN method on the traffic port)
 
-This route is available from v0.4.2 onwards.
+This route is available from v0.4.2 onward.
 It requires opt-in on the VinylCache:
 
 ```yaml

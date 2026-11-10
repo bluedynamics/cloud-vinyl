@@ -10,7 +10,7 @@ cloud-vinyl automates the VCL lifecycle: generation, compilation, activation, an
 When the operator reconciles a `VinylCache`, it feeds the spec into the VCL generator:
 
 1. **Collect peers**: list all `Ready` pods in the StatefulSet.
-2. **Build template data**: combine spec fields (backends, director settings, invalidation config, cluster peers) into a `TemplateData` struct.
+2. **Build template data**: combine spec fields (backends, director settings, invalidation settings, cluster peers) into a `TemplateData` struct.
 3. **Render templates**: 15 Go templates produce the full VCL program.
    The program consists of `main.vcl` plus subroutines for `vcl_init`, `vcl_recv`, `vcl_hash`, `vcl_hit`, `vcl_miss`, `vcl_pass`, `vcl_purge`, `vcl_pipe`, `vcl_synth`, `vcl_backend_fetch`, `vcl_backend_response`, `vcl_backend_error`, `vcl_deliver`, and `vcl_fini`.
 4. **Hash**: the SHA-256 of the rendered VCL serves as a content-addressable identifier.

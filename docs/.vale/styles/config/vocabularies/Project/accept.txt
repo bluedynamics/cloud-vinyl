@@ -1,0 +1,55 @@
+# Projects and products
+Alertmanager
+Grafana
+Plone
+kubectl
+envtest
+
+# Cache and VCL
+[Bb]ackends?
+[Bb]ackend's
+varnishd
+varnishd's
+varnishstat
+vinyld
+vmod
+[Xx]key
+jemalloc
+jemalloc's
+malloc
+storages
+(un)?sharded
+sharding
+subrequests?
+uncacheable
+revalidating
+[Dd]ebounc(e|es|ed|ing)
+invalidations
+URL's
+
+# Kubernetes
+[Nn]amespaces?
+[Nn]amespaced
+CRDs?
+PVCs?
+CIDRs?
+CNIs?
+IPs
+CPUs
+ACLs?
+OOMKill(ed)?
+[Tt]olerations
+descheduler
+rollout
+hostnames?
+chroot
+NVMe
+
+# Programming
+[Bb]oolean
+enum
+[Bb]ackoff
+parseable
+hardcoded
+misconfigured
+disambiguates

@@ -24,7 +24,7 @@ This is the right default for any application with cache locality.
 The same URL consistently lands on the same backend pod, which maximizes origin cache-hit rate.
 
 The defaults below apply only when `director:` is set on the backend.
-Without a `director:` block the director runs with the vmod defaults: no warmup, no rampup, `healthy=CHOSEN`.
+Without a `director:` block the director runs with the vmod defaults: no warmup, no ramp-up, `healthy=CHOSEN`.
 
 | Parameter | Default with `director:` set |
 |-----------|---------|
@@ -64,7 +64,7 @@ A cache with a single backend needs no snippet at all.
 | `shard` | Default. Sticky consistent-hashing, good for Plone and any app with cache locality. |
 | `round_robin` | Stateless backends where any pod can serve any request equally. |
 | `random` | Rarely needed. Prefer `round_robin` for stateless workloads. |
-| `hash` | Consistent hashing on a specific header (e.g. session affinity). Set `hash.header` for the default route. For other routes call `<backend>.backend(<key>)` from your `vcl_recv` snippet. |
+| `hash` | Consistent hashing on a specific header (for example session affinity). Set `hash.header` for the default route. For other routes call `<backend>.backend(<key>)` from your `vcl_recv` snippet. |
 | `fallback` | Primary/standby topology. The first healthy backend wins. |
 
 (per-backend-directors-mixed-workload)=
@@ -108,7 +108,7 @@ spec:
 ## Breaking change: snippet migration
 
 ```{important}
-VCL snippets that hardcoded per-pod backend names (e.g. `plone_0`, `plone_1`) break during rollouts.
+VCL snippets that hardcoded per-pod backend names (such as `plone_0` and `plone_1`) break during rollouts.
 The set of resolved pods comes from `EndpointSlice` and is re-numbered as pods come and go.
 `_0` may not exist in the updated pod set.
 

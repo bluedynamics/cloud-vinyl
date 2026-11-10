@@ -109,7 +109,7 @@ spec:
 
 ## ACLs
 
-There are two layers of access control, enforced at different points:
+Two layers of access control apply, enforced at different points:
 
 - **Proxy-side** (`spec.invalidation.purge.allowedSources`, `spec.invalidation.ban.allowedSources`): the operator's invalidation proxy checks the source CIDR before forwarding to pods.
   By default all sources are allowed.
