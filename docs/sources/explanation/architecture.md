@@ -1,7 +1,7 @@
 # Architecture
 
 cloud-vinyl is a Kubernetes operator that manages [Vinyl Cache](https://vinyl-cache.org/) clusters (the FOSS HTTP cache formerly known as Varnish Cache) as first-class Kubernetes resources.
-It is designed around the Kubernetes operator pattern with a central controller instead of per-pod sidecars.
+It follows the Kubernetes operator pattern with a central controller instead of per-pod sidecars.
 
 (architecture-components)=
 
@@ -26,7 +26,7 @@ graph TD
     WH -->|defaults + validates| VC
 ```
 
-### cloud-vinyl operator
+### `cloud-vinyl` operator
 
 The operator is a single Deployment that runs the reconcile loop.
 It does the following:
@@ -34,12 +34,12 @@ It does the following:
 
 - Watches `VinylCache` custom resources.
 - Reconciles StatefulSets, Services, Secrets, EndpointSlices, and NetworkPolicies.
-- Generates VCL from the `VinylCache` spec using Go templates.
+- Generates {term}`VCL` from the `VinylCache` spec using Go templates.
 - Pushes generated VCL to each ready pod via the **vinyl-agent** HTTP API.
 - Exposes metrics on port `8080` and serves admission webhooks on port `9443`.
-- Runs a Purge/BAN proxy on port `8090` that broadcasts cache-invalidation requests to all pods.
+- Runs a Purge/{term}`BAN` proxy on port `8090` that broadcasts cache-invalidation requests to all pods.
 
-### vinyl-agent
+### `vinyl-agent`
 
 A lightweight HTTP server running as a sidecar in each Vinyl Cache pod.
 It wraps the Vinyl Cache admin interface (port 6082) and exposes:
@@ -48,17 +48,18 @@ It wraps the Vinyl Cache admin interface (port 6082) and exposes:
 - `GET /vcl/active`: return the hash of the currently active VCL.
 - `POST /ban`: issue a ban command.
 
-Communication between the operator and vinyl-agent is authenticated with a Bearer token.
-The token is stored in a per-namespace Kubernetes Secret (`cloud-vinyl-agent-token`), shared by all VinylCache instances in the same namespace.
+The operator authenticates its requests to vinyl-agent with a Bearer token.
+A per-namespace Kubernetes Secret (`cloud-vinyl-agent-token`) holds the token.
+All VinylCache instances in the same namespace share that Secret.
 The operator reads the token from the Secret before each push request.
 
-### Purge/BAN proxy
+### Invalidation proxy
 
 The operator exposes an HTTP endpoint on port `8090` that accepts:
 
-- `PURGE /<path>`: HTTP PURGE broadcast to all Vinyl Cache pods.
+- `PURGE /<path>`: HTTP {term}`PURGE` broadcast to all Vinyl Cache pods.
 - `POST /ban` or `BAN` method: validated ban expression, forwarded to vinyl-agent `/ban` on all pods.
-- `POST /purge/xkey`: xkey-based purge, one `PURGE` per key with `X-Xkey-Purge` header.
+- `POST /purge/xkey`: {term}`xkey`-based purge, one `PURGE` per key with `X-Xkey-Purge` header.
 
 Upstream services send a single request.
 The operator fans it out to all pods in parallel.
@@ -94,39 +95,39 @@ other-cache-invalidation.billing.svc.cluster.local → {billing, other-cache}
 On each request, the proxy:
 
 1. Reads the `Host` header (stripping port).
-2. Looks it up in the `RegisteredRouter` to obtain `{namespace, cacheName}`.
+2. Looks it up in the `RegisteredRouter` to get `{namespace, cacheName}`.
    No match returns `404`.
 3. Looks up the list of ready pod IPs for that cache in a parallel `PodMap`.
 4. Broadcasts PURGE/BAN to every pod.
    It aggregates per-pod results into the JSON response.
 
 The discriminator is the FQDN.
-Two caches with the same name in different namespaces (`foo` in `a` and `foo` in `b`) are therefore unambiguous.
+Two caches with the same name in different namespaces (`foo` in `a` and `foo` in `b`) are unambiguous.
 The hosts `foo-invalidation.a` and `foo-invalidation.b` are distinct.
 
 The bare Service name (`foo-invalidation`) is never routed, even while only one namespace has a cache of that name.
-It is the same string from every namespace.
+Every namespace sees the same string.
 Accepting it would let a working client break, or purge the wrong cache, as soon as another namespace creates a `foo`.
 The proxy rejects it with a `404` that names the namespaced host or hosts.
 It counts the rejection in `vinyl_invalidation_unknown_host_total`.
 The cache's `status.invalidationURL` carries the address to use.
 
-**Gotcha, source IPs after SNAT.**
+**Gotcha, source IPs after {term}`SNAT`.**
 The proxy's source-CIDR ACL (`spec.invalidation.{purge,ban}.allowedSources`) sees the IP of whoever connected to the Service.
 For most CNIs that is the **kube-proxy SNAT source**.
-It is not the original caller.
+The original caller's address is not visible to the proxy.
 If you want tight source filtering, place it at an ingress or policy layer that preserves the client IP.
 
 (architecture-why-central-operator)=
 
-## Why a central operator instead of sidecars?
+## Reasons for a central operator instead of sidecars
 
-A per-pod signaller sidecar design that watches the Kubernetes Endpoints API and triggers VCL reloads has several structural problems:
+A per-pod signaller sidecar design that watches the Kubernetes Endpoints API and triggers VCL reloads has three structural problems:
 
 1. **Chicken-and-egg at startup**: pods with readiness gates cannot become ready until the sidecar receives the first VCL push.
    The sidecar needs other pods to be ready to build the peer list.
-2. **Silent drop on failure**: if a VCL push fails, the sidecar logs and continues.
-   Pods silently run stale VCL.
+2. **Silent drop on failure**: if a VCL push fails, the sidecar only logs it.
+   Pods run stale VCL without an error.
 3. **No debouncing**: rapid endpoint churn (rolling restarts) triggers many VCL regenerations back-to-back.
 
 cloud-vinyl solves all three:
@@ -134,7 +135,7 @@ cloud-vinyl solves all three:
 1. The operator pushes VCL after the pod passes its health probes.
    No readiness gate deadlock occurs.
 2. The reconcile loop retries on failure with exponential backoff (configurable via `spec.retry`).
-3. Debouncing is built in (`spec.debounce.duration`, default 1 s).
+3. The operator debounces changes (`spec.debounce.duration`, default 1 s).
 
 (architecture-rbac-scope)=
 

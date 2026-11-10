@@ -7,6 +7,7 @@ Technical reference documentation for cloud-vinyl.
 
 vinylcache-spec
 versions
+glossary
 helm-values
 metrics
 ```

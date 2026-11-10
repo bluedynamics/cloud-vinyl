@@ -1,6 +1,6 @@
 # Explanation
 
-Conceptual documentation that helps you understand how cloud-vinyl works and why it is designed the way it is.
+These pages explain how cloud-vinyl works and the reasons behind its design.
 
 ```{toctree}
 :maxdepth: 1

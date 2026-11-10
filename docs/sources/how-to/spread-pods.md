@@ -2,7 +2,7 @@
 
 With `spec.cluster.enabled`, each pod of a VinylCache holds its own shard of the cache.
 If two pods share a node, losing that node empties both shards at once and sends their traffic to the backends together.
-The operator therefore gives every VinylCache a pod anti-affinity that keeps its pods apart.
+The operator gives every VinylCache a pod anti-affinity that keeps its pods apart.
 This guide shows how to tune that rule for the whole cluster and for a single cache.
 
 (spread-pods-default)=
@@ -14,10 +14,10 @@ The scheduler spreads the pods over nodes when it can and still places them toge
 On a small cluster with a node down, a degraded cache on the remaining node beats a `Pending` pod.
 
 The rule selects the cache's own pods by the label `vinyl.bluedynamics.eu/cache-name`.
-It is set for every replica count.
-Scaling from one replica to two therefore does not restart the first pod.
+The operator sets it for every replica count.
+Scaling from one replica to two does not restart the first pod.
 
-A preferred rule only counts when a pod is scheduled.
+A preferred rule only counts when the scheduler places a pod.
 Pods that ended up on the same node stay there after the other node returns.
 A descheduler with the `RemoveDuplicates` strategy moves them apart again.
 
@@ -60,7 +60,7 @@ spec:
 
 ## Bring your own rule
 
-When `spec.pod.affinity.podAntiAffinity` is set, the operator uses it as given and generates nothing.
+When you set `spec.pod.affinity.podAntiAffinity`, the operator uses it as given and generates nothing.
 The admission webhook rejects setting it together with `spec.pod.podAntiAffinity`.
 
 `spec.pod.affinity.nodeAffinity` and `podAffinity` do not affect the default.

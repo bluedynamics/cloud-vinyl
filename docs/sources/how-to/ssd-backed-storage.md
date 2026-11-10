@@ -28,8 +28,8 @@ For every `type: file` storage without `path` the operator
   The scheduler then only places the pod on a node with that much free disk.
   An `ephemeral-storage` request you set yourself in `spec.resources` takes precedence.
 
-`size` is required in this form.
-`/var/lib/vinyl-storage` is reserved.
+This form requires `size`.
+The operator reserves `/var/lib/vinyl-storage`.
 Neither `path` nor `spec.pod.volumeMounts` may point into it.
 
 Use option 1 or 2 when you need a different volume type, a StorageClass, or persistence across restarts.
@@ -116,14 +116,14 @@ spec:
 
 The StatefulSet creates one PVC per replica, named after the pod ordinal: `cache-ssd-my-cache-0`, `cache-ssd-my-cache-1`.
 They persist across pod deletion (StatefulSet semantics).
-A rolling restart therefore keeps the warmed cache.
+A rolling restart keeps the warmed cache.
 
 Keep `spec.storage[].size` well under the PVC size.
 The daemon needs filesystem overhead: allow about 20%.
 
 ### Changing the claim templates later
 
-`spec.volumeClaimTemplates` cannot be edited once the VinylCache exists, just like a StatefulSet's.
+You cannot edit `spec.volumeClaimTemplates` once the VinylCache exists, as with a StatefulSet.
 The admission webhook rejects the change.
 The PVCs also outlive the VinylCache: a recreated cache binds the existing claims again, at their old size.
 To grow the volumes, resize the PVCs directly if the StorageClass allows volume expansion.
@@ -133,11 +133,12 @@ Otherwise, delete the VinylCache and its PVCs and create it again.
 
 ## Reserved names and paths
 
-These names cannot be used for your volumes, because they collide with operator-managed volumes:
+Do not use these names for your volumes.
+They collide with operator-managed volumes:
 
 - `agent-token`, `varnish-secret`, `varnish-workdir`, `varnish-tmp`, `bootstrap-vcl`
 
-These mount paths are reserved by the operator:
+The operator reserves these mount paths:
 
 - `/run/vinyl`, `/etc/varnish/secret`, `/etc/varnish/default.vcl`, `/var/lib/varnish`, `/tmp`, `/var/lib/vinyl-storage`
 
@@ -145,14 +146,15 @@ These mount paths are reserved by the operator:
 Declare your own `pod.volumeMounts` entry that covers the path.
 
 The admission webhook rejects violations with a clear message.
-A `path` that lies under none of your `pod.volumeMounts` is admitted with a warning, because the file would then land in the container's writable layer.
+The webhook admits a `path` under none of your `pod.volumeMounts` with a warning.
+The file would then land in the container's writable layer.
 
 (ssd-backed-storage-memory)=
 
 ## Memory with a file storage
 
 varnishd `mmap`s the cache file.
-The objects it serves therefore live in the kernel's page cache.
+The objects it serves live in the kernel's page cache.
 The page cache counts against the container's memory limit.
 The kernel reclaims it under pressure instead of OOM-killing varnishd.
 The memory limit only has to cover the process itself plus whatever share of hot objects should stay in RAM.

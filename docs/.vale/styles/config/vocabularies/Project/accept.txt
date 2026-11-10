@@ -1,4 +1,8 @@
 # Projects and products
+cloud-vinyl
+Varnish
+Vinyl
+Vinyl Cache
 Alertmanager
 Grafana
 Plone
@@ -53,3 +57,30 @@ parseable
 hardcoded
 misconfigured
 disambiguates
+
+# Acronyms, each defined in docs/sources/reference/glossary.md
+(?i)ban
+CSI
+DNS
+ESI
+FOSS
+FQDN
+GID
+HTTP
+IRSA
+OOM
+(?i)proxy
+(?i)purge
+RBAC
+RSS
+SHA
+SNAT
+SSD
+THP
+TLS
+UID
+URL
+VCL
+VMOD
+VSM
+Argo CD

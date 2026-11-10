@@ -17,11 +17,11 @@ The VinylCache CRD is not controlled by a value.
 It ships in the chart's `crds/` directory, which Helm installs with the chart but never upgrades or deletes.
 Pass `--skip-crds` to manage the CRD yourself, and see [Upgrade cloud-vinyl](../how-to/upgrade.md) for applying it.
 The former `installCRDs` value never had an effect.
-It is still accepted, and ignored, until 2.0.
+The chart still accepts and ignores it until 2.0.
 
 (helm-values-image)=
 
-## image
+## `image`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -38,13 +38,13 @@ It is still accepted, and ignored, until 2.0.
 
 ## `runtimes`
 
-The runtime catalog: the flavor and version combinations a VinylCache can run, each with its daemon, exporter and tracer image.
+The {term}`runtime catalog`: the {term}`flavor` and version combinations a VinylCache can run, each with its daemon, exporter, and tracer image.
 The chart renders it into a ConfigMap that the operator reads at startup.
 An invalid catalog stops the operator with an error.
 The chart refuses to render a missing or broken one.
 A change restarts the operator, which then reconciles every cache.
 Leave it alone in the normal case.
-Each chart release ships entries that were tested together, pinned by digest.
+Each chart release ships entries the project tested together, pinned by digest.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -55,7 +55,7 @@ Each chart release ships entries that were tested together, pinned by digest.
 
 `<flavor>` is `varnish` or `vinyl`.
 No other flavor exists.
-Version keys are quoted strings.
+Quote version keys as strings.
 The chart ships these entries:
 
 | Flavor and version | `daemon` | `exporter` |
@@ -89,7 +89,7 @@ See {ref}`replace-an-image`.
 
 (helm-values-resources)=
 
-## resources
+## `resources`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -114,12 +114,12 @@ See {ref}`replace-an-image`.
 |-----|------|---------|-------------|
 | `operatorFlags.metricsAddr` | string | `:8080` | Metrics server bind address. |
 | `operatorFlags.probeAddr` | string | `:8081` | Health probe bind address. |
-| `operatorFlags.agentClientTimeout` | string | `30s` | HTTP timeout for vinyl-agent API calls, as a Go duration (`30s`, `1m30s`). Before 1.0.2 the value was ignored and the operator always used 30s. |
-| `operatorFlags.watchNamespaces` | list of strings | `[]` | Namespaces the operator watches. Empty watches the whole cluster. VinylCaches in other namespaces are ignored, and the webhook still admits them. See {ref}`install-watch-namespaces`. |
+| `operatorFlags.agentClientTimeout` | string | `30s` | HTTP timeout for vinyl-agent API calls, as a Go duration (`30s`, `1m30s`). Before 1.0.2 the operator ignored the value and always used 30s. |
+| `operatorFlags.watchNamespaces` | list of strings | `[]` | Namespaces the operator watches. Empty watches the whole cluster. The operator ignores VinylCaches in other namespaces, and the webhook still admits them. See {ref}`install-watch-namespaces`. |
 
 (helm-values-defaults)=
 
-## defaults
+## `defaults`
 
 Defaults the operator applies to every VinylCache.
 See [Spread cache pods across nodes](../how-to/spread-pods.md).
@@ -132,7 +132,7 @@ See [Spread cache pods across nodes](../how-to/spread-pods.md).
 
 (helm-values-webhook)=
 
-## webhook
+## `webhook`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -143,7 +143,7 @@ See [Spread cache pods across nodes](../how-to/spread-pods.md).
 
 (helm-values-monitoring)=
 
-## monitoring
+## `monitoring`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -158,7 +158,7 @@ See [Spread cache pods across nodes](../how-to/spread-pods.md).
 | `monitoring.serviceMonitor.endpointConfig` | object | `{}` | Merged into the scrape endpoint as is, for example `relabelings`, `metricRelabelings`, or an `authorization` block that replaces the default service account token. |
 | `monitoring.metrics.secure` | boolean | `true` | Serve the operator's `/metrics` over HTTPS with Kubernetes authentication and authorization. `false` serves plain HTTP without auth. The ServiceMonitor and the operator's RBAC follow the setting. |
 | `monitoring.metrics.readerSubjects` | list | `[]` | RBAC subjects bound to the `<release>-metrics-reader` ClusterRole when secure, for example the Prometheus service account. |
-| `monitoring.metrics.tls.certManager` | boolean | `false` | Issue the metrics serving certificate from the chart's cert-manager issuer; the ServiceMonitor then verifies it. |
+| `monitoring.metrics.tls.certManager` | boolean | `false` | Issue the metrics serving certificate from the chart's cert-manager issuer. The ServiceMonitor then verifies it. |
 | `monitoring.metrics.tls.secretName` | string | `""` | Use an existing `kubernetes.io/tls` Secret as the metrics serving certificate. |
 
 (helm-values-security-contexts)=

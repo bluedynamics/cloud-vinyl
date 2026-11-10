@@ -30,8 +30,8 @@ The error names the host to use, and the operator counts every rejection in `vin
 
 The cache keys a cached page by its URL and its site host, for example `example.org`.
 The request to the proxy carries the invalidation host instead.
-You must tell the proxy which site host to purge under.
-Name it in the `X-Vinyl-Purge-Host` header, comma-separated for several hosts:
+You must tell the proxy which site host to {term}`purge <PURGE>` under.
+Name it in the `X-Vinyl-Purge-Host` header, comma-separated for a list of hosts:
 
 ```shell
 curl -X PURGE -H "X-Vinyl-Purge-Host: example.org" \
@@ -61,13 +61,13 @@ Response, with one entry per pod in `results`:
 {"status":"ok","total":3,"succeeded":3,"objectsPurged":1,"results":[{"pod":"10.0.1.12:8080","status":200,"objectsPurged":1},{"pod":"10.0.1.13:8080","status":200,"objectsPurged":0},{"pod":"10.0.1.14:8080","status":200,"objectsPurged":0}]}
 ```
 
-With several hosts, every pod result carries the `host` it purged.
-`total`, `succeeded` and `objectsPurged` cover all of them.
+With a list of hosts, every pod result carries the `host` it purged.
+`total`, `succeeded` and `objectsPurged` cover every host.
 
 `status` is one of:
 
 - `ok`: all pods purged successfully.
-- `partial`: some pods failed (cache is partially stale).
+- `partial`: some pods failed (the cache is stale on those pods).
 - `failed`: all pods failed.
 
 `succeeded` counts pods that *answered*.
@@ -77,12 +77,14 @@ It does not mean anything was there to purge.
 `objectsPurged` is the actual count, summed from every pod's `X-Vinyl-Purged` response header.
 Each pod's own count is on its entry in `results`.
 Once cluster sharding routes a URL to a single owner pod, a correct broadcast purge legitimately removes 0 objects on every other pod.
-That is expected and `status` stays `ok`.
+Expect this result.
+`status` stays `ok`.
 
-`objectsPurged` is **omitted** from the response, not `0`, when no pod reported a parseable count.
+The response **omits** `objectsPurged` when no pod reported a parseable count.
 This happens with an older `varnishd`, or when every pod's request failed outright.
 Treat a missing field as unknown.
-Do not treat it as a confirmed zero, because the two mean very different things.
+Do not treat it as a confirmed zero.
+A missing field and a zero have different meanings.
 
 (purge-ban-ban-expression)=
 
@@ -93,7 +95,7 @@ Pick based on where your client sits and how much control you want over the vali
 
 ### Route 1: via the operator invalidation proxy (recommended for most callers)
 
-The proxy accepts BAN as either a JSON POST or the native BAN HTTP method.
+The proxy accepts {term}`BAN` as either a JSON POST or the native BAN HTTP method.
 It validates the expression and forwards it to `varnishadm ban` on every pod via the agent:
 
 ```shell
@@ -138,22 +140,22 @@ Responses:
 - `200 Banned`: expression compiled and registered.
 - `400 Missing X-Vinyl-Ban header`: header absent.
 - `400 Invalid ban expression: <compiler message>`: `std.ban()` rejected the expression.
-  The compiler error is returned verbatim for diagnosis.
+  The response carries the compiler error verbatim for diagnosis.
 - `403 Forbidden`: client IP is not in `vinyl_ban_allowed` (the localhost, the operator IP and `ban.allowedSources`).
 
 Use `obj.http.x-url` and `obj.http.x-host` rather than `req.*`.
-Only the former can be processed by the ban lurker.
+The {term}`ban lurker` processes only the former.
 `req.*` bans accumulate and degrade performance O(n*m).
-The operator emits these helper headers on every cached object when `ban.enabled: true` is set (or when xkey is enabled).
+The operator emits these helper headers on every cached object when you set `ban.enabled: true` (or enable {term}`xkey`).
 
 **Security**: any client inside `vinyl_ban_allowed` can invalidate the entire cache with an arbitrary expression.
-Scope `ban.allowedSources` tightly.
+Restrict `ban.allowedSources` to the narrowest source ranges.
 
 (purge-ban-xkey)=
 
 ## Purge by xkey (surrogate key)
 
-This requires `spec.invalidation.xkey` to be enabled in the `VinylCache`.
+This requires you to enable `spec.invalidation.xkey` in the `VinylCache`.
 
 ```shell
 curl -X POST http://my-cache-invalidation.app:8090/purge/xkey \

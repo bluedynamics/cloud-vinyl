@@ -1,6 +1,6 @@
 # VCL lifecycle
 
-The Vinyl Cache daemon compiles its configuration language, VCL, at runtime.
+The Vinyl Cache daemon compiles its configuration language, {term}`VCL`, at runtime.
 cloud-vinyl automates the VCL lifecycle: generation, compilation, activation, and drift detection.
 
 (vcl-lifecycle-generation)=
@@ -23,7 +23,7 @@ With `spec.cluster.enabled`, each client request passes through the cache twice.
 The pod that receives it (the relay hop) sends it with `return(pass)` to the pod that owns the URL's shard.
 That pod (the owner hop) does the cache lookup and, on a miss, the backend fetch.
 Both hops run the same VCL.
-The generator therefore decides which custom snippets run on which hop:
+The generator decides which custom snippets run on which hop:
 
 | Snippet | Relay hop | Owner hop |
 |---|---|---|
@@ -36,31 +36,31 @@ The generator therefore decides which custom snippets run on which hop:
 Snippets that belong to the lookup and the fetch run on the owner hop only.
 On the relay hop they would undo the owner's work.
 A `vclDeliver` snippet that sets `x-cache` from `obj.hits` would overwrite the owner's `HIT` with `MISS`, because a passed request has no hits.
-A URL rewrite in `vclBackendFetch` would be applied twice.
+A URL rewrite in `vclBackendFetch` would run twice.
 `vclBackendError` and `vclSynth` run on both hops, because the relay hop builds the error page when the owner pod fails.
 
 The relay hop marks the request with the `X-Vinyl-Shard` header and forwards it to the owner, which removes it in `vcl_recv`.
 The generator wraps the owner-only snippets in an `if (!req.http.X-Vinyl-Shard)` block (`bereq.http` on the backend side).
 A `return` inside a snippet still works.
-Without cluster mode there is only one hop, and the snippets are rendered without the guard.
+Without cluster mode there is only one hop, and the generator renders the snippets without the guard.
 
 (cluster-esi)=
 
 ### ESI fragments in cluster mode
 
 With `spec.esi.enabled` as well, fragments are sharded like any other URL.
-The page is expanded on its owner hop, because the relay hop receives the already expanded body.
-An ESI subrequest starts from the headers its parent was received with.
+The owner hop expands the page, because the relay hop receives the already expanded body.
+An {term}`ESI` subrequest starts from the headers of its parent request.
 On the owner hop these include `X-Vinyl-Shard` from the relay.
-Left alone, the fragment would take the owner-hop path and be looked up and cached on the page's owner.
+Left alone, the fragment would take the owner-hop path, and the page's owner would look it up and cache it.
 Every pod that owns a page including a shared fragment (navigation, footer) would then fetch it from the backend itself.
 
-The generated `vcl_recv` therefore drops the header for ESI subrequests (`req.esi_level > 0`), before the shard decision.
+The generated `vcl_recv` drops the header for ESI subrequests (`req.esi_level > 0`), before the shard decision.
 The fragment is then relayed to its own shard owner like a fresh client request.
 It arrives there as a normal request (`esi_level` 0) carrying `X-Vinyl-Shard`.
 The owner serves it from its cache and does not route again.
 A relayed fragment cannot loop between pods for the same reason.
-The guard is only rendered when both cluster mode and ESI are enabled.
+The generator renders the guard only when you enable both cluster mode and ESI.
 
 (vcl-lifecycle-push)=
 
@@ -76,7 +76,7 @@ For each ready pod the operator:
 
 Pushes to all pods happen in parallel.
 If some pods fail but at least one succeeds, the operator records a `Degraded` status but does not return an error.
-Those pods are retried on the next reconcile.
+The next reconcile retries those pods.
 If all pods fail, the reconcile returns an error and triggers a retry.
 
 (vcl-lifecycle-debouncing)=
@@ -92,4 +92,4 @@ The operator debounces: it waits `spec.debounce.duration` (default 1 s) after th
 
 The operator detects pods that diverge from the desired VCL, for example after a manual `varnishadm vcl.use`.
 It finds them on the next reconcile cycle via the hash comparison in the push step.
-The `VinylCacheVCLDrift` PrometheusRule alert fires if more than 2 VCL versions are loaded.
+The `VinylCacheVCLDrift` PrometheusRule alert fires if the cache has more than 2 loaded VCL versions.

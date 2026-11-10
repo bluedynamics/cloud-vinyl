@@ -1,6 +1,6 @@
 # Route requests to backends
 
-This guide shows you how to choose a director, route requests in snippets, migrate old snippets, and tune retries and debounce.
+This guide shows you how to choose a {term}`director`, route requests in snippets, migrate old snippets, and tune retries and debounce.
 For the reasons behind the design, see {ref}`backend-routing-why-one-director`.
 For defaults and field details, see the [VinylCache spec reference](../reference/vinylcache-spec.md).
 
@@ -14,9 +14,9 @@ If another type fits your workload better, set `director.type`:
 
 | Type | Use when |
 |------|----------|
-| `shard` | Default. Sticky consistent-hashing, good for Plone and any app with cache locality. |
+| `shard` | Default. Sticky consistent hashing. Good for Plone and any app with cache locality. |
 | `round_robin` | Stateless backends where any pod can serve any request equally. |
-| `random` | Rarely needed. Prefer `round_robin` for stateless workloads. |
+| `random` | Seldom needed. Prefer `round_robin` for stateless workloads. |
 | `hash` | Consistent hashing on a specific header (for example session affinity). Set `hash.header` for the default route. For other routes call `<backend>.backend(<key>)` from your `vcl_recv` snippet. |
 | `fallback` | Primary/standby topology. The first healthy backend wins. |
 
@@ -114,7 +114,7 @@ spec:
 ```
 
 If you also want to change the hop between cache pods, set `spec.cluster.retry.maxRetries`.
-A request is then passed to another peer when the responsible one is gone.
+A request is then passed to another peer when the responsible one disappears.
 
 ```{note}
 The retry moves to another backend in `vcl_backend_fetch`, before your `vclBackendFetch` snippet.
@@ -131,5 +131,5 @@ See "Watch fetch retries" in [Set up monitoring](setup-monitoring.md) for how re
 ## Raise the debounce window
 
 If your backend pods have a long warm-up, raise `spec.debounce.duration` (default **1s**).
-The operator then avoids pushing VCL mid-rollout.
+The operator then avoids pushing {term}`VCL` mid-rollout.
 See {ref}`backend-routing-debounce` for what the window does.
