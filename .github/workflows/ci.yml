@@ -137,6 +137,9 @@ jobs:
       - name: Lint docs prose
         working-directory: docs
         # Vale exits non-zero on errors only, so fail on any output line.
+        # "shell: bash" adds pipefail: without it a crashing vale (missing
+        # styles, bad config) is masked by tee and the step passes.
+        shell: bash
         run: |
           vale sync
           vale --output=line sources | tee "$RUNNER_TEMP/vale.out"
