@@ -116,6 +116,15 @@ Since 1.1 they go through that backend's director (see {ref}`default-routing`).
   Before, they silently reached a pod of another backend.
 - Caches whose snippets always set the backend hint are not affected.
 
+(upgrade-from-0-9)=
+
+## Upgrading from 0.9.x: operator before the 9.1 image
+
+cloud-vinyl 0.9.0 and earlier cannot start a 9.1 daemon image.
+Their bootstrap VCL calls `synthetic()`, which 9.1 removed.
+The daemon exits when the VCL it loads at startup does not compile.
+Upgrade the operator first, then move `spec.image` to 9.1.
+
 (upgrade-crd)=
 
 ## Upgrade the CRD

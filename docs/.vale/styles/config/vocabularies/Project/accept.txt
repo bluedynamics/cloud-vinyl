@@ -22,7 +22,7 @@ storages
 sharding
 subrequests?
 uncacheable
-revalidating
+revalidat(es|ing)
 [Dd]ebounc(e|es|ed|ing)
 invalidations
 URL's

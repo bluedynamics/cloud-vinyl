@@ -13,7 +13,7 @@ ssd-backed-storage
 size-memory
 spread-pods
 switch-off-a-cache
-per-backend-directors
+route-requests
 purge-ban
 setup-monitoring
 upgrade
