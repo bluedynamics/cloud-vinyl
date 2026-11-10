@@ -23,7 +23,7 @@ The exporter and tracer still come from the catalog entry for `flavor` and `vers
 Always set `version` together with `image`.
 Without it, the sidecars follow the catalog's default version, which may not match the image you run, and the webhook warns about it.
 The webhook also warns when the last segment of the image repository names the other lineage.
-An example is a `varnish:*` image on a `vinyl` cache, which would fail to start with "executable file not found".
+An example is a `varnish:*` image on a `vinyl` cache, which would fail to start with `executable file not found`.
 A reference without a digest gets no warning.
 
 Remove `spec.image` once the fix is part of the catalog.

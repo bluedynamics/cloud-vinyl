@@ -109,6 +109,13 @@ docs: ## Build Sphinx documentation.
 docs-live: ## Live-reload Sphinx documentation (requires sphinx-autobuild).
 	sphinx-autobuild docs/sources docs/_build/html --watch docs/sources
 
+# Must match VALE_VERSION in .github/workflows/ci.yml.
+VALE_VERSION ?= 3.22.0
+
+.PHONY: vale
+vale: ## Lint the documentation prose with Vale (requires vale $(VALE_VERSION)).
+	cd docs && vale sync && vale sources
+
 ##@ Build
 
 .PHONY: build

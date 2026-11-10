@@ -123,3 +123,18 @@ jobs:
       - name: Build docs
         working-directory: docs
         run: .venv/bin/sphinx-build -W sources html
+      - name: Install Vale
+        env:
+          # Must match VALE_VERSION in the Makefile.
+          VALE_VERSION: "3.22.0"
+        run: |
+          curl -fsSL "https://github.com/errata-ai/vale/releases/download/v${VALE_VERSION}/vale_${VALE_VERSION}_Linux_64-bit.tar.gz" \
+            | tar -xz -C /usr/local/bin vale
+          vale --version
+      # Errors fail the build: spelling against the project vocabulary and the
+      # rules the docs already pass. Warnings and suggestions show in `make vale`.
+      - name: Lint docs prose
+        working-directory: docs
+        run: |
+          vale sync
+          vale --minAlertLevel=error sources

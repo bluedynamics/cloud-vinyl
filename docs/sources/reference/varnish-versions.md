@@ -112,7 +112,7 @@ With `spec.tracing` enabled, run a 9.1 cache, or add a catalog entry with a trac
 
 | Requirement | Reason |
 |-------------|--------|
-| `varnishd` (flavor `vinyl`: `vinyld`) on `PATH` | The operator sets the container command to the daemon binary and passes every flag itself, including `-F`, `-f`, `-a`, `-n` and `-s`. The image's entrypoint does not run, so its environment variables (`VARNISH_HTTP_PORT`, `VARNISH_SIZE` and so on) have no effect. |
+| `varnishd` (flavor `vinyl`: `vinyld`) on `PATH` | The operator sets the container command to the daemon binary and passes every flag itself, including `-F`, `-f`, `-a`, `-n` and `-s`. The image's entrypoint does not run, so its environment variables (such as `VARNISH_HTTP_PORT` and `VARNISH_SIZE`) have no effect. |
 | `vcl 4.1` | The generated VCL and the bootstrap VCL both declare `vcl 4.1`. |
 | `-j none` | The pods run as UID 65532. The default jail requires root for chroot setup. |
 

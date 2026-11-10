@@ -73,7 +73,7 @@ The operator bends Kubernetes DNS to make that work for callers.
 For each `VinylCache` named `my-cache` in namespace `app`, the reconciler creates:
 
 1. A `Service` named `my-cache-invalidation` in `app` (ClusterIP, port 8090).
-2. An `EndpointSlice` for that Service whose only endpoint is **the operator's own pod IP** (sourced from the `POD_IP` env var via the downward API).
+2. An `EndpointSlice` for that Service whose only endpoint is **the operator's own pod IP** (sourced from the `POD_IP` environment variable via the downward API).
 
 Result: a caller that sends
 

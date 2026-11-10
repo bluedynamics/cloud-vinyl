@@ -76,7 +76,7 @@ Each entry in `spec.backends` defines an upstream service:
 | `connectionParameters.firstByteTimeout` | duration | no | Time-to-first-byte timeout. Unset: varnishd's `first_byte_timeout`. |
 | `connectionParameters.betweenBytesTimeout` | duration | no | Between-bytes timeout. Unset: varnishd's `between_bytes_timeout`. |
 | `connectionParameters.maxConnections` | integer | no | Maximum concurrent connections to this backend. |
-| `probe.url` | string | no | Health probe URL (e.g. `/healthz`). Without `probe`, the backend is not probed. |
+| `probe.url` | string | no | Health probe URL (for example `/healthz`). Without `probe`, the backend is not probed. |
 | `probe.interval` | duration | no | Health probe interval (default: `5s`). |
 | `probe.timeout` | duration | no | Health probe timeout (default: `2s`). |
 | `probe.window` | integer | no | Number of recent probes evaluated (default: `5`, at most `64`). |
@@ -143,7 +143,7 @@ Snippets that reference a per-pod backend name such as `plone_0` are admitted.
 The admission webhook returns a warning for each snippet field and backend involved, because per-pod names are renumbered whenever the endpoints change.
 Use `<backend>.backend()` instead, see [Per-backend directors](../how-to/per-backend-directors.md).
 
-### varnishParameters
+### `varnishParameters`
 
 A `map[string]string`.
 Each entry becomes one `-p` flag on `varnishd`.
@@ -160,9 +160,9 @@ varnishParameters:
 ```
 
 renders as `-p feature=+esi_disable_xml_check -p thread_pool_max=1000 -p thread_pool_min=100` on the varnish container.
-The args come out sorted by key (`feature`, `thread_pool_max`, `thread_pool_min`).
+The arguments come out sorted by key (`feature`, `thread_pool_max`, `thread_pool_min`).
 They do not follow the order written in YAML.
-Sorting keeps the pod template from churning between reconciles for the same params.
+Sorting keeps the pod template from churning between reconciles for the same parameters.
 
 Two parameters are blocked by the admission webhook regardless of value, because they allow arbitrary code execution at VCL-compile time:
 `vcc_allow_inline_c` and `cc_command`.
@@ -171,7 +171,7 @@ ESI (Edge Side Includes) processing is controlled through the `esi` field, see t
 The `feature` key of `varnishParameters` is still relevant alongside it, for the one real varnishd feature bit ESI sometimes needs (`esi_disable_xml_check`).
 See that section for when and why.
 
-### esi
+### `esi`
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -188,7 +188,7 @@ Unlike most varnishd behavior toggles, no `varnishParameters` entry (`-p feature
 Real varnishd has no `esi` feature bit.
 Passing `{"feature": "+esi"}` (an earlier, now-removed convention) crashes varnishd outright with `Unknown feature bit (+esi)` instead of enabling anything.
 `esi.enabled` replaces that convention and carries no such risk.
-It never reaches varnishd's argv at all.
+It never reaches the varnishd command line at all.
 
 If response bodies do not reliably start with `<`, also set the real varnishd feature token alongside it.
 varnishd's ESI implementation sniffs the body to decide whether to scan it for `<esi:...>` tags.
@@ -248,7 +248,7 @@ See [Set up monitoring](../how-to/setup-monitoring.md) for the alerts.
 | `phase` | string | `Pending`, `Ready`, `Degraded`, `Error`, or `Stopped`. `Degraded` also covers a backend without endpoints, see `BackendsAvailable` below. `Stopped` means `spec.replicas` is `0`; it takes precedence over `Degraded`. |
 | `readyReplicas` | integer | Number of pods that passed their readiness checks. |
 | `activeVCL.hash` | string | SHA-256 hash of the currently active VCL. |
-| `invalidationURL` | string | Address for `PURGE`, `BAN` and xkey requests, e.g. `http://my-cache-invalidation.app:8090`. The host includes the namespace; the bare Service name is rejected. See [Purge and BAN the cache](../how-to/purge-ban.md). |
+| `invalidationURL` | string | Address for `PURGE`, `BAN` and xkey requests, for example `http://my-cache-invalidation.app:8090`. The host includes the namespace; the bare Service name is rejected. See [Purge and BAN the cache](../how-to/purge-ban.md). |
 | `runtime.flavor` | string | Resolved flavor. Shown in the printer column `Flavor`. |
 | `runtime.version` | string | Resolved version, including a default that followed the chart. Shown in the printer column `Version`. |
 | `runtime.daemon` | string | Resolved daemon image reference, after a `spec.image` override. |

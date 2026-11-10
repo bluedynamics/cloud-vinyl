@@ -36,7 +36,7 @@ It is still accepted, and ignored, until 2.0.
 
 (helm-values-runtimes)=
 
-## runtimes
+## `runtimes`
 
 The runtime catalog: the flavor and version combinations a VinylCache can run, each with its daemon, exporter and tracer image.
 The chart renders it into a ConfigMap that the operator reads at startup.
@@ -79,12 +79,12 @@ See {ref}`replace-an-image`.
 
 (helm-values-serviceaccount)=
 
-## serviceAccount
+## `serviceAccount`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `serviceAccount.create` | boolean | `true` | Create a dedicated ServiceAccount. |
-| `serviceAccount.annotations` | object | `{}` | Annotations for the ServiceAccount (e.g. IRSA). |
+| `serviceAccount.annotations` | object | `{}` | Annotations for the ServiceAccount (for example IRSA). |
 | `serviceAccount.name` | string | `""` | Override ServiceAccount name. |
 
 (helm-values-resources)=
@@ -100,7 +100,7 @@ See {ref}`replace-an-image`.
 
 (helm-values-leaderelection)=
 
-## leaderElection
+## `leaderElection`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -108,7 +108,7 @@ See {ref}`replace-an-image`.
 
 (helm-values-operatorflags)=
 
-## operatorFlags
+## `operatorFlags`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -155,9 +155,9 @@ See [Spread cache pods across nodes](../how-to/spread-pods.md).
 | `monitoring.serviceMonitor.scrapeTimeout` | string | `10s` | Prometheus scrape timeout. |
 | `monitoring.serviceMonitor.additionalLabels` | object | `{}` | Extra labels on the ServiceMonitor (for label selectors). |
 | `monitoring.serviceMonitor.tlsConfig` | object | `{}` | TLS settings for a secure scrape. Empty: verify against the chart's certificate with `monitoring.metrics.tls.certManager`, otherwise skip verification. |
-| `monitoring.serviceMonitor.endpointConfig` | object | `{}` | Merged into the scrape endpoint as is, e.g. `relabelings`, `metricRelabelings`, or an `authorization` block that replaces the default service account token. |
+| `monitoring.serviceMonitor.endpointConfig` | object | `{}` | Merged into the scrape endpoint as is, for example `relabelings`, `metricRelabelings`, or an `authorization` block that replaces the default service account token. |
 | `monitoring.metrics.secure` | boolean | `true` | Serve the operator's `/metrics` over HTTPS with Kubernetes authentication and authorization. `false` serves plain HTTP without auth. The ServiceMonitor and the operator's RBAC follow the setting. |
-| `monitoring.metrics.readerSubjects` | list | `[]` | RBAC subjects bound to the `<release>-metrics-reader` ClusterRole when secure, e.g. the Prometheus service account. |
+| `monitoring.metrics.readerSubjects` | list | `[]` | RBAC subjects bound to the `<release>-metrics-reader` ClusterRole when secure, for example the Prometheus service account. |
 | `monitoring.metrics.tls.certManager` | boolean | `false` | Issue the metrics serving certificate from the chart's cert-manager issuer; the ServiceMonitor then verifies it. |
 | `monitoring.metrics.tls.secretName` | string | `""` | Use an existing `kubernetes.io/tls` Secret as the metrics serving certificate. |
 

@@ -47,3 +47,7 @@ Thumbs.db
 
 # Editor/assistant session artifacts
 .claude/
+
+# Vale styles are downloaded by `vale sync`
+docs/.vale/styles/Microsoft/
+docs/.vale/styles/write-good/
