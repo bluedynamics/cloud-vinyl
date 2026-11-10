@@ -1,6 +1,8 @@
-# Helm Values Reference
+# Helm values reference
 
 All configurable values for the `cloud-vinyl` Helm chart.
+
+(helm-values-top-level)=
 
 ## Top-level
 
@@ -11,11 +13,13 @@ All configurable values for the `cloud-vinyl` Helm chart.
 | `fullnameOverride` | string | `""` | Override full resource name (replaces `<release>-<chart>`). |
 | `imagePullSecrets` | list | `[]` | Image pull secrets for private registries. |
 
-The VinylCache CRD is not controlled by a value. It ships in the chart's `crds/`
-directory, which Helm installs with the chart but never upgrades or deletes. Pass
-`--skip-crds` to manage the CRD yourself, and see
-[Upgrade cloud-vinyl](../how-to/upgrade.md) for applying it. The former `installCRDs`
-value never had an effect; it is still accepted, and ignored, until 2.0.
+The VinylCache CRD is not controlled by a value.
+It ships in the chart's `crds/` directory, which Helm installs with the chart but never upgrades or deletes.
+Pass `--skip-crds` to manage the CRD yourself, and see [Upgrade cloud-vinyl](../how-to/upgrade.md) for applying it.
+The former `installCRDs` value never had an effect.
+It is still accepted, and ignored, until 2.0.
+
+(helm-values-image)=
 
 ## image
 
@@ -34,12 +38,13 @@ value never had an effect; it is still accepted, and ignored, until 2.0.
 
 ## runtimes
 
-The runtime catalog: the flavor and version combinations a VinylCache can run, each with
-its daemon, exporter and tracer image. The chart renders it into a ConfigMap that the
-operator reads at startup. An invalid catalog stops the operator with an error, and the
-chart refuses to render a missing or broken one. A change restarts the operator, which
-then reconciles every cache. Leave it alone in the normal case: each chart release ships
-entries that were tested together, pinned by digest.
+The runtime catalog: the flavor and version combinations a VinylCache can run, each with its daemon, exporter and tracer image.
+The chart renders it into a ConfigMap that the operator reads at startup.
+An invalid catalog stops the operator with an error.
+The chart refuses to render a missing or broken one.
+A change restarts the operator, which then reconciles every cache.
+Leave it alone in the normal case.
+Each chart release ships entries that were tested together, pinned by digest.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -48,29 +53,31 @@ entries that were tested together, pinned by digest.
 | `runtimes.<flavor>.versions."<version>".exporter` | string | see below | Exporter image. |
 | `runtimes.<flavor>.versions."<version>".tracer` | string | `""` | Tracer image. Empty uses the tracer of this chart release: `ghcr.io/bluedynamics/cloud-vinyl-tracer:<appVersion>` for `varnish`, `...:<appVersion>-vinyl` for `vinyl`. Pinned by digest in the released chart. |
 
-`<flavor>` is `varnish` or `vinyl`; no other flavor exists. Version keys are quoted
-strings. The chart ships these entries:
+`<flavor>` is `varnish` or `vinyl`.
+No other flavor exists.
+Version keys are quoted strings.
+The chart ships these entries:
 
 | Flavor and version | `daemon` | `exporter` |
 |---|---|---|
-| `varnish` 9.1.0 | `docker.io/library/varnish:9.1.0@sha256:...` | `ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0@sha256:...` |
-| `vinyl` 9.1.0 | `ghcr.io/bluedynamics/vinyl-cache:9.1.0-r1@sha256:...` | `ghcr.io/bluedynamics/varnish-exporter:1.8.3-vinyl9.1.0@sha256:...` |
+| `varnish` 9.1.0 | `docker.io/library/varnish:9.1.0@sha256:<digest>` | `ghcr.io/bluedynamics/varnish-exporter:1.8.3-varnish9.1.0@sha256:<digest>` |
+| `vinyl` 9.1.0 | `ghcr.io/bluedynamics/vinyl-cache:9.1.0-r1@sha256:<digest>` | `ghcr.io/bluedynamics/varnish-exporter:1.8.3-vinyl9.1.0@sha256:<digest>` |
 
 See the chart's `values.yaml` for the digests of the release you installed.
 
-The chart schema accepts tags as well as digests, because CI and end-to-end runs point
-entries at images built in the same job, and because you may need a tag in an emergency.
-The release workflow refuses to package a chart whose catalog has an image without
-digest.
+The chart schema accepts tags as well as digests.
+CI and end-to-end runs point entries at images built in the same job, and you may need a tag in an emergency.
+The release workflow refuses to package a chart whose catalog has an image without digest.
 
-To override an entry on the command line, escape the dots of the version key and quote
-the backslashes:
+To override an entry on the command line, escape the dots of the version key and quote the backslashes:
 
-```bash
---set 'runtimes.vinyl.versions.9\.1\.0.daemon=registry.example/vinyl-cache@sha256:...'
+```shell
+--set 'runtimes.vinyl.versions.9\.1\.0.daemon=registry.example/vinyl-cache@sha256:<digest>'
 ```
 
 See {ref}`replace-an-image`.
+
+(helm-values-serviceaccount)=
 
 ## serviceAccount
 
@@ -79,6 +86,8 @@ See {ref}`replace-an-image`.
 | `serviceAccount.create` | boolean | `true` | Create a dedicated ServiceAccount. |
 | `serviceAccount.annotations` | object | `{}` | Annotations for the ServiceAccount (e.g. IRSA). |
 | `serviceAccount.name` | string | `""` | Override ServiceAccount name. |
+
+(helm-values-resources)=
 
 ## resources
 
@@ -89,11 +98,15 @@ See {ref}`replace-an-image`.
 | `resources.limits.cpu` | string | `500m` | CPU limit. |
 | `resources.limits.memory` | string | `256Mi` | Memory limit. |
 
+(helm-values-leaderelection)=
+
 ## leaderElection
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `leaderElection.enabled` | boolean | `true` | Enable leader election. Required when `replicaCount > 1`. |
+
+(helm-values-operatorflags)=
 
 ## operatorFlags
 
@@ -104,16 +117,20 @@ See {ref}`replace-an-image`.
 | `operatorFlags.agentClientTimeout` | string | `30s` | HTTP timeout for vinyl-agent API calls, as a Go duration (`30s`, `1m30s`). Before 1.0.2 the value was ignored and the operator always used 30s. |
 | `operatorFlags.watchNamespaces` | list of strings | `[]` | Namespaces the operator watches. Empty watches the whole cluster. VinylCaches in other namespaces are ignored, and the webhook still admits them. See {ref}`install-watch-namespaces`. |
 
+(helm-values-defaults)=
+
 ## defaults
 
-Defaults the operator applies to every VinylCache. See
-[Spread cache pods across nodes](../how-to/spread-pods.md).
+Defaults the operator applies to every VinylCache.
+See [Spread cache pods across nodes](../how-to/spread-pods.md).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `defaults.podAntiAffinity.type` | string | `preferred` | Pod anti-affinity between the pods of one VinylCache: `preferred`, `required` or `none`. |
 | `defaults.podAntiAffinity.topologyKey` | string | `kubernetes.io/hostname` | Node label whose values are the domains to spread across. |
 | `defaults.podAntiAffinity.weight` | integer | `100` | Weight of a preferred rule, 1 to 100. |
+
+(helm-values-webhook)=
 
 ## webhook
 
@@ -123,6 +140,8 @@ Defaults the operator applies to every VinylCache. See
 | `webhook.tls.caCert` | string | `""` | Base64-encoded CA cert (used when `certManager.enabled: false`). |
 | `webhook.tls.cert` | string | `""` | Base64-encoded TLS certificate. |
 | `webhook.tls.key` | string | `""` | Base64-encoded TLS private key. |
+
+(helm-values-monitoring)=
 
 ## monitoring
 
@@ -142,6 +161,8 @@ Defaults the operator applies to every VinylCache. See
 | `monitoring.metrics.tls.certManager` | boolean | `false` | Issue the metrics serving certificate from the chart's cert-manager issuer; the ServiceMonitor then verifies it. |
 | `monitoring.metrics.tls.secretName` | string | `""` | Use an existing `kubernetes.io/tls` Secret as the metrics serving certificate. |
 
+(helm-values-security-contexts)=
+
 ## Security contexts
 
 | Key | Type | Default | Description |
@@ -152,6 +173,8 @@ Defaults the operator applies to every VinylCache. See
 | `securityContext.allowPrivilegeEscalation` | boolean | `false` | Prevent privilege escalation. |
 | `securityContext.readOnlyRootFilesystem` | boolean | `true` | Mount root filesystem read-only. |
 | `securityContext.capabilities.drop` | list | `["ALL"]` | Drop all Linux capabilities. |
+
+(helm-values-scheduling)=
 
 ## Scheduling
 

@@ -1,28 +1,28 @@
-# Varnish Version Support
+# Varnish and Vinyl Cache version support
 
-cloud-vinyl runs two lineages of the cache daemon, selected with `spec.flavor`: `varnish`
-(the docker-library `varnish` image) and `vinyl` (Vinyl Cache, in an image we publish).
-This page states which versions the operator is built and tested against. See
-{ref}`explanation-lineages` for the difference and {ref}`run-vinyl-cache` for how to
-choose.
+cloud-vinyl runs two lineages of the cache daemon, selected with `spec.flavor`: `varnish` (the docker-library `varnish` image) and `vinyl` (Vinyl Cache, in an image we publish).
+This page states which versions the operator is built and tested against.
+See {ref}`explanation-lineages` for the difference and {ref}`run-vinyl-cache` for how to choose.
+
+(varnish-versions-support-matrix)=
 
 ## Support matrix
 
-The runtime catalog of the chart ships these combinations. Each has a daemon, an
-exporter and a tracer image, pinned by digest.
+The runtime catalog of the chart ships these combinations.
+Each has a daemon, an exporter and a tracer image, pinned by digest.
 
 | Flavor | Version | Status | Daemon image |
 |--------|---------|--------|--------------|
 | `varnish` | 9.1.0 | **Supported**, default | `docker.io/library/varnish:9.1.0` |
 | `vinyl` | 9.1.0 | **Supported** | `ghcr.io/bluedynamics/vinyl-cache:9.1.0-r1` |
 
-The end-to-end suite runs against both rows. A flavor and version that is not in the
-catalog is rejected by the admission webhook. For a daemon version the catalog does not
-list, add an entry in the chart values (see {ref}`helm-values-runtimes`).
+The end-to-end suite runs against both rows.
+The admission webhook rejects a flavor and version that is not in the catalog.
+For a daemon version the catalog does not list, add an entry in the chart values (see {ref}`helm-values-runtimes`).
 
-Older Varnish versions are not in the catalog. They still run with `spec.image` as a
-daemon override; the sidecars then follow the catalog's default version, and the
-webhook warns about it (see {ref}`replace-an-image`).
+Older Varnish versions are not in the catalog.
+They still run with `spec.image` as a daemon override.
+The sidecars then follow the catalog's default version, and the webhook warns about it (see {ref}`replace-an-image`).
 
 | Varnish | Status | Notes |
 |---------|--------|-------|
@@ -35,76 +35,78 @@ webhook warns about it (see {ref}`replace-an-image`).
 
 The default cache in the documentation and end-to-end fixtures is `varnish` 9.1.0.
 
-The Varnish versions above are those of the docker-library `varnish` image, which
-Varnish Software builds. The open source project formerly called Varnish Cache
-is now [Vinyl Cache](https://vinyl-cache.org/). It uses the same version
-numbers for different builds. For Vinyl we publish
-`ghcr.io/bluedynamics/vinyl-cache`, with the immutable tags `<version>-r<N>` and a moving
-tag `<version>`.
+The Varnish versions above are those of the docker-library `varnish` image, which Varnish Software builds.
+The open source project formerly called Varnish Cache is now [Vinyl Cache](https://vinyl-cache.org/).
+It uses the same version numbers for different builds.
+For Vinyl we publish `ghcr.io/bluedynamics/vinyl-cache`, with the immutable tags `<version>-r<N>` and a moving tag `<version>`.
+
+(varnish-versions-upgrading-9-1)=
 
 ## Upgrading to Varnish 9.1
 
-cloud-vinyl 0.9.0 and earlier cannot start a 9.1 image. Their bootstrap VCL
-calls `synthetic()`, which Varnish 9.1 removed, and varnishd exits when the
-VCL it loads at startup does not compile. Upgrade the operator first, then
-move `spec.image` to 9.1.
+cloud-vinyl 0.9.0 and earlier cannot start a 9.1 image.
+Their bootstrap VCL calls `synthetic()`, which Varnish 9.1 removed.
+varnishd exits when the VCL it loads at startup does not compile.
+Upgrade the operator first, then move `spec.image` to 9.1.
 
-Do not name a storage `synth` in `spec.storage`. Varnish 9.1 defines a storage
-of that name, and the admission webhook rejects it.
+Do not name a storage `synth` in `spec.storage`.
+Varnish 9.1 defines a storage of that name, and the admission webhook rejects it.
+
+(varnish-versions-why-6-0-unsupported)=
 
 ## Why 6.0 LTS is not supported
 
 Two independent mechanisms break on the 6.0 series.
 
-**The metrics exporter cannot be built for it.** The exporter sidecar bundles a
-`varnishstat` copied from the cache image, together with `libvarnishapi`. Varnish
-7.6 through 9.1 ship `libvarnishapi.so.3`; Varnish 6.0 ships `libvarnishapi.so.1`.
-`Dockerfile.exporter` copies the `.so.3` generation and fails the build when the
-base image does not provide it.
+**The metrics exporter cannot be built for it.**
+The exporter sidecar bundles a `varnishstat` copied from the cache image, together with `libvarnishapi`.
+Varnish 7.6 through 9.1 ship `libvarnishapi.so.3`.
+Varnish 6.0 ships `libvarnishapi.so.1`.
+`Dockerfile.exporter` copies the `.so.3` generation and fails the build when the base image does not provide it.
 
-**The agent cannot read `vcl.list`.** Varnish 6.0 collapses the state and
-temperature fields into a single column:
+**The agent cannot read `vcl.list`.**
+Varnish 6.0 collapses the state and temperature fields into a single column:
 
 ```text
 varnish 6.0.18:  active      auto/warm          0 boot
 varnish 8.0.2:   active   auto   warm   0   boot
 ```
 
-The agent parses the five-column layout. Against a 6.0 varnishd it reports an
-error rather than a VCL name, the `/health` endpoint returns `503`, and the pod
-stays out of the Service endpoints.
+The agent parses the five-column layout.
+Against a 6.0 varnishd it reports an error rather than a VCL name.
+The `/health` endpoint returns `503`, and the pod stays out of the Service endpoints.
+
+(varnish-versions-mixing)=
 
 ## Mixing varnishstat and varnishd versions
 
-The exporter sidecar shells out to `varnishstat`, which reads the shared memory
-segment written by `varnishd`. Both must belong to the same `libvarnishapi`
-generation.
+The exporter sidecar shells out to `varnishstat`, which reads the shared memory segment written by `varnishd`.
+Both must belong to the same `libvarnishapi` generation.
 
-Within the `.so.3` generation, every combination of Varnish 7.6, 8.0 and 9.0 has
-been verified to work in both directions, and so has 8.0.2 with 9.1.0:
-`varnish_up` reports `1` and the full counter set is exported. Across the 6.0
-boundary, `varnishstat` reports `Could not get hold of varnishd, is it running?`
-and no `varnish_*` metrics are produced.
+Within the `.so.3` generation, every combination of Varnish 7.6, 8.0 and 9.0 works in both directions, as verified.
+8.0.2 with 9.1.0 works too.
+`varnish_up` reports `1` and the full counter set is exported.
+Across the 6.0 boundary, `varnishstat` reports `Could not get hold of varnishd, is it running?` and no `varnish_*` metrics are produced.
 
 ```{warning}
-This tolerance is a property of the current `libvarnishapi` generation, not a
-guarantee. You must keep `VARNISH_IMAGE` in `Dockerfile.exporter` aligned with
-the cache image you run.
+This tolerance is a property of the current `libvarnishapi` generation and carries no guarantee.
+Keep `VARNISH_IMAGE` in `Dockerfile.exporter` aligned with the cache image you run.
 ```
 
 (tracing-version-match)=
 
 ## Tracing needs an exact version match
 
-The tracer sidecar reads the shared memory log with a `varnishlog` copied from
-the cache image it was built against, and `varnishlog` does not read across
-versions. A 9.1.0 `varnishlog` against an 8.0.2 `varnishd`, or the reverse,
-prints nothing and reports no error: the tracer runs, and no spans arrive.
+The tracer sidecar reads the shared memory log with a `varnishlog` copied from the cache image it was built against.
+`varnishlog` does not read across versions.
+A 9.1.0 `varnishlog` against an 8.0.2 `varnishd`, or the reverse, prints nothing and reports no error.
+The tracer runs, and no spans arrive.
 
-The tracer image comes from the runtime catalog entry of the cache's flavor and
-version, and each release bundles the log tool of 9.1.0 (`varnishlog` or `vinyllog`).
-With `spec.tracing` enabled, run a 9.1 cache, or add a catalog entry with a tracer
-built for your version.
+The tracer image comes from the runtime catalog entry of the cache's flavor and version.
+Each release bundles the log tool of 9.1.0 (`varnishlog` or `vinyllog`).
+With `spec.tracing` enabled, run a 9.1 cache, or add a catalog entry with a tracer built for your version.
+
+(varnish-versions-version-specific)=
 
 ## Version-specific behavior
 
@@ -116,6 +118,6 @@ built for your version.
 
 All three are satisfied by every version in the support matrix above.
 
-varnishd's instance directory is `/var/lib/varnish/varnishd`, passed as `-n`
-to varnishd and to both sidecars. HTTP/2 is enabled with `-p feature=+http2`;
+varnishd's instance directory is `/var/lib/varnish/varnishd`, passed as `-n` to varnishd and to both sidecars.
+HTTP/2 is enabled with `-p feature=+http2`.
 `varnishParameters: {feature: "-http2"}` turns it off.
