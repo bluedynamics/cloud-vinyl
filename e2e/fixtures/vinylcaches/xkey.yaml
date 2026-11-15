@@ -1,0 +1,39 @@
+# Three independent pods with xkey invalidation, for xkey-invalidation (#191).
+#
+# No spec.cluster.enabled, the same as no-cluster.yaml: a request to a pod's
+# own StatefulSet DNS name is served and cached by that pod, so each of the
+# three pods holds its own copy of an object, and one key purge through the
+# invalidation service has three copies to remove.
+#
+# Only xkey is enabled. Nothing here uses URL purge, and the invalidation
+# proxy does not check spec.invalidation.purge.enabled; the PURGE block in
+# vcl_recv, which carries the xkey branch, is generated unconditionally. A
+# cache that turns on xkey alone must work, and this fixture is that cache.
+#
+# There is deliberately no spec.invalidation.purge.hosts. A URL purge needs
+# the site host the object was cached under (#134). A key purge must not:
+# xkey-invalidation removes objects cached under two different site hosts
+# with one request that names neither.
+apiVersion: vinyl.bluedynamics.eu/v1
+kind: VinylCache
+metadata:
+  name: my-cache
+spec:
+  flavor: ($values.flavor)
+  replicas: 3
+  backends:
+    - name: echo
+      serviceRef:
+        name: echo-backend
+      port: 80
+      probe:
+        url: /
+        interval: 5s
+        timeout: 1s
+        threshold: 2
+        window: 5
+  invalidation:
+    xkey:
+      enabled: true
+  debounce:
+    duration: 2s
