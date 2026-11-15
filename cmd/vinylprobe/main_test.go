@@ -433,3 +433,71 @@ func TestValidate_ExpectStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitKeys(t *testing.T) {
+	cases := map[string][]string{
+		"":       nil,
+		"k1":     {"k1"},
+		"k1, k2": {"k1", "k2"},
+		// Empties are kept so validate can reject them instead of
+		// silently purging fewer keys than the caller wrote.
+		"k1,,": {"k1", "", ""},
+	}
+	for raw, want := range cases {
+		got := splitKeys(raw)
+		if strings.Join(got, "|") != strings.Join(want, "|") || len(got) != len(want) {
+			t.Errorf("splitKeys(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestValidate_Xkey(t *testing.T) {
+	for name, f := range map[string]probeFlags{
+		"seed with keys":          {url: "http://x/", seed: true, xkeys: []string{"k1"}},
+		"seed with keys and host": {url: "http://x/", seed: true, xkeys: []string{"k1", "k2"}, host: "h"},
+		"purge-xkey with count": {
+			url: "http://x/purge/xkey", purgeXkey: true, xkeys: []string{"k1"},
+			expectPurgedSet: true, expectPurged: 0,
+		},
+	} {
+		if err := f.validate(); err != nil {
+			t.Errorf("%s: rejected: %v", name, err)
+		}
+	}
+	for name, f := range map[string]probeFlags{
+		"purge-xkey without keys": {url: "http://x/", purgeXkey: true},
+		"keys without a mode":     {url: "http://x/", xkeys: []string{"k1"}},
+		"keys with check":         {url: "http://x/", check: "t", expectStateSet: true, xkeys: []string{"k1"}},
+		"keys with url purge":     {url: "http://x/", purge: true, xkeys: []string{"k1"}},
+		"purge-xkey with purge":   {url: "http://x/", purgeXkey: true, purge: true, xkeys: []string{"k1"}},
+		"purge-xkey with host":    {url: "http://x/", purgeXkey: true, xkeys: []string{"k1"}, host: "h"},
+		"purge-xkey with purge-host": {
+			url: "http://x/", purgeXkey: true, xkeys: []string{"k1"}, purgeHost: "h",
+		},
+		"purge-xkey with expect": {url: "http://x/", purgeXkey: true, xkeys: []string{"k1"}, expectSet: true},
+		"empty key":              {url: "http://x/", seed: true, xkeys: []string{"k1", ""}},
+		// vmod_xkey splits a key on whitespace, so "k1 k2" would tag two keys.
+		"key with a space": {url: "http://x/", seed: true, xkeys: []string{"k1 k2"}},
+		"key with a tab":   {url: "http://x/", seed: true, xkeys: []string{"k1\tk2"}},
+	} {
+		if err := f.validate(); err == nil {
+			t.Errorf("%s: want a validation error", name)
+		}
+	}
+}
+
+// The xkey endpoint URL is the same for every purge, so a failure message
+// that named only -url would not say which keys missed.
+func TestDecidePurge_XkeyMessageNamesTheKeys(t *testing.T) {
+	f := probeFlags{
+		url: "http://inv/purge/xkey", purgeXkey: true, xkeys: []string{"k1", "k2"},
+		expectPurgedSet: true, expectPurged: 3,
+	}
+	v := decidePurge(new(0), f)
+	if v.exitCode != 1 {
+		t.Fatalf("exit code %d, want 1", v.exitCode)
+	}
+	if !strings.Contains(v.message, "xkey k1,k2") || !strings.Contains(v.message, "want 3") {
+		t.Fatalf("message %q should name the keys and the wanted count", v.message)
+	}
+}

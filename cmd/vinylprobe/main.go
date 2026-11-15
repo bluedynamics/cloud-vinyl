@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/bluedynamics/cloud-vinyl/internal/probe"
 )
@@ -28,7 +29,7 @@ const (
 		`(required with -check)`
 	seedHelp = "issue a single GET to -url with a fresh token, populate the cache, " +
 		"and print the token to stdout"
-	expectPurgedHelp = "expected objectsPurged count after -purge (requires -purge). " +
+	expectPurgedHelp = "expected objectsPurged count after -purge or -purge-xkey (requires one of them). " +
 		"The operator reporting no count at all is always a failure, never treated as 0."
 	purgeHostHelp = "site host(s) for -purge, sent as X-Vinyl-Purge-Host (comma-separated). " +
 		"The invalidation proxy is reached through its own Host, so this names the Host the " +
@@ -61,6 +62,12 @@ const (
 		"exit 0 on a match, 1 otherwise. Asserts eventual states such as a route answering 503."
 	minDurationHelp = "assert-spans: only count spans whose end-start duration is at least this long " +
 		"(requires -assert-spans)"
+	xkeyHelp = "comma-separated xkey keys (requires -seed or -purge-xkey). With -seed, the echo backend is " +
+		"asked through X-Echo-Header to tag the seeded response with an xkey header carrying them. " +
+		"With -purge-xkey, the keys to purge. A key must not contain whitespace: vmod_xkey splits on it."
+	purgeXkeyHelp = "POST the -xkey keys as {\"keys\": [...]} to -url, the full URL of the invalidation " +
+		"service's /purge/xkey endpoint, and require HTTP 200 (every pod answered). " +
+		"Combine with -expect-purged to assert the count."
 )
 
 // probeFlags holds every flag plus which ones were explicitly passed
@@ -73,10 +80,12 @@ type probeFlags struct {
 	check        string
 	timeout      time.Duration
 	purge        bool
+	purgeXkey    bool
 	seed         bool
 	expectPurged int
 	host         string
 	purgeHost    string
+	xkeys        []string
 
 	// otlp-sink and assert-spans mode flags (see otlpSinkHelp/assertSpansHelp).
 	otlpSink    string
@@ -113,6 +122,8 @@ func parseFlags() probeFlags {
 	expectPurged := flag.Int("expect-purged", 0, expectPurgedHelp)
 	host := flag.String("host", "", hostHelp)
 	purgeHost := flag.String("purge-host", "", purgeHostHelp)
+	xkey := flag.String("xkey", "", xkeyHelp)
+	purgeXkey := flag.Bool("purge-xkey", false, purgeXkeyHelp)
 
 	otlpSink := flag.String("otlp-sink", "", otlpSinkHelp)
 	assertSpans := flag.Bool("assert-spans", false, assertSpansHelp)
@@ -150,10 +161,12 @@ func parseFlags() probeFlags {
 		check:        *check,
 		timeout:      *timeout,
 		purge:        *purge,
+		purgeXkey:    *purgeXkey,
 		seed:         *seed,
 		expectPurged: *expectPurged,
 		host:         *host,
 		purgeHost:    *purgeHost,
+		xkeys:        splitKeys(*xkey),
 		otlpSink:     *otlpSink,
 		assertSpans:  *assertSpans,
 		sink:         *sink,
@@ -179,6 +192,40 @@ func parseFlags() probeFlags {
 		}
 	})
 	return f
+}
+
+// splitKeys splits -xkey's comma-separated value. Empty entries are kept, so
+// validateXkey can reject "k1,,k2" instead of quietly using fewer keys than
+// the caller wrote; an empty flag yields nil, meaning -xkey was not given.
+func splitKeys(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	keys := strings.Split(raw, ",")
+	for i, k := range keys {
+		keys[i] = strings.TrimSpace(k)
+	}
+	return keys
+}
+
+// validateXkey checks the -xkey/-purge-xkey rules. Split out from validate,
+// like validateSpanModes, to keep that function under the gocyclo limit.
+func (f probeFlags) validateXkey() error {
+	switch {
+	case f.purgeXkey && len(f.xkeys) == 0:
+		return errors.New("-purge-xkey requires -xkey")
+	case len(f.xkeys) > 0 && !f.seed && !f.purgeXkey:
+		return errors.New("-xkey only applies to -seed or -purge-xkey")
+	}
+	for _, k := range f.xkeys {
+		if k == "" {
+			return errors.New("-xkey has an empty key")
+		}
+		if strings.IndexFunc(k, unicode.IsSpace) >= 0 {
+			return fmt.Errorf("-xkey key %q contains whitespace; vmod_xkey would read it as several keys", k)
+		}
+	}
+	return nil
 }
 
 // validateSpanModes checks the -otlp-sink/-assert-spans flag combinations.
@@ -222,35 +269,47 @@ func (f probeFlags) validate() error {
 	if f.url == "" {
 		return errors.New("-url is required")
 	}
+	if err := f.validateXkey(); err != nil {
+		return err
+	}
 
-	// -purge, -seed, -check and -body-capture are four different, mutually
-	// exclusive modes; anything left over falls through to the original
-	// Detect (-expect hit|miss) mode.
+	// -purge, -purge-xkey, -seed, -check, -body-capture and -expect-status are
+	// mutually exclusive modes; anything left over falls through to the
+	// original Detect (-expect hit|miss) mode.
 	modes := 0
-	for _, on := range []bool{f.purge, f.seed, f.check != "", f.bodyCapture != "", f.expectStatus != 0} {
+	for _, on := range []bool{f.purge, f.purgeXkey, f.seed, f.check != "", f.bodyCapture != "", f.expectStatus != 0} {
 		if on {
 			modes++
 		}
 	}
 	switch {
 	case modes > 1:
-		return errors.New("-purge, -seed, -check, -body-capture and -expect-status are mutually exclusive")
+		return errors.New("-purge, -purge-xkey, -seed, -check, -body-capture and -expect-status are mutually exclusive")
 	case f.expectStatus != 0 && f.expectSet:
 		return errors.New("-expect has no effect with -expect-status; do not pass it")
 	case f.expectStatus < 0 || f.expectStatus > 599:
 		return errors.New("-expect-status must be an HTTP status code")
-	case (f.purge || f.seed) && f.expectSet:
-		return errors.New("-expect has no effect with -purge or -seed; do not pass it")
+	case (f.purge || f.purgeXkey || f.seed) && f.expectSet:
+		return errors.New("-expect has no effect with -purge, -purge-xkey or -seed; do not pass it")
 	case f.check != "" && f.expectSet:
 		return errors.New("-expect has no effect with -check; use -expect-state instead")
 	case f.check == "" && f.expectStateSet:
 		return errors.New("-expect-state only applies to -check")
-	case !f.purge && f.expectPurgedSet:
-		return errors.New("-expect-purged only applies to -purge")
-	case f.expectPurgedSet && f.expectPurged < 0:
-		return errors.New("-expect-purged must not be negative")
 	case f.host != "" && !f.purge && !f.seed && f.check == "" && f.bodyCapture == "" && f.expectStatus == 0:
 		return errors.New("-host only applies to -purge, -seed, -check, -body-capture, or -expect-status")
+	}
+	return f.validatePurgeOptions()
+}
+
+// validatePurgeOptions checks the options that only make sense with a purge
+// mode. Split out from validate, like validateXkey, to keep that function
+// under the gocyclo limit.
+func (f probeFlags) validatePurgeOptions() error {
+	switch {
+	case !f.purge && !f.purgeXkey && f.expectPurgedSet:
+		return errors.New("-expect-purged only applies to -purge or -purge-xkey")
+	case f.expectPurgedSet && f.expectPurged < 0:
+		return errors.New("-expect-purged must not be negative")
 	case f.purgeHost != "" && !f.purge:
 		return errors.New("-purge-host only applies to -purge")
 	}
@@ -289,6 +348,8 @@ func main() {
 	switch {
 	case f.purge:
 		runPurge(ctx, client, f)
+	case f.purgeXkey:
+		runPurgeXkey(ctx, client, f)
 	case f.seed:
 		runSeed(ctx, client, f)
 	case f.check != "":
@@ -325,7 +386,8 @@ func decidePurge(n *int, f probeFlags) purgeVerdict {
 	if n != nil {
 		got = fmt.Sprintf("%d", *n)
 	}
-	okMsg := fmt.Sprintf("OK: purged %s (objectsPurged=%s)", f.url, got)
+	target := f.purgeTarget()
+	okMsg := fmt.Sprintf("OK: purged %s (objectsPurged=%s)", target, got)
 
 	if !f.expectPurgedSet {
 		return purgeVerdict{exitCode: 0, message: okMsg}
@@ -333,16 +395,41 @@ func decidePurge(n *int, f probeFlags) purgeVerdict {
 	if n == nil {
 		return purgeVerdict{
 			exitCode: 1,
-			message:  fmt.Sprintf("FAIL: %s purge did not report an objects-purged count, want %d", f.url, f.expectPurged),
+			message:  fmt.Sprintf("FAIL: %s purge did not report an objects-purged count, want %d", target, f.expectPurged),
 		}
 	}
 	if *n != f.expectPurged {
 		return purgeVerdict{
 			exitCode: 1,
-			message:  fmt.Sprintf("FAIL: %s purged %d objects, want %d", f.url, *n, f.expectPurged),
+			message:  fmt.Sprintf("FAIL: %s purged %d objects, want %d", target, *n, f.expectPurged),
 		}
 	}
 	return purgeVerdict{exitCode: 0, message: okMsg}
+}
+
+// purgeTarget names what a purge addressed, for decidePurge's messages: the
+// URL for -purge, the keys for -purge-xkey, whose -url is the same endpoint
+// for every key.
+func (f probeFlags) purgeTarget() string {
+	if f.purgeXkey {
+		return "xkey " + strings.Join(f.xkeys, ",")
+	}
+	return f.url
+}
+
+// runPurgeXkey issues -purge-xkey and applies decidePurge's verdict, the
+// same way runPurge does for -purge.
+func runPurgeXkey(ctx context.Context, client *http.Client, f probeFlags) {
+	n, err := probe.PurgeXkey(ctx, client, f.url, f.xkeys)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
+	}
+	v := decidePurge(n, f)
+	fmt.Println(v.message)
+	if v.exitCode != 0 {
+		os.Exit(v.exitCode)
+	}
 }
 
 // runPurge issues -purge and applies decidePurge's verdict. Only the HTTP
@@ -362,7 +449,7 @@ func runPurge(ctx context.Context, client *http.Client, f probeFlags) {
 }
 
 func runSeed(ctx context.Context, client *http.Client, f probeFlags) {
-	tok, err := probe.Seed(ctx, client, f.url, f.host)
+	tok, err := probe.Seed(ctx, client, f.url, f.host, f.xkeys...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
