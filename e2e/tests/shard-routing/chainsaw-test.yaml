@@ -48,6 +48,14 @@ spec:
     original seed. One check after the purge is not a narrower test than
     three; against a single shared cache entry, three would not have
     measured three different things.
+
+    The same claim holds for a key purge (#191, item 7). The fixture also
+    enables xkey, and a second object, tagged with an xkey through the echo
+    backend and seeded through pod 2, is removed by one POST /purge/xkey.
+    The count is asserted at exactly 1: the entry pods relay with
+    return(pass) and never index the object, so only the owner's copy is
+    there to purge. The after-purge check again runs through exactly one
+    entry pod, for the reason given in the SUBTLETY above.
   timeouts:
     assert: 180s
     delete: 60s
@@ -166,6 +174,53 @@ spec:
                 -host "www.example.test" \
                 -check "${TOK}" -expect-state not-cached
 
+    - name: seed-tagged-via-pod-2
+      description: |
+        Seed a second object, tagged with the key shard-k1, entering
+        through pod 2, and confirm every entry pod reaches it. All three
+        checks are hits, so they do not disturb each other.
+      try:
+        - script:
+            content: |
+              set -eu
+              TOK=$(kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://my-cache-2.my-cache:8080/shard-routing/tagged" \
+                -host "www.example.test" -seed -xkey shard-k1)
+              echo "seeded via pod 2 with ${TOK}"
+              echo "${TOK}" > "/tmp/shard-routing-${NAMESPACE}-tagged"
+              for i in 0 1 2; do
+                kubectl exec -n $NAMESPACE probe -- \
+                  /vinylprobe -url "http://my-cache-${i}.my-cache:8080/shard-routing/tagged" \
+                  -host "www.example.test" \
+                  -check "${TOK}" -expect-state cached
+              done
+
+    - name: xkey-purge-through-invalidation-service
+      description: |
+        One key purge, broadcast to all three pods. Only the owner indexed
+        the object, so objectsPurged is exactly 1.
+      try:
+        - script:
+            content: |
+              set -eu
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://my-cache-invalidation.$NAMESPACE:8090/purge/xkey" \
+                -purge-xkey -xkey shard-k1 -expect-purged 1
+
+    - name: tagged-not-cached-after-xkey-purge
+      description: |
+        After-picture through pod 0, a different entry pod than the seed
+        used. One check only, see SUBTLETY in the test description.
+      try:
+        - script:
+            content: |
+              set -eu
+              TOK=$(cat "/tmp/shard-routing-${NAMESPACE}-tagged")
+              kubectl exec -n $NAMESPACE probe -- \
+                /vinylprobe -url "http://my-cache-0.my-cache:8080/shard-routing/tagged" \
+                -host "www.example.test" \
+                -check "${TOK}" -expect-state not-cached
+
     - name: cleanup
       try:
         - delete:
@@ -176,4 +231,5 @@ spec:
             file: ../../fixtures/backends/echo-service.yaml
         - script:
             content: |
-              rm -f "/tmp/shard-routing-${NAMESPACE}-tok"
+              rm -f "/tmp/shard-routing-${NAMESPACE}-tok" \
+                    "/tmp/shard-routing-${NAMESPACE}-tagged"

@@ -29,6 +29,12 @@
 #   Setting it to 0 (an explicit, non-nil override — see
 #   applyShardDefaults's nil check) makes routing depend only on the shard
 #   hash, which is what shard-routing is testing in the first place.
+#
+# invalidation.xkey.enabled: true is for shard-routing's key-purge steps
+# (#191). It leaves URL purges alone: the xkey branch in vcl_recv only fires
+# on X-Xkey-Purge. That branch runs before the cluster block, so a key purge
+# broadcast to every pod purges each pod's own store, and only the owner
+# holds a copy.
 apiVersion: vinyl.bluedynamics.eu/v1
 kind: VinylCache
 metadata:
@@ -60,5 +66,7 @@ spec:
     purge:
       enabled: true
       soft: false
+    xkey:
+      enabled: true
   debounce:
     duration: 2s
