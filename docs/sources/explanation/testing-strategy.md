@@ -84,6 +84,12 @@ A sharded broadcast purge legitimately removes 0 objects on every pod except the
 `-expect-purged N` asserts against that count directly.
 A missing count is always a failure and is never read as `0`.
 
+For key-based invalidation, `-seed -xkey k1,k2` seeds an object whose response carries the header `xkey: k1 k2`.
+`vinylprobe` asks the echo backend for that header through `X-Echo-Header`, so neither the backend nor the generated VCL needs a test hook.
+`-purge-xkey -xkey k1,k2` posts the keys to the `/purge/xkey` endpoint given as `-url` and takes `-expect-purged` the same way.
+It accepts only HTTP 200, which the invalidation proxy returns only when every pod answered.
+A partial broadcast with one pod down could otherwise report the `0` a test expects.
+
 Every seed, check and purge call also accepts `-host`.
 It overrides the HTTP `Host` header independent of the address `-url` dials.
 This exists because Vinyl Cache hashes `req.http.host` into the cache key (`vcl_hash.vcl.tmpl`).
@@ -97,9 +103,9 @@ A single broadcast `PURGE` can then match at most one of them.
 See the doc comment of `fetch` in `internal/probe/cache.go` for the full reasoning.
 The descriptions of `cache-and-invalidate` and `shard-routing` show where the tests use it.
 
-### What `cache-and-invalidate` and `shard-routing` prove
+### What the traffic tests prove
 
-Two chainsaw tests send real HTTP traffic through the cache and check what comes back.
+Three chainsaw tests send real HTTP traffic through the cache and check what comes back.
 They then invalidate it and check again.
 
 **`cache-and-invalidate`** (fast suite) runs without `spec.cluster.enabled`.
@@ -123,8 +129,9 @@ Asserting `3` would be wrong.
 The check for "not cached" after the purge goes through exactly one entry pod.
 Every entry funnels to the same single cache entry under clustering.
 A second check would observe the first check's own cache-repopulating miss and not the purge's aftermath.
+It repeats the same proof for a key purge: one `POST /purge/xkey` removes an object tagged with an xkey, asserting `-expect-purged 1`.
 
-Together these are the end-to-end proof for defects that the project fixed without any checked-in evidence:
+Together, `cache-and-invalidate` and `shard-routing` are the end-to-end proof for defects that the project fixed without any checked-in evidence:
 
 - {term}`PURGE` rejected with 403 under `spec.cluster.enabled: true` (#93).
   The internal cache-to-cache hop that redirects an unsharded PURGE reached the `vinyl_purge_allowed` ACL check carrying a peer pod's IP instead of the operator's real one.
@@ -146,6 +153,15 @@ Together these are the end-to-end proof for defects that the project fixed witho
 - Silent, unverifiable purge outcomes (#103).
   Before the operator surfaced `objectsPurged`, "did the purge actually remove anything" was not observable at all from outside a debugger.
   Both tests assert the exact count and not just a 200 status.
+
+**`xkey-invalidation`** (full suite) runs without clustering and with only xkey invalidation enabled.
+It seeds tagged objects into each of the three pods directly, and confirms them cached before every purge.
+A purge of one key removes the objects tagged with it on all three pods, and an object with another key survives.
+That second object is what tells a key purge apart from a full flush.
+Every purge asserts the exact count, including `0` for a key no object carries.
+The test also covers one key on two URLs, an object with two keys removed by a purge of either, and one request naming two keys.
+Objects cached under two different site hosts that share a key go away with one request that names no host.
+A URL purge needs the site host (#134), a key purge does not.
 
 ### Fast and full
 
