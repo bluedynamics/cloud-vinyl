@@ -50,9 +50,16 @@ spec:
     which is why "either of two keys" uses d1 and d2 and not d twice.
 
     SUBTLETY, lifetime: the echo backend sends no Cache-Control, so objects
-    live for Varnish's default TTL of 120 seconds. Each step seeds, checks,
-    purges and checks again within seconds, and no object is relied on
-    after the step that follows its seed.
+    live for Varnish's default TTL of 120 seconds. Round 1 spans four
+    adjacent steps (b is seeded in seed-a-and-b and last checked in
+    purge-unknown-key); every later round is a single step, which the exec
+    timeout of 60 seconds keeps well below the TTL. Locally the whole
+    traffic phase takes under 20 seconds. If a check ever runs after the
+    TTL, it does not simply see a miss: vcl_backend_response grants 24
+    hours of grace, so the first late check is served the stale object and
+    passes, and the background refetch replaces it with one carrying that
+    check's token. The next check of the object then fails with "backend
+    echoed neither the seed token nor this request's token".
 
     NOT ASSERTED, measured: the overlapping-keys step purges one object by
     one request naming both of its keys. The object must be gone, which is

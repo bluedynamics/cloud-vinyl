@@ -66,7 +66,7 @@ const (
 		"asked through X-Echo-Header to tag the seeded response with an xkey header carrying them. " +
 		"With -purge-xkey, the keys to purge. A key must not contain whitespace: vmod_xkey splits on it."
 	purgeXkeyHelp = "POST the -xkey keys as {\"keys\": [...]} to -url, the full URL of the invalidation " +
-		"service's /purge/xkey endpoint, and require HTTP 200 (every pod answered). " +
+		"service's /purge/xkey endpoint, and require HTTP 200 (every Ready pod the proxy asked answered). " +
 		"Combine with -expect-purged to assert the count."
 )
 

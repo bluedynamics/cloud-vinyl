@@ -99,11 +99,13 @@ const maxErrorBody = 1024
 //
 // Only HTTP 200 is success, stricter than Purge, which also accepts 207 and
 // 404. Varnish's xkey branch answers 200 even when nothing matched, so the
-// proxy answers 200 exactly when every pod did, i.e. when its "status" is
-// "ok" (httpStatusCode in internal/proxy/broadcast.go). A 207 means a pod
-// failed, and the counts of the healthy pods could otherwise satisfy an
-// expected count of 0. Every other status is an error that quotes the start
-// of the body, which names the failing pods.
+// proxy answers 200 exactly when every pod it broadcast to did, i.e. when
+// its "status" is "ok" (httpStatusCode in internal/proxy/broadcast.go). The
+// proxy broadcasts to the cache's Ready pods only, so a pod that is not
+// Ready is not asked and does not turn the answer into a 207. A 207 means an
+// asked pod failed, and the counts of the healthy pods could otherwise
+// satisfy an expected count of 0. Every other status is an error that quotes
+// the start of the body, which names the failing pods.
 func PurgeXkey(ctx context.Context, c *http.Client, url string, keys []string) (*int, error) {
 	body, err := json.Marshal(xkeyPurgeRequest{Keys: keys})
 	if err != nil {
