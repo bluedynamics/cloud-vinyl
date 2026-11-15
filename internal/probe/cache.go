@@ -37,6 +37,14 @@ func (o Outcome) String() string {
 // gives itself away: it still carries the token of the request that filled it.
 const probeHeader = "X-Probe"
 
+// echoHeader asks the echo backend for response headers: with
+// ECHO__ENABLE__HEADER=true (e2e/fixtures/backends/echo-service.yaml) it adds
+// one response header per "name:value" pair, pairs separated by ",". Seed
+// uses it to make the backend tag an object with an xkey header. Several keys
+// therefore go into one pair, separated by a single space, which is also how
+// vmod_xkey reads several keys from one xkey header.
+const echoHeader = "X-Echo-Header"
+
 // Detect issues two GETs to url carrying distinct probe tokens and reports
 // whether the second was served from cache.
 //
@@ -53,10 +61,10 @@ func Detect(ctx context.Context, c *http.Client, url string) (Outcome, error) {
 		return Miss, err
 	}
 
-	if _, err := fetch(ctx, c, url, first, ""); err != nil {
+	if _, err := fetch(ctx, c, url, first, "", nil); err != nil {
 		return Miss, fmt.Errorf("first request: %w", err)
 	}
-	body, err := fetch(ctx, c, url, second, "")
+	body, err := fetch(ctx, c, url, second, "", nil)
 	if err != nil {
 		return Miss, fmt.Errorf("second request: %w", err)
 	}
@@ -89,7 +97,7 @@ func BodyCapture(ctx context.Context, c *http.Client, url, host, pattern string)
 	if err != nil {
 		return "", false, err
 	}
-	body, err := fetch(ctx, c, url, tok, host)
+	body, err := fetch(ctx, c, url, tok, host, nil)
 	if err != nil {
 		return "", false, err
 	}
@@ -114,10 +122,17 @@ func BodyCapture(ctx context.Context, c *http.Client, url, host, pattern string)
 // e2e/tests/cache-and-invalidate/chainsaw-test.yaml for how this is used to
 // make seeding and purging agree on one key across pods without losing
 // per-pod addressing.
-func fetch(ctx context.Context, c *http.Client, url, tok, host string) (string, error) {
+//
+// hdr, when non-nil, adds request headers, e.g. echoHeader for Seed.
+func fetch(ctx context.Context, c *http.Client, url, tok, host string, hdr http.Header) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
+	}
+	for k, vs := range hdr {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
 	}
 	req.Header.Set(probeHeader, tok)
 	if host != "" {

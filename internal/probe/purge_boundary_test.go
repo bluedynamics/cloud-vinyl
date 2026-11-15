@@ -1,7 +1,10 @@
 package probe
 
 import (
+	"context"
 	"encoding/json"
+	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/bluedynamics/cloud-vinyl/internal/proxy"
@@ -73,5 +76,63 @@ func TestPurgeResponseOmitsObjectsPurgedTheSameWayBroadcastResultDoes(t *testing
 	}
 	if parsed.ObjectsPurged != nil {
 		t.Fatalf("purgeResponse.ObjectsPurged = %d, want nil (unknown) for an omitted field", *parsed.ObjectsPurged)
+	}
+}
+
+// recordingBroadcaster is a proxy.Broadcaster that records every request the
+// real proxy handler builds and answers each with one pod reporting one
+// purged object.
+type recordingBroadcaster struct {
+	mu   sync.Mutex
+	reqs []proxy.BroadcastRequest
+}
+
+func (b *recordingBroadcaster) Broadcast(_ context.Context, pods []string, req proxy.BroadcastRequest) proxy.BroadcastResult {
+	b.mu.Lock()
+	b.reqs = append(b.reqs, req)
+	b.mu.Unlock()
+	one := 1
+	return proxy.BroadcastResult{
+		Status:        "ok",
+		Total:         len(pods),
+		Succeeded:     len(pods),
+		ObjectsPurged: &one,
+		Results:       []proxy.PodResult{{Pod: pods[0], Status: 200, ObjectsPurged: &one}},
+	}
+}
+
+// TestPurgeXkeyRequestIsWhatTheRealProxyDecodes sends PurgeXkey's request to
+// the real invalidation proxy handler. internal/proxy's xkeyRequest is
+// unexported, so the JSON body shape cannot be compared field by field the
+// way purgeResponse is compared with BroadcastResult above. A drift (say
+// "key" instead of "keys") would otherwise surface only in E2E, as a 400.
+func TestPurgeXkeyRequestIsWhatTheRealProxyDecodes(t *testing.T) {
+	rec := &recordingBroadcaster{}
+	pods := proxy.NewPodMap()
+	pods.Update("ns", "cache", []string{"10.0.0.1"})
+	// StaticRouter strips the port, so the httptest listener's host routes.
+	router := proxy.NewStaticRouter(map[string][2]string{"127.0.0.1": {"ns", "cache"}})
+	ts := httptest.NewServer(proxy.NewServer(":0", router, pods, rec, nil))
+	defer ts.Close()
+
+	n, err := PurgeXkey(context.Background(), ts.Client(), ts.URL+"/purge/xkey", []string{"k1", "k2"})
+	if err != nil {
+		t.Fatalf("PurgeXkey against the real proxy handler: %v", err)
+	}
+	if n == nil || *n != 2 {
+		t.Fatalf("got count %v, want 2 (one object per key)", n)
+	}
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.reqs) != 2 {
+		t.Fatalf("proxy broadcast %d requests, want 2 (one per key)", len(rec.reqs))
+	}
+	for i, want := range []string{"k1", "k2"} {
+		r := rec.reqs[i]
+		if r.Method != "PURGE" || r.Path != "/" || r.Headers["X-Xkey-Purge"] != want {
+			t.Fatalf("broadcast %d = %s %s X-Xkey-Purge=%q, want PURGE / X-Xkey-Purge=%q",
+				i, r.Method, r.Path, r.Headers["X-Xkey-Purge"], want)
+		}
 	}
 }
