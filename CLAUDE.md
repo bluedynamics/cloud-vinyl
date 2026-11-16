@@ -71,6 +71,9 @@ budget time to break your own check on purpose before relying on it.
   They must match, or local and CI lint with different rule sets.
 - Vale is pinned as `VALE_VERSION` in both `.github/workflows/ci.yml` and the
   `Makefile`. A new Vale release can change spelling and rule results.
+- The Vale style packages (Microsoft, write-good) are pinned as release URLs
+  in `docs/.vale.ini`. A bare package name syncs the latest release, which
+  can fail the strict Vale gate on unchanged docs.
 - Raising the `go` directive in `go.mod` forces a golangci-lint bump: the linter
   refuses to run when it was built with an older Go than the module targets.
 
