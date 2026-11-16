@@ -6,13 +6,70 @@ metadata:
     suite: full
 spec:
   description: |
-    Verify a VinylCache with xkey invalidation configured reaches Ready
-    phase and all expected resources are created including the invalidation
-    service for xkey purge broadcasting.
+    Proves xkey invalidation over real HTTP traffic (#191): a key purge
+    through the invalidation service removes exactly the objects tagged
+    with that key, on every pod, and the operator's objectsPurged count
+    matches what was removed. The clustered case (one owner pod) is in
+    shard-routing.
+
+    Runs against fixtures/vinylcaches/xkey.yaml: no clustering, so each of
+    the three pods caches its own copy, and only xkey is enabled, with no
+    spec.invalidation.purge.hosts. As in cache-and-invalidate, every object
+    is seeded on each pod through the pod's own StatefulSet DNS name, with
+    -host pinning the site host, so that all three pods cache the same key.
+
+    The echo backend tags an object: vinylprobe -seed -xkey k1 sends
+    X-Echo-Header: xkey:k1, and the backend answers with xkey: k1, which
+    vmod_xkey indexes when the object enters the cache. The purge is one
+    POST /purge/xkey to the invalidation service, which sends one PURGE
+    with X-Xkey-Purge per key to every pod.
+
+    Every seed is followed by a check that each pod serves the seeded
+    object, before any purge. An object never confirmed present cannot be
+    confirmed removed, and the check also catches a seed that was a cache
+    hit and so tagged nothing.
+
+    What each step proves, by the item numbers of #191:
+
+    - 1, 2, 3: a purge of k1 removes a (tagged k1) on all three pods and
+      reports 3; b (tagged k2) stays cached, so this is a key purge and not
+      a flush.
+    - 3: a purge of an unknown key reports status ok and 0, and b is still
+      cached.
+    - 4: one key on two URLs removes both, 6 objects.
+    - 5: an object with two keys is removed by a purge of either one, and
+      one request naming two keys removes the objects of both.
+    - 6: objects cached under two different site hosts that share a key are
+      both removed by one request that names no host. A URL purge needs
+      the site host (#134), a key purge does not.
+
+    SUBTLETY, object paths: a not-cached check is a miss, and a miss puts
+    the object back in cache, now without a key, because the check sends
+    no X-Echo-Header. A later seed on that path would be a cache hit that
+    tags nothing. So every seeded object has a path no earlier step used,
+    which is why "either of two keys" uses d1 and d2 and not d twice.
+
+    SUBTLETY, lifetime: the echo backend sends no Cache-Control, so objects
+    live for Varnish's default TTL of 120 seconds. Round 1 spans four
+    adjacent steps (b is seeded in seed-a-and-b and last checked in
+    purge-unknown-key); every later round is a single step, which the exec
+    timeout of 60 seconds keeps well below the TTL. Locally the whole
+    traffic phase takes under 20 seconds. If a check ever runs after the
+    TTL, it does not simply see a miss: vcl_backend_response grants 24
+    hours of grace, so the first late check is served the stale object and
+    passes, and the background refetch replaces it with one carrying that
+    check's token. The next check of the object then fails with "backend
+    echoed neither the seed token nor this request's token".
+
+    NOT ASSERTED, measured: the overlapping-keys step purges one object by
+    one request naming both of its keys. The object must be gone, which is
+    asserted. The count is printed but not asserted. The proxy sends one
+    PURGE per key, and if vmod_xkey still holds the hard-purged object in
+    its index when the second PURGE arrives, it counts the object twice.
   timeouts:
     assert: 180s
     delete: 60s
-    exec: 30s
+    exec: 60s
   steps:
     - name: deploy-backend
       try:
@@ -27,10 +84,10 @@ spec:
               status:
                 readyReplicas: 1
 
-    - name: create-vinylcache-with-xkey
+    - name: create-cache
       try:
         - apply:
-            file: ../../fixtures/vinylcaches/full-featured.yaml
+            file: ../../fixtures/vinylcaches/xkey.yaml
         - assert:
             resource:
               apiVersion: vinyl.bluedynamics.eu/v1
@@ -40,37 +97,207 @@ spec:
               status:
                 phase: Ready
 
-    - name: verify-statefulset
-      description: Verify the StatefulSet has 3 replicas.
+    - name: start-probe
       try:
+        - apply:
+            file: ../../fixtures/probe/probe-pod.yaml
         - assert:
             resource:
-              apiVersion: apps/v1
-              kind: StatefulSet
+              apiVersion: v1
+              kind: Pod
               metadata:
-                name: my-cache
-              spec:
-                replicas: 3
+                name: probe
+              status:
+                phase: Running
 
-    - name: verify-services
-      description: Verify traffic and invalidation services are created.
+    # Every script below starts with the same helpers. Tokens go to files on
+    # the chainsaw host, keyed by $NAMESPACE: a step's outputs are not
+    # visible to a later step in this chainsaw version.
+    #   seed OBJ HOST KEYS   seed OBJ under HOST on every pod, tagged KEYS
+    #   check OBJ HOST STATE OBJ under HOST is cached or not-cached on every pod
+    #   purge ARGS...        POST /purge/xkey through the invalidation service
+    - name: seed-a-and-b
+      description: Seed a with k1 and b with k2 on every pod, and confirm both are cached.
       try:
-        - assert:
-            resource:
-              apiVersion: v1
-              kind: Service
-              metadata:
-                name: my-cache-traffic
-        - assert:
-            resource:
-              apiVersion: v1
-              kind: Service
-              metadata:
-                name: my-cache-invalidation
+        - script:
+            content: |
+              set -eu
+              P=/tmp/xkey-invalidation-$NAMESPACE
+              vp() { kubectl exec -n "$NAMESPACE" probe -- /vinylprobe "$@"; }
+              u() { echo "http://my-cache-$1.my-cache:8080/xkey-invalidation/$2"; }
+              seed() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -seed -xkey "$3" > "$P-$1-$2-$i"; done; }
+              check() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -check "$(cat "$P-$1-$2-$i")" -expect-state "$3"; done; }
+              seed a www.example.test k1
+              seed b www.example.test k2
+              check a www.example.test cached
+              check b www.example.test cached
+
+    - name: purge-k1
+      description: One key purge of k1 removes a's three copies.
+      try:
+        - script:
+            content: |
+              set -eu
+              kubectl exec -n "$NAMESPACE" probe -- /vinylprobe \
+                -url "http://my-cache-invalidation.$NAMESPACE:8090/purge/xkey" \
+                -purge-xkey -xkey k1 -expect-purged 3
+
+    - name: k1-gone-k2-kept
+      description: a is gone on every pod, b (other key) is still cached on every pod.
+      try:
+        - script:
+            content: |
+              set -eu
+              P=/tmp/xkey-invalidation-$NAMESPACE
+              vp() { kubectl exec -n "$NAMESPACE" probe -- /vinylprobe "$@"; }
+              u() { echo "http://my-cache-$1.my-cache:8080/xkey-invalidation/$2"; }
+              check() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -check "$(cat "$P-$1-$2-$i")" -expect-state "$3"; done; }
+              check a www.example.test not-cached
+              check b www.example.test cached
+
+    - name: purge-unknown-key
+      description: |
+        A purge of a key nothing carries reports status ok (vinylprobe
+        requires HTTP 200) and a known 0, and b is still cached.
+      try:
+        - script:
+            content: |
+              set -eu
+              P=/tmp/xkey-invalidation-$NAMESPACE
+              vp() { kubectl exec -n "$NAMESPACE" probe -- /vinylprobe "$@"; }
+              u() { echo "http://my-cache-$1.my-cache:8080/xkey-invalidation/$2"; }
+              check() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -check "$(cat "$P-$1-$2-$i")" -expect-state "$3"; done; }
+              purge() { vp -url "http://my-cache-invalidation.$NAMESPACE:8090/purge/xkey" -purge-xkey "$@"; }
+              purge -xkey no-such-key -expect-purged 0
+              check b www.example.test cached
+
+    - name: shared-key
+      description: c1 and c2 share k3. One purge of k3 removes both on every pod, 6 objects.
+      try:
+        - script:
+            content: |
+              set -eu
+              P=/tmp/xkey-invalidation-$NAMESPACE
+              vp() { kubectl exec -n "$NAMESPACE" probe -- /vinylprobe "$@"; }
+              u() { echo "http://my-cache-$1.my-cache:8080/xkey-invalidation/$2"; }
+              seed() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -seed -xkey "$3" > "$P-$1-$2-$i"; done; }
+              check() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -check "$(cat "$P-$1-$2-$i")" -expect-state "$3"; done; }
+              purge() { vp -url "http://my-cache-invalidation.$NAMESPACE:8090/purge/xkey" -purge-xkey "$@"; }
+              seed c1 www.example.test k3
+              seed c2 www.example.test k3
+              check c1 www.example.test cached
+              check c2 www.example.test cached
+              purge -xkey k3 -expect-purged 6
+              check c1 www.example.test not-cached
+              check c2 www.example.test not-cached
+
+    - name: either-key-first
+      description: d1 carries k4 and k5. A purge of k4 alone removes it.
+      try:
+        - script:
+            content: |
+              set -eu
+              P=/tmp/xkey-invalidation-$NAMESPACE
+              vp() { kubectl exec -n "$NAMESPACE" probe -- /vinylprobe "$@"; }
+              u() { echo "http://my-cache-$1.my-cache:8080/xkey-invalidation/$2"; }
+              seed() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -seed -xkey "$3" > "$P-$1-$2-$i"; done; }
+              check() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -check "$(cat "$P-$1-$2-$i")" -expect-state "$3"; done; }
+              purge() { vp -url "http://my-cache-invalidation.$NAMESPACE:8090/purge/xkey" -purge-xkey "$@"; }
+              seed d1 www.example.test k4,k5
+              check d1 www.example.test cached
+              purge -xkey k4 -expect-purged 3
+              check d1 www.example.test not-cached
+
+    - name: either-key-second
+      description: |
+        d2 carries the same two keys. A purge of k5 alone removes it, and
+        only it: d1 was put back without keys by the check above.
+      try:
+        - script:
+            content: |
+              set -eu
+              P=/tmp/xkey-invalidation-$NAMESPACE
+              vp() { kubectl exec -n "$NAMESPACE" probe -- /vinylprobe "$@"; }
+              u() { echo "http://my-cache-$1.my-cache:8080/xkey-invalidation/$2"; }
+              seed() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -seed -xkey "$3" > "$P-$1-$2-$i"; done; }
+              check() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -check "$(cat "$P-$1-$2-$i")" -expect-state "$3"; done; }
+              purge() { vp -url "http://my-cache-invalidation.$NAMESPACE:8090/purge/xkey" -purge-xkey "$@"; }
+              seed d2 www.example.test k4,k5
+              check d2 www.example.test cached
+              purge -xkey k5 -expect-purged 3
+              check d2 www.example.test not-cached
+
+    - name: several-keys
+      description: e carries k6, f carries k7. One request naming both keys removes both, 6 objects.
+      try:
+        - script:
+            content: |
+              set -eu
+              P=/tmp/xkey-invalidation-$NAMESPACE
+              vp() { kubectl exec -n "$NAMESPACE" probe -- /vinylprobe "$@"; }
+              u() { echo "http://my-cache-$1.my-cache:8080/xkey-invalidation/$2"; }
+              seed() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -seed -xkey "$3" > "$P-$1-$2-$i"; done; }
+              check() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -check "$(cat "$P-$1-$2-$i")" -expect-state "$3"; done; }
+              purge() { vp -url "http://my-cache-invalidation.$NAMESPACE:8090/purge/xkey" -purge-xkey "$@"; }
+              seed e www.example.test k6
+              seed f www.example.test k7
+              check e www.example.test cached
+              check f www.example.test cached
+              purge -xkey k6,k7 -expect-purged 6
+              check e www.example.test not-cached
+              check f www.example.test not-cached
+
+    - name: overlapping-keys
+      description: |
+        g carries k8 and k9, and one request names both. g must be gone on
+        every pod. The count is printed, not asserted (see NOT ASSERTED in
+        the test description).
+      try:
+        - script:
+            content: |
+              set -eu
+              P=/tmp/xkey-invalidation-$NAMESPACE
+              vp() { kubectl exec -n "$NAMESPACE" probe -- /vinylprobe "$@"; }
+              u() { echo "http://my-cache-$1.my-cache:8080/xkey-invalidation/$2"; }
+              seed() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -seed -xkey "$3" > "$P-$1-$2-$i"; done; }
+              check() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -check "$(cat "$P-$1-$2-$i")" -expect-state "$3"; done; }
+              purge() { vp -url "http://my-cache-invalidation.$NAMESPACE:8090/purge/xkey" -purge-xkey "$@"; }
+              seed g www.example.test k8,k9
+              check g www.example.test cached
+              purge -xkey k8,k9
+              check g www.example.test not-cached
+
+    - name: two-site-hosts
+      description: |
+        h is cached under www.example.test and under other.example.test,
+        both with k10. One purge of k10, with no X-Vinyl-Purge-Host and no
+        spec.invalidation.purge.hosts, removes both on every pod.
+      try:
+        - script:
+            content: |
+              set -eu
+              P=/tmp/xkey-invalidation-$NAMESPACE
+              vp() { kubectl exec -n "$NAMESPACE" probe -- /vinylprobe "$@"; }
+              u() { echo "http://my-cache-$1.my-cache:8080/xkey-invalidation/$2"; }
+              seed() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -seed -xkey "$3" > "$P-$1-$2-$i"; done; }
+              check() { for i in 0 1 2; do vp -url "$(u $i $1)" -host "$2" -check "$(cat "$P-$1-$2-$i")" -expect-state "$3"; done; }
+              purge() { vp -url "http://my-cache-invalidation.$NAMESPACE:8090/purge/xkey" -purge-xkey "$@"; }
+              seed h www.example.test k10
+              seed h other.example.test k10
+              check h www.example.test cached
+              check h other.example.test cached
+              purge -xkey k10 -expect-purged 6
+              check h www.example.test not-cached
+              check h other.example.test not-cached
 
     - name: cleanup
       try:
         - delete:
-            file: ../../fixtures/vinylcaches/full-featured.yaml
+            file: ../../fixtures/probe/probe-pod.yaml
+        - delete:
+            file: ../../fixtures/vinylcaches/xkey.yaml
         - delete:
             file: ../../fixtures/backends/echo-service.yaml
+        - script:
+            content: |
+              rm -f "/tmp/xkey-invalidation-${NAMESPACE}-"*

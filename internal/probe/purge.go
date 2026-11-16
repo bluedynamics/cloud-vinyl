@@ -1,9 +1,11 @@
 package probe
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -77,4 +79,59 @@ func Purge(ctx context.Context, c *http.Client, url, host, purgeHost string) (*i
 	default:
 		return nil, fmt.Errorf("purge %s: unexpected status %d %s", url, resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
+}
+
+// xkeyPurgeRequest is the JSON body of the invalidation proxy's
+// POST /purge/xkey. internal/proxy's own type is unexported, so
+// purge_boundary_test.go pins this shape by sending it to the real handler.
+type xkeyPurgeRequest struct {
+	Keys []string `json:"keys"`
+}
+
+// maxErrorBody bounds how much of an unexpected response body PurgeXkey
+// quotes in its error.
+const maxErrorBody = 1024
+
+// PurgeXkey asks the invalidation proxy at url (its /purge/xkey endpoint) to
+// purge every object tagged with one of keys, and reports how many objects
+// the response said were removed. The count is nil when the body carried no
+// parseable "objectsPurged" field, never a fabricated 0 (see Purge).
+//
+// Only HTTP 200 is success, stricter than Purge, which also accepts 207 and
+// 404. Varnish's xkey branch answers 200 even when nothing matched, so the
+// proxy answers 200 exactly when every pod it broadcast to did, i.e. when
+// its "status" is "ok" (httpStatusCode in internal/proxy/broadcast.go). The
+// proxy broadcasts to the cache's Ready pods only, so a pod that is not
+// Ready is not asked and does not turn the answer into a 207. A 207 means an
+// asked pod failed, and the counts of the healthy pods could otherwise
+// satisfy an expected count of 0. Every other status is an error that quotes
+// the start of the body, which names the failing pods.
+func PurgeXkey(ctx context.Context, c *http.Client, url string, keys []string) (*int, error) {
+	body, err := json.Marshal(xkeyPurgeRequest{Keys: keys})
+	if err != nil {
+		return nil, fmt.Errorf("encoding xkey purge request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("building xkey purge request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("xkey purge request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+		return nil, fmt.Errorf("xkey purge %s: unexpected status %d %s: %s",
+			url, resp.StatusCode, http.StatusText(resp.StatusCode), bytes.TrimSpace(b))
+	}
+	var parsed purgeResponse
+	// A non-JSON or empty body is an unknown count, not an error (see Purge).
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, nil
+	}
+	return parsed.ObjectsPurged, nil
 }

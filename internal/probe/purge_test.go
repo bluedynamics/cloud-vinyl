@@ -2,6 +2,7 @@ package probe
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -274,5 +275,102 @@ func TestPurgeSendsPurgeHostHeader(t *testing.T) {
 	}
 	if gotHost != "my-cache-invalidation.app" || gotPurgeHost != "www.example.test" {
 		t.Fatalf("got Host %q and X-Vinyl-Purge-Host %q", gotHost, gotPurgeHost)
+	}
+}
+
+// --- PurgeXkey ---
+
+func TestPurgeXkeyPostsTheKeysAsJSON(t *testing.T) {
+	var gotMethod, gotPath, gotType string
+	var gotBody struct {
+		Keys []string `json:"keys"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath, gotType = r.Method, r.URL.Path, r.Header.Get("Content-Type")
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		_, _ = w.Write([]byte(`{"status":"ok","objectsPurged":0}`))
+	}))
+	defer srv.Close()
+
+	if _, err := PurgeXkey(context.Background(), srv.Client(), srv.URL+"/purge/xkey", []string{"k1", "k2"}); err != nil {
+		t.Fatalf("PurgeXkey returned error: %v", err)
+	}
+	if gotMethod != http.MethodPost || gotPath != "/purge/xkey" || gotType != "application/json" {
+		t.Fatalf("got %s %s with Content-Type %q, want POST /purge/xkey with application/json", gotMethod, gotPath, gotType)
+	}
+	if strings.Join(gotBody.Keys, ",") != "k1,k2" {
+		t.Fatalf("got keys %q, want [k1 k2]", gotBody.Keys)
+	}
+}
+
+func TestPurgeXkeyReturnsKnownCount(t *testing.T) {
+	srv := jsonPurgeServer(http.StatusOK, `{"status":"ok","total":3,"succeeded":3,"objectsPurged":3,"results":[]}`)
+	defer srv.Close()
+
+	n, err := PurgeXkey(context.Background(), srv.Client(), srv.URL, []string{"k1"})
+	if err != nil {
+		t.Fatalf("PurgeXkey returned error: %v", err)
+	}
+	if n == nil || *n != 3 {
+		t.Fatalf("got count %v, want 3", n)
+	}
+}
+
+func TestPurgeXkeyReturnsKnownZeroDistinctFromUnknown(t *testing.T) {
+	srv := jsonPurgeServer(http.StatusOK, `{"status":"ok","total":3,"succeeded":3,"objectsPurged":0,"results":[]}`)
+	defer srv.Close()
+
+	n, err := PurgeXkey(context.Background(), srv.Client(), srv.URL, []string{"no-such-key"})
+	if err != nil {
+		t.Fatalf("PurgeXkey returned error: %v", err)
+	}
+	if n == nil || *n != 0 {
+		t.Fatalf("got count %v, want a known 0", n)
+	}
+}
+
+func TestPurgeXkeyReturnsNilCountWhenFieldOmitted(t *testing.T) {
+	srv := jsonPurgeServer(http.StatusOK, `{"status":"ok","total":3,"succeeded":3,"results":[]}`)
+	defer srv.Close()
+
+	n, err := PurgeXkey(context.Background(), srv.Client(), srv.URL, []string{"k1"})
+	if err != nil {
+		t.Fatalf("PurgeXkey returned error: %v", err)
+	}
+	if n != nil {
+		t.Fatalf("got count %d, want nil (unknown) for an omitted field", *n)
+	}
+}
+
+// Purge accepts 207, but an xkey purge must not: with one pod down, the
+// healthy pods' known counts would otherwise satisfy -expect-purged 0.
+func TestPurgeXkeyRejectsPartialBroadcast(t *testing.T) {
+	srv := jsonPurgeServer(http.StatusMultiStatus, `{"status":"partial","total":3,"succeeded":2,"objectsPurged":0,"results":[]}`)
+	defer srv.Close()
+
+	if _, err := PurgeXkey(context.Background(), srv.Client(), srv.URL, []string{"k1"}); err == nil {
+		t.Fatal("want an error for a partial (207) broadcast")
+	}
+}
+
+func TestPurgeXkeyRejectsFailedBroadcastAndQuotesTheBody(t *testing.T) {
+	srv := jsonPurgeServer(http.StatusServiceUnavailable, `{"status":"failed","total":3,"succeeded":0,"results":[]}`)
+	defer srv.Close()
+
+	_, err := PurgeXkey(context.Background(), srv.Client(), srv.URL, []string{"k1"})
+	if err == nil {
+		t.Fatal("want an error for a failed (503) broadcast")
+	}
+	if !strings.Contains(err.Error(), "503") || !strings.Contains(err.Error(), "failed") {
+		t.Fatalf("error %q should name the status and quote the body", err)
+	}
+}
+
+func TestPurgeXkeyRejectsUnknownRoute(t *testing.T) {
+	srv := jsonPurgeServer(http.StatusNotFound, `{"error":"no route for POST /purge/xky"}`)
+	defer srv.Close()
+
+	if _, err := PurgeXkey(context.Background(), srv.Client(), srv.URL+"/purge/xky", []string{"k1"}); err == nil {
+		t.Fatal("want an error for a 404")
 	}
 }
