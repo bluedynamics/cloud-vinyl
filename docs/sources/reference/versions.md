@@ -21,7 +21,7 @@ The admission webhook rejects a {term}`flavor` and version that is not in the ca
 
 Versions outside the catalog are not supported.
 To run one anyway, add a catalog entry in the chart values (see {ref}`helm-values-runtimes`).
-Its daemon, exporter and tracer must all be of exactly that version.
+Its daemon, exporter, and tracer must all be of exactly that version.
 A `spec.image` with another version keeps the sidecars of the catalog's default version (see {ref}`replace-an-image`).
 
 (tracing-version-match)=
