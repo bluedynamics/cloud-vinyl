@@ -263,6 +263,13 @@ setup-envtest: envtest ## Download the binaries required for ENVTEST in the loca
 		exit 1; \
 	}
 
+# CI reads the assets path from here, so it uses the same setup-envtest and
+# Kubernetes version as test-int, both derived from go.mod (#87). Run
+# `make envtest` first: with -s, this then prints nothing but the path.
+.PHONY: envtest-assets
+envtest-assets: envtest ## Print the ENVTEST binaries path for ENVTEST_K8S_VERSION, downloading them if necessary.
+	@"$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path
+
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
 $(ENVTEST): $(LOCALBIN)

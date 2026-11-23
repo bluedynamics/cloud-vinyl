@@ -61,11 +61,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # The Makefile derives the setup-envtest and Kubernetes versions from
+      # go.mod, the same ones `make test-int` uses. A k8s.io bump moves CI
+      # along instead of leaving it on old assets (#87).
       - name: Setup envtest
-        run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+        run: make envtest
       - name: Run integration tests
         run: |
-          KUBEBUILDER_ASSETS=$(setup-envtest use -p path 1.36.x) \
+          KUBEBUILDER_ASSETS="$(make -s envtest-assets)" \
           go test -tags integration -race ./... -v
 
   build:
