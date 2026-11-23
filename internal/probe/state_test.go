@@ -190,3 +190,41 @@ func TestStateStringCachedAndNotCached(t *testing.T) {
 		t.Fatalf("NotCached.String() = %q, want %q", got, "not-cached")
 	}
 }
+
+// echoHeaderServer records every X-Echo-Header value it receives and echoes
+// X-Probe back like the real echo backend.
+func echoHeaderServer(got *[]string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*got = r.Header.Values("X-Echo-Header")
+		fmt.Fprintf(w, `{"headers":{"x-probe":%q}}`, r.Header.Get("X-Probe"))
+	}))
+}
+
+func TestSeedWithoutXkeysSendsNoEchoHeader(t *testing.T) {
+	var got []string
+	srv := echoHeaderServer(&got)
+	defer srv.Close()
+
+	if _, err := Seed(context.Background(), srv.Client(), srv.URL, ""); err != nil {
+		t.Fatalf("Seed returned error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("plain Seed sent X-Echo-Header %q, want none", got)
+	}
+}
+
+// The echo backend turns X-Echo-Header "name:value" into a response header,
+// and vmod_xkey reads several keys from one xkey header separated by
+// whitespace: two keys must arrive as one "xkey:k1 k2" pair.
+func TestSeedWithXkeysAsksTheEchoBackendForAnXkeyHeader(t *testing.T) {
+	var got []string
+	srv := echoHeaderServer(&got)
+	defer srv.Close()
+
+	if _, err := Seed(context.Background(), srv.Client(), srv.URL, "", "k1", "k2"); err != nil {
+		t.Fatalf("Seed returned error: %v", err)
+	}
+	if len(got) != 1 || got[0] != "xkey:k1 k2" {
+		t.Fatalf("got X-Echo-Header %q, want exactly [\"xkey:k1 k2\"]", got)
+	}
+}

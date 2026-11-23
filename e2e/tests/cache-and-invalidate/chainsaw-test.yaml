@@ -69,8 +69,10 @@ spec:
     routing half of that, with a single owner pod rather than three
     independent copies). Soft purge's grace-window behavior end to end —
     only that it exists and was measured by hand while designing this
-    fixture (see above), not that it is asserted anywhere in CI. BAN and
-    xkey invalidation, clustered or not. Partial-failure broadcast results
+    fixture (see above), not that it is asserted anywhere in CI. BAN,
+    clustered or not. xkey invalidation is covered by xkey-invalidation
+    (unclustered, three copies) and shard-routing (clustered, one owner).
+    Partial-failure broadcast results
     (BroadcastResult.Status == "partial"): every pod here is healthy and
     reachable, so 207 responses are never exercised.
   timeouts:

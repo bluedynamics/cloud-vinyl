@@ -20,12 +20,22 @@ import (
 // several pods by their own distinct DNS names (to force which pod handles
 // each request) puts each object under a different key unless the caller
 // pins Host to one shared value across all of them.
-func Seed(ctx context.Context, c *http.Client, url, host string) (string, error) {
+//
+// xkeys, when given, make the echo backend tag the response with an xkey
+// header carrying them (see echoHeader), so the cached object can be purged
+// by key. Seed does not check that the header came back: delivering it to
+// clients is incidental, and whether vmod_xkey indexed the object is what a
+// key purge's count and a later Check show.
+func Seed(ctx context.Context, c *http.Client, url, host string, xkeys ...string) (string, error) {
 	tok, err := token()
 	if err != nil {
 		return "", err
 	}
-	if _, err := fetch(ctx, c, url, tok, host); err != nil {
+	var hdr http.Header
+	if len(xkeys) > 0 {
+		hdr = http.Header{echoHeader: {"xkey:" + strings.Join(xkeys, " ")}}
+	}
+	if _, err := fetch(ctx, c, url, tok, host, hdr); err != nil {
 		return "", fmt.Errorf("seeding: %w", err)
 	}
 	return tok, nil
@@ -67,7 +77,7 @@ func Check(ctx context.Context, c *http.Client, url, seed, host string) (State, 
 	if err != nil {
 		return NotCached, err
 	}
-	body, err := fetch(ctx, c, url, tok, host)
+	body, err := fetch(ctx, c, url, tok, host, nil)
 	if err != nil {
 		return NotCached, fmt.Errorf("check request: %w", err)
 	}
