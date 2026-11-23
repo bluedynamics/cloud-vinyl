@@ -43,6 +43,16 @@ A workaround that repeats the rewrite on `bereq.url` in `vclBackendFetch` can go
 Leave cache decisions in `vclRecv`.
 A `return(hash)` in `vclRecvRouting` would apply to writes as well.
 
+(upgrade-1-2-argocd-health)=
+
+## Upgrading to 1.2: Argo CD health check
+
+The chart no longer renders the ConfigMap `cloud-vinyl-argocd-health`.
+Argo CD never read it, so the VinylCache health check never took effect (#189).
+Add the check to `argocd-cm` instead, see {ref}`argocd-health`.
+`argocd.resourceCustomizations.enabled` and `argocd.namespace` no longer do anything.
+They stay in the values schema, so existing values files still pass the schema check.
+
 (upgrade-1-2-cache-rules)=
 
 ## Upgrading to 1.2: built-in cache rules

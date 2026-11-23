@@ -38,9 +38,9 @@ The invalidation service answers `503` while there is no pod to forward to.
 
 ## Argo CD
 
-With `argocd.resourceCustomizations.enabled`, the health script reads the phase first.
-The script maps `Stopped` to `Suspended`, `Degraded` and `Error` to `Degraded`, and `Ready` to `Healthy`.
+The Argo CD health check for VinylCache maps `Stopped` to `Suspended`.
 A switched-off environment does not show up as unhealthy.
+Argo CD needs the check in its `argocd-cm` ConfigMap, see {ref}`argocd-health`.
 
 (switch-off-switch-on)=
 
