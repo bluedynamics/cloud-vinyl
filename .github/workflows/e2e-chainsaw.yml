@@ -79,6 +79,21 @@ jobs:
           # image itself changed.
           fetch-depth: 0
 
+      # The cache images carry a C toolchain, because varnishd compiles VCL
+      # at load time, and every kind node that runs a cache pod unpacks its
+      # own copy. With the full suite the runner came close to its disk limit,
+      # and runs failed with "no space left on device" (#183). Remove large
+      # preinstalled toolchains this job never uses, and log the margin.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Fix MTU for Kind cross-node networking
         run: sudo sysctl -w net.ipv4.tcp_mtu_probing=1
 
@@ -173,6 +188,15 @@ jobs:
 
       - uses: azure/setup-helm@v5
 
+      # Every image is loaded into the kind nodes by now. The host copies and
+      # the build cache only take disk space from the suite (#183).
+      - name: Prune Docker build cache and host images
+        run: |
+          docker builder prune -af
+          docker image prune -af
+          docker system df
+          df -h /
+
       - name: Install cert-manager
         run: bash e2e/setup/install-cert-manager.sh
 
@@ -234,6 +258,12 @@ jobs:
             --selector "suite=full" \
             --values "e2e/values/${FLAVOR}.yaml" \
             --include-test-regex "chainsaw/(ha-operator|drift-detection)"
+
+      - name: Disk usage
+        if: always()
+        run: |
+          df -h /
+          docker system df
 
       - name: Debug - operator logs
         if: failure()
