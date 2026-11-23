@@ -217,11 +217,12 @@ securityContext:
     drop:
       - ALL
 
-# ArgoCD integration.
+# Deprecated, no effect (#189). Argo CD reads custom health checks only from
+# its argocd-cm ConfigMap, so the ConfigMap this used to render never took
+# effect. Add the VinylCache health check to argocd-cm instead, see
+# https://bluedynamics.github.io/cloud-vinyl/how-to/argocd-health.html
+# The keys stay so that existing values files still validate.
 argocd:
   resourceCustomizations:
-    # Deploy a ConfigMap with a custom health check for VinylCache resources.
-    # ArgoCD picks this up automatically via the app.kubernetes.io/part-of: argocd label.
     enabled: false
-  # Namespace where ArgoCD is installed.
   namespace: argocd
