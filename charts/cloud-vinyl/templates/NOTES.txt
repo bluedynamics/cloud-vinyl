@@ -28,6 +28,14 @@ PrometheusRule with 10 alerts has been deployed.
 ServiceMonitor for Prometheus scraping has been deployed.
 {{- end }}
 
+{{- if .Values.argocd.resourceCustomizations.enabled }}
+
+WARNING: argocd.resourceCustomizations.enabled is deprecated and has no effect.
+Argo CD reads custom health checks only from its argocd-cm ConfigMap. Add the
+VinylCache health check there, see
+https://bluedynamics.github.io/cloud-vinyl/how-to/argocd-health.html
+{{- end }}
+
 {{- if or .Values.image.tracer.repository .Values.image.tracer.tag }}
 
 WARNING: image.tracer.repository and image.tracer.tag are deprecated. They

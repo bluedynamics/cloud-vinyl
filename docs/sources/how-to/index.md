@@ -16,5 +16,6 @@ switch-off-a-cache
 route-requests
 purge-ban
 setup-monitoring
+argocd-health
 upgrade
 ```

@@ -1,71 +1,23 @@
-suite: ArgoCD Health Check Tests
+suite: Argo CD health check
 templates:
-  - argocd-health.yaml
+  - NOTES.txt
 tests:
-  - it: should not render when argocd.resourceCustomizations.enabled is false
+  # #189: Argo CD reads resource.customizations only from argocd-cm, so the
+  # ConfigMap the chart used to render never took effect. The value stays in
+  # the schema so that upgrades with it set do not fail, and NOTES points to
+  # the how-to.
+  - it: NOTES explains that argocd.resourceCustomizations.enabled has no effect
+    template: NOTES.txt
     set:
-      argocd:
-        resourceCustomizations:
-          enabled: false
+      argocd.resourceCustomizations.enabled: true
     asserts:
-      - hasDocuments:
-          count: 0
+      - matchRegexRaw:
+          pattern: 'argocd\.resourceCustomizations\.enabled is deprecated and has no effect'
+      - matchRegexRaw:
+          pattern: argocd-cm
 
-  - it: should render ConfigMap when argocd.resourceCustomizations.enabled is true
-    set:
-      argocd:
-        resourceCustomizations:
-          enabled: true
-        namespace: argocd
+  - it: NOTES has no Argo CD note by default
+    template: NOTES.txt
     asserts:
-      - isKind:
-          of: ConfigMap
-      - equal:
-          path: metadata.namespace
-          value: argocd
-      - isSubset:
-          path: metadata.labels
-          content:
-            app.kubernetes.io/part-of: argocd
-
-  - it: should contain VinylCache health check Lua script
-    set:
-      argocd:
-        resourceCustomizations:
-          enabled: true
-    asserts:
-      - exists:
-          path: data["resource.customizations.health.vinyl.bluedynamics.eu_VinylCache"]
-
-  - it: should use custom namespace when set
-    set:
-      argocd:
-        resourceCustomizations:
-          enabled: true
-        namespace: custom-argocd
-    asserts:
-      - equal:
-          path: metadata.namespace
-          value: custom-argocd
-
-  - it: should map the phase first, then fall back to the Ready condition (#174)
-    set:
-      argocd:
-        resourceCustomizations:
-          enabled: true
-    asserts:
-      - matchRegex:
-          path: data["resource.customizations.health.vinyl.bluedynamics.eu_VinylCache"]
-          pattern: 'phase == "Stopped" then\s+hs.status = "Suspended"'
-      - matchRegex:
-          path: data["resource.customizations.health.vinyl.bluedynamics.eu_VinylCache"]
-          pattern: 'phase == "Degraded" or obj.status.phase == "Error" then\s+hs.status = "Degraded"'
-      - matchRegex:
-          path: data["resource.customizations.health.vinyl.bluedynamics.eu_VinylCache"]
-          pattern: 'phase == "Ready" then\s+hs.status = "Healthy"'
-      - matchRegex:
-          path: data["resource.customizations.health.vinyl.bluedynamics.eu_VinylCache"]
-          pattern: 'phase == "Pending" then\s+hs.status = "Progressing"'
-      - matchRegex:
-          path: data["resource.customizations.health.vinyl.bluedynamics.eu_VinylCache"]
-          pattern: 'c.type == "Ready" and c.status == "True"'
+      - notMatchRegexRaw:
+          pattern: argocd
