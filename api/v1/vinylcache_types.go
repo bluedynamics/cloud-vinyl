@@ -460,7 +460,6 @@ type VCLSpec struct {
 }
 
 // VCLSnippets provides inline VCL code inserted into each generated subroutine.
-// Each field is limited to 64 KiB (enforced by CEL validation).
 type VCLSnippets struct {
 	// header is inserted at the top of the VCL file, before any subroutines.
 	// Use for import statements and global declarations.
@@ -471,7 +470,18 @@ type VCLSnippets struct {
 	// +optional
 	VCLInit string `json:"vclInit,omitempty"`
 
-	// vclRecv is inserted into vcl_recv after generated routing logic, before return().
+	// vclRecvRouting is inserted into vcl_recv after PURGE/BAN handling, the
+	// cluster hop and the default backend hint, and before methods other than
+	// GET and HEAD are passed, so it sees requests of every method except
+	// PURGE and BAN. Use it to choose the backend and rewrite the URL, so that
+	// writes are routed like reads. In cluster mode it runs on the owner hop
+	// only.
+	// +optional
+	VCLRecvRouting string `json:"vclRecvRouting,omitempty"`
+
+	// vclRecv is inserted into vcl_recv after methods other than GET and HEAD
+	// have been passed, before return(hash). It only sees GET and HEAD
+	// requests; route all methods in vclRecvRouting.
 	// +optional
 	VCLRecv string `json:"vclRecv,omitempty"`
 

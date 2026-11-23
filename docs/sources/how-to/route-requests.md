@@ -26,7 +26,7 @@ The spec reference lists the director defaults and the default route per type.
 
 ## Route a mixed workload
 
-If one cache fronts a Plone origin (sticky) and a stateless API (round-robin), declare two backends and route in `vclRecv`.
+If one cache fronts a Plone origin (sticky) and a stateless API (round-robin), declare two backends and route in `vclRecvRouting`.
 
 ```yaml
 apiVersion: vinyl.bluedynamics.eu/v1
@@ -50,13 +50,48 @@ spec:
         type: round_robin
   vcl:
     snippets:
-      vclRecv: |
+      vclRecvRouting: |
         if (req.url ~ "^/api/") {
           set req.backend_hint = api.backend();
           return(pass);
         }
         set req.backend_hint = plone.backend();
 ```
+
+Route in `vclRecvRouting`, not in `vclRecv`.
+`vclRecv` only sees `GET` and `HEAD` requests.
+A `POST /api/...` routed there would go to `plone`, the first backend.
+
+(route-requests-rewrite)=
+
+## Rewrite the URL for one backend
+
+A Volto frontend and its Plone backend often share one cache.
+The Plone API (`/++api++/...`) goes to Plone with a VirtualHostMonster rewrite, everything else to Volto.
+Put both the backend choice and the rewrite in `vclRecvRouting`, so that logins, saves and uploads take the same route as reads:
+
+```yaml
+spec:
+  backends:
+    - name: volto
+      port: 3000
+      serviceRef:
+        name: volto-service
+    - name: plone
+      port: 8080
+      serviceRef:
+        name: plone-service
+  vcl:
+    snippets:
+      vclRecvRouting: |
+        if (req.url ~ "^/\+\+api\+\+") {
+          set req.backend_hint = plone.backend();
+          set req.url = "/VirtualHostBase/https/" + req.http.host + "/Plone/VirtualHostRoot" + req.url;
+        }
+```
+
+Requests that the snippet does not match go to `volto`, the first backend.
+In cluster mode the snippet runs once per request, on the pod that owns the URL.
 
 (route-requests-snippet-migration)=
 

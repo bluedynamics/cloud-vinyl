@@ -104,7 +104,7 @@ If unset, the generator emits a `shard` director with default parameters, groupi
 | `hash.header` | string | no | Request header whose value is the hash key of the `hash` director. A letter, then letters, digits, `-` or `_` (what VCL accepts after `req.http.`). Without it the director hashes the URL. |
 
 The first entry of `backends` is the default route.
-Requests that no `vclRecv` snippet routes go through its director, using `shard.healthy` and `hash.header` as above.
+Requests that no snippet routes go through its director, using `shard.healthy` and `hash.header` as above.
 See {ref}`default-routing`.
 
 Without a `director:` block the director runs with the {term}`vmod <VMOD>` defaults: no warmup, no ramp-up, `healthy=CHOSEN`.
@@ -145,7 +145,7 @@ How `shard.by` and `shard.healthy` apply:
 
 - **Cluster-peer director** (when `cluster.enabled: true`): honored automatically.
   The operator emits `<director>.backend(by=<by>, healthy=<healthy>)` in `vcl_recv`.
-- **Per-backend directors**: honored for the default route of the first backend (requests no `vclRecv` snippet routes).
+- **Per-backend directors**: honored for the default route of the first backend (requests no snippet routes).
   For routes you pick in a snippet they remain request-time arguments, for example `set req.backend_hint = plone.backend(by=URL, healthy=CHOSEN);`.
 
 ### `cluster`
@@ -161,6 +161,13 @@ Most custom VCL snippets run on the owning pod only.
 See [Custom snippets in cluster mode](cluster-snippets).
 
 ### `vcl.snippets`
+
+Two snippets go into `vcl_recv`:
+
+| Field | Runs for | Use it for |
+|---|---|---|
+| `vclRecvRouting` | Every method except PURGE and BAN, after the cluster hop and the default backend hint | Choosing the backend and rewriting the URL |
+| `vclRecv` | `GET` and `HEAD` only, before `return(hash)` | Cache decisions, such as `return(pass)` for requests with a session cookie |
 
 The admission webhook admits snippets that reference a per-pod backend name such as `plone_0`.
 It returns a warning for each snippet field and backend involved, because the operator renumbers per-pod names whenever the endpoints change.

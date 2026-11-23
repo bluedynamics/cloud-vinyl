@@ -25,11 +25,11 @@ spec:
 Without it, the operator runs the default `varnish` version of its {term}`runtime catalog`.
 To run Vinyl Cache instead, set `flavor: vinyl` (see {ref}`run-vinyl-cache`).
 
-Requests that no `vclRecv` snippet routes go to the first backend.
+Requests that no snippet routes go to the first backend.
 The backend's {term}`director` spreads them across its pods.
 The director is `shard` by default.
 The same URL stays on the same pod.
-With two or more backends, choose between them in a `vclRecv` snippet.
+With two or more backends, choose between them in a `vclRecvRouting` snippet, which sees every request method.
 See {ref}`default-routing`.
 
 Apply it:
