@@ -21,7 +21,7 @@ See the {ref}`1.1 upgrade notes <upgrade-1-1-metric-labels>`.
 |--------|------|--------|-------------|
 | `vinyl_reconcile_total` | Counter | `cache`, `cache_namespace`, `result` | Total reconcile loop invocations. `result` is `success` or `error`. |
 | `vinyl_reconcile_duration_seconds` | Histogram | — | Reconcile loop duration in seconds. |
-| `vinyl_vcl_push_total` | Counter | `cache`, `cache_namespace`, `result` | VCL push attempts, counted per peer. `result` is `success` or `error`. |
+| `vinyl_vcl_push_total` | Counter | `cache`, `cache_namespace`, `result` | VCL push attempts, counted per peer. `result` is `success`, `refused` or `error`. `refused` means the agent was not listening yet, as while a pod restarts. The next reconcile pushes again. |
 | `vinyl_vcl_push_duration_seconds` | Histogram | — | VCL push duration in seconds (whole push operation). |
 | `vinyl_invalidation_total` | Counter | `cache`, `cache_namespace`, `type`, `result` | Invalidation requests. `type` is `purge`, `ban`, or `xkey`. `result` is `success` or `error`. |
 | `vinyl_invalidation_duration_seconds` | Histogram | — | Invalidation operation duration in seconds. |
@@ -31,6 +31,8 @@ See the {ref}`1.1 upgrade notes <upgrade-1-1-metric-labels>`.
 | `vinyl_objects_purged_unknown_total` | Counter | `cache`, `cache_namespace`, `type` | Individual pod purge responses that answered 2xx but did not carry a parseable `X-Vinyl-Purged` count: a pod that *didn't say*, as opposed to one that reported a known 0. `type` is `purge` or `xkey` only, same reason as above. It stays separate from `vinyl_objects_purged_total` on purpose. A regression can drop the header on only a subset of pods (a partial VCL rollout, or the broadcast-path shape behind #101). That nudges the sum of the other counter down a little and stays invisible. This counter climbs instead, on exactly the pods that stopped reporting. |
 | `vinyl_invalidation_unknown_host_total` | Counter | none | Invalidation requests rejected with `404 unknown cache` because their `Host` names no registered cache, most often the bare `<cache>-invalidation` Service name without the namespace. Clients such as `plone.cachepurging` do not log failed purges. A rising counter is the signal that one of them is misconfigured. The counter has no labels on purpose. The client controls the host. |
 | `vinyl_vcl_versions_loaded` | Gauge | `cache`, `cache_namespace` | Number of VCL versions currently loaded in the cache (drift indicator). |
+| `vinyl_cache_ready_pods` | Gauge | `cache`, `cache_namespace` | Cache pods ready to take traffic. A pod becomes ready once it runs a pushed VCL. Set on every reconcile, also when a push fails. |
+| `vinyl_cache_desired_pods` | Gauge | `cache`, `cache_namespace` | Cache pods the VinylCache asks for (`spec.replicas`). |
 
 ```{note}
 varnishd's own `MAIN.n_purges` and `MAIN.n_obj_purged` stay at 0 for cloud-vinyl purges.
@@ -92,7 +94,7 @@ Prometheus evaluates the hit ratio per pod, as each pod holds its own shard.
 |-------|----------|-----------|
 | `VinylCacheVCLSyncFailed` | warning | VCL push error rate > 0 for 5 m |
 | `VinylCachePartialVCLSync` | warning | Partial failure counter > 0 for 2 m |
-| `VinylCacheAllPodsUnreachable` | critical | Push errors and reconcile errors both > 0 for 1 m |
+| `VinylCacheAllPodsUnreachable` | critical | No pod ready (`vinyl_cache_ready_pods == 0`) while `vinyl_cache_desired_pods > 0`, for 2 m |
 | `VinylCacheBackendUnhealthy` | warning | `varnish_backend_happy == 0` for 5 m |
 | `VinylCacheLowHitRatio` | warning | exporter-derived hit ratio of a pod < 50% for 15 m by default. The chart takes threshold and duration from `monitoring.prometheusRules.lowHitRatio`. The operator's per-cache rule takes them from `spec.monitoring.prometheusRules.lowHitRatio`. |
 | `VinylCacheHighInvalidationRate` | warning | >100 invalidations/s for 5 m |
