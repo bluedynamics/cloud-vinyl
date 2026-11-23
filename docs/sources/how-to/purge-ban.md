@@ -164,3 +164,14 @@ curl -X POST http://my-cache-invalidation.app:8090/purge/xkey \
 ```
 
 The operator issues one `PURGE` with `X-Xkey-Purge` per key to every pod.
+
+`objectsPurged` counts matches per key.
+For a request with one key, or with keys that no object shares, the count is exact.
+A request that names two or more keys of the same object can count that object once per key.
+For such a request the total is an upper bound, and `vinyl_objects_purged_total` advances by the same amount.
+
+The cause is in `vmod_xkey`.
+A hard purge marks the object as expired and counts it, and the object leaves the key index only when the expiry thread of the cache processes it.
+The next key's `PURGE` can still find the object in the index and count it again (#194).
+Whether that happens depends on timing, so the same request can report different totals.
+The purge removes the objects either way.

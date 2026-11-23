@@ -65,7 +65,9 @@ spec:
     one request naming both of its keys. The object must be gone, which is
     asserted. The count is printed but not asserted. The proxy sends one
     PURGE per key, and if vmod_xkey still holds the hard-purged object in
-    its index when the second PURGE arrives, it counts the object twice.
+    its index when the second PURGE arrives, it counts the object twice
+    (#194). Measured: 3 on most runs, 4 once on the Vinyl Cache leg, for
+    three copies.
   timeouts:
     assert: 180s
     delete: 60s

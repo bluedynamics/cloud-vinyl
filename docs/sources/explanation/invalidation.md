@@ -60,6 +60,8 @@ This matches how content management systems think: one change affects all pages 
 
 Xkey needs the `vmod_xkey` module in the cache and `spec.invalidation.xkey.enabled`.
 The operator turns one xkey request into one PURGE per key on every pod.
+The reported count of removed objects is exact for a single key.
+A request that names two or more keys of the same object can count that object more than once (see {ref}`purge-ban-xkey`).
 
 (invalidation-acls)=
 
