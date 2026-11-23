@@ -119,3 +119,14 @@ func podsNeedingVCL(
 	}
 	return targets
 }
+
+// recordPodMetrics sets the ready and desired pod gauges of the cache, which
+// VinylCacheAllPodsUnreachable compares (#190). The reconciler calls it right
+// after listing the pods, so a failing push cannot leave a stale value.
+func (r *VinylCacheReconciler) recordPodMetrics(vc *vinylv1.VinylCache, obs podObservation) {
+	if r.Metrics == nil {
+		return
+	}
+	r.Metrics.CacheReadyPods.WithLabelValues(vc.Name, vc.Namespace).Set(float64(len(obs.ready)))
+	r.Metrics.CacheDesiredPods.WithLabelValues(vc.Name, vc.Namespace).Set(float64(vc.Spec.Replicas))
+}

@@ -29,7 +29,9 @@ const (
 // Nil-safe pattern for callers: if m != nil { m.VCLPushTotal.WithLabelValues(...).Inc() }
 type Metrics struct {
 	// VCL push metrics
-	VCLPushTotal    *prometheus.CounterVec // labels: cache, cache_namespace, result (success|error)
+	// result is success, refused (the agent was not listening yet, as during
+	// a pod restart; the next reconcile pushes again, #136) or error.
+	VCLPushTotal    *prometheus.CounterVec // labels: cache, cache_namespace, result (success|refused|error)
 	VCLPushDuration prometheus.Histogram   // aggregated over all caches
 
 	// Invalidation metrics
@@ -78,6 +80,13 @@ type Metrics struct {
 	// from the prometheus_varnish_exporter sidecar (varnish_main_cache_hit/miss,
 	// backend health) and are computed in PromQL/Grafana.
 	VCLVersionsLoaded *prometheus.GaugeVec // labels: cache, cache_namespace
+
+	// Pods of a cache, set on every reconcile right after the pods are
+	// listed, before any push. VinylCacheAllPodsUnreachable compares them
+	// (#190). desired is spec.replicas; ready counts the pods that may take
+	// traffic, which a pod only does once it runs a pushed VCL.
+	CacheReadyPods   *prometheus.GaugeVec // labels: cache, cache_namespace
+	CacheDesiredPods *prometheus.GaugeVec // labels: cache, cache_namespace
 
 	// Operator
 	ReconcileTotal    *prometheus.CounterVec // labels: cache, cache_namespace, result
@@ -151,6 +160,18 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	}, []string{labelCache, labelCacheNamespace})
 	reg.MustRegister(m.VCLVersionsLoaded)
 
+	m.CacheReadyPods = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "vinyl_cache_ready_pods",
+		Help: "Number of cache pods that are ready to take traffic.",
+	}, []string{labelCache, labelCacheNamespace})
+	reg.MustRegister(m.CacheReadyPods)
+
+	m.CacheDesiredPods = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "vinyl_cache_desired_pods",
+		Help: "Number of cache pods the VinylCache asks for (spec.replicas).",
+	}, []string{labelCache, labelCacheNamespace})
+	reg.MustRegister(m.CacheDesiredPods)
+
 	m.ReconcileTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "vinyl_reconcile_total",
 		Help: "Total number of reconcile operations.",
@@ -165,4 +186,14 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	reg.MustRegister(m.ReconcileDuration)
 
 	return m
+}
+
+// ForgetCache removes the gauge series of a deleted cache. A gauge keeps its
+// last value otherwise, and a cache deleted with no ready pods would keep
+// VinylCacheAllPodsUnreachable firing until the operator restarts. Counters
+// stay: they only ever grow, and alerts read them through rate().
+func (m *Metrics) ForgetCache(cache, namespace string) {
+	for _, g := range []*prometheus.GaugeVec{m.VCLVersionsLoaded, m.CacheReadyPods, m.CacheDesiredPods} {
+		g.DeleteLabelValues(cache, namespace)
+	}
 }

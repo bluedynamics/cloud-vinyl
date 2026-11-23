@@ -19,8 +19,10 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -162,4 +164,37 @@ func (c *countingMock) PushVCL(_ context.Context, _, _, _, _ string) error {
 
 func (c *countingMock) ActiveVCLName(_ context.Context, _, _ string) (string, error) {
 	return "", nil
+}
+
+// #190: a push to an agent that is not listening yet (ECONNREFUSED, #136) is
+// counted as refused, not as an error. Every rolling restart produces some,
+// and the error count feeds the VinylCacheVCLSyncFailed alert.
+func TestPushVCL_RefusedAgentIsNotAnError(t *testing.T) {
+	m := monitoring.NewMetrics(prometheus.NewRegistry())
+	r := makeReconcilerWithMock(&mockAgentClient{pushErr: fmt.Errorf("push VCL: %w", syscall.ECONNREFUSED)})
+	r.Metrics = m
+
+	_, _ = r.pushVCL(context.Background(), makeVC(), makeResult(), makePeers(2))
+
+	if got := testutil.ToFloat64(m.VCLPushTotal.WithLabelValues("test-cache", "default", "refused")); got != 2 {
+		t.Errorf("expected 2 refused pushes counted, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.VCLPushTotal.WithLabelValues("test-cache", "default", "error")); got != 0 {
+		t.Errorf("expected no push errors counted, got %v", got)
+	}
+}
+
+func TestPushVCL_OtherFailuresAreErrors(t *testing.T) {
+	m := monitoring.NewMetrics(prometheus.NewRegistry())
+	r := makeReconcilerWithMock(&mockAgentClient{pushErr: errors.New("vcl.load failed")})
+	r.Metrics = m
+
+	_, _ = r.pushVCL(context.Background(), makeVC(), makeResult(), makePeers(2))
+
+	if got := testutil.ToFloat64(m.VCLPushTotal.WithLabelValues("test-cache", "default", "error")); got != 2 {
+		t.Errorf("expected 2 push errors counted, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.VCLPushTotal.WithLabelValues("test-cache", "default", "refused")); got != 0 {
+		t.Errorf("expected no refused pushes counted, got %v", got)
+	}
 }
