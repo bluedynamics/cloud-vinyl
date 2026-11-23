@@ -40,5 +40,18 @@ sub vcl_backend_response {
     }
 {{- end }}
 {{ end }}
+    # Built-in rules (vcl_beresp_cookie, vcl_beresp_control, vcl_beresp_vary),
+    # which the explicit return below would otherwise skip: a response that
+    # sets a cookie, that the backend marks as not storable, or that varies on
+    # everything becomes a hit-for-miss object. They run after the snippet, so
+    # a snippet can strip a header or return(deliver) first (#184).
+    if (!bereq.uncacheable && (
+        beresp.http.Set-Cookie ||
+        beresp.http.Surrogate-Control ~ "(?i)no-store" ||
+        (!beresp.http.Surrogate-Control && beresp.http.Cache-Control ~ "(?i:no-cache|no-store|private)") ||
+        beresp.http.Vary == "*")) {
+        set beresp.ttl = param.uncacheable_ttl;
+        set beresp.uncacheable = true;
+    }
     return(deliver);
 }

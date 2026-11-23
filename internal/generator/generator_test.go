@@ -1991,3 +1991,67 @@ func TestGenerate_EverySnippetFieldIsRendered(t *testing.T) {
 		assert.Contains(t, r.VCL, marker+"\n", "spec.vcl.snippets field %s is not rendered", field)
 	}
 }
+
+// The generated subroutines end with an explicit return, so Varnish's
+// built-in cache rules never run. #184: vcl_recv passes requests with an
+// Authorization header, as the built-in vcl_req_authorization does. The rule
+// comes after the vclRecv snippet, so a snippet can still return(hash) for a
+// resource it knows to be public.
+func TestGenerate_VCLRecv_AuthorizationPassesAfterSnippet(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.VCL.Snippets.VCLRecv = "# s recv"
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+
+	body := subBody(t, r.VCL, "vcl_recv")
+	snippet := strings.Index(body, "# s recv")
+	auth := strings.Index(body, "if (req.http.Authorization) {\n        return(pass);\n    }")
+	final := strings.LastIndex(body, "return(hash);")
+	require.GreaterOrEqual(t, snippet, 0)
+	require.Greater(t, auth, snippet, "the Authorization pass must come after the vclRecv snippet")
+	require.Greater(t, final, auth, "the Authorization pass must come before the final return(hash)")
+}
+
+// #184 keeps the built-in vcl_req_cookie rule out on purpose: a Cookie header
+// alone does not make a request pass. The response-side rules still keep
+// responses with Set-Cookie or Cache-Control: private out of the cache.
+func TestGenerate_VCLRecv_CookieDoesNotPass(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(makeMinimalInput())
+	require.NoError(t, err)
+	assert.NotContains(t, subBody(t, r.VCL, "vcl_recv"), "req.http.Cookie")
+}
+
+// #184: vcl_backend_response marks responses uncacheable that the built-in
+// VCL would not cache (vcl_beresp_cookie, vcl_beresp_control,
+// vcl_beresp_vary). The rules come after the snippet, so a snippet can strip
+// a header or return(deliver) first, as with the built-in VCL.
+func TestGenerate_BackendResponse_BuiltinRulesAfterSnippet(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.VCL.Snippets.VCLBackendResponse = "# s beresp"
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+
+	body := subBody(t, r.VCL, "vcl_backend_response")
+	order := []string{
+		"# s beresp",
+		"if (!bereq.uncacheable && (",
+		"beresp.http.Set-Cookie",
+		`beresp.http.Surrogate-Control ~ "(?i)no-store"`,
+		`(!beresp.http.Surrogate-Control && beresp.http.Cache-Control ~ "(?i:no-cache|no-store|private)")`,
+		`beresp.http.Vary == "*"`,
+		"set beresp.ttl = param.uncacheable_ttl;",
+		"set beresp.uncacheable = true;",
+		"return(deliver);",
+	}
+	// Search each marker after the previous one: the zero-TTL rule at the top
+	// of the subroutine sets beresp.uncacheable as well.
+	from := 0
+	for _, s := range order {
+		i := strings.Index(body[from:], s)
+		require.GreaterOrEqual(t, i, 0, "vcl_backend_response must contain %q after the previous marker", s)
+		from += i + len(s)
+	}
+}

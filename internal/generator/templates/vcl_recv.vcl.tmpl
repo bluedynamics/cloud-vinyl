@@ -132,5 +132,13 @@ sub vcl_recv {
     {{ .Spec.VCL.Snippets.VCLRecv }}
     # --- end custom vcl_recv snippet ---
 {{ end }}
+    # Built-in rule (vcl_req_authorization), which the explicit return below
+    # would otherwise skip: a request with credentials is not looked up in the
+    # shared cache. It runs after the snippet, so a snippet can return(hash)
+    # for a resource it knows to be public. Unlike the built-in VCL, a Cookie
+    # header alone does not make a request pass (#184).
+    if (req.http.Authorization) {
+        return(pass);
+    }
     return(hash);
 }
