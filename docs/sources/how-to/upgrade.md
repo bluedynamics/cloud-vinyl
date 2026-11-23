@@ -28,6 +28,46 @@ Plan upgrades for a quiet period.
 Pinning `image.agent.tag` avoids the roll but leaves the agent on a different version than the operator.
 That combination is not supported.
 
+(upgrade-1-2-1-cache-rules)=
+
+## Upgrading to 1.2.1: built-in cache rules
+
+1.2.1 keeps the cache-safety rules of Varnish's built-in VCL, which the generated VCL skipped before (#184), see {ref}`vcl-lifecycle-cache-rules`.
+The cache no longer stores these responses:
+
+- responses that set a cookie (`Set-Cookie`),
+- responses whose `Cache-Control` contains `private`, `no-cache` or `no-store`,
+- responses whose `Surrogate-Control` contains `no-store`,
+- responses with `Vary: *`.
+
+Requests with an `Authorization` header now pass the cache.
+A `Cookie` header alone still does not.
+
+Expect a lower hit ratio if a backend sent such headers on pages that the cache stored before.
+To keep caching such a resource on purpose, decide in a snippet: unset the header in `vclBackendResponse`, or `return(hash)` in `vclRecv` for public resources requested with credentials.
+
+(upgrade-1-2-1-allpods-alert)=
+
+## Upgrading to 1.2.1: `VinylCacheAllPodsUnreachable`
+
+The alert used to fire on every rolling restart, including the one each operator release causes (#190).
+It now fires when no pod of a cache is ready while the cache asks for at least one, for two minutes.
+A rolling restart keeps the other pods ready, and a single replica comes back within that time.
+
+`vinyl_vcl_push_total` gets a third `result`, `refused`, for pushes to an agent that was not listening yet.
+These no longer count as `error`, so `VinylCacheVCLSyncFailed` stays quiet during restarts too.
+Dashboards that sum `result="error"` show fewer errors.
+
+(upgrade-1-2-1-argocd-health)=
+
+## Upgrading to 1.2.1: Argo CD health check
+
+The chart no longer renders the ConfigMap `cloud-vinyl-argocd-health`.
+Argo CD never read it, so the VinylCache health check never took effect (#189).
+Add the check to `argocd-cm` instead, see {ref}`argocd-health`.
+`argocd.resourceCustomizations.enabled` and `argocd.namespace` no longer do anything.
+They stay in the values schema, so existing values files still pass the schema check.
+
 (upgrade-1-2-recv-routing)=
 
 ## Upgrading to 1.2: route writes in `vclRecvRouting`
@@ -42,46 +82,6 @@ If a `vclRecv` snippet picks the backend or rewrites the URL, move that part to 
 A workaround that repeats the rewrite on `bereq.url` in `vclBackendFetch` can go.
 Leave cache decisions in `vclRecv`.
 A `return(hash)` in `vclRecvRouting` would apply to writes as well.
-
-(upgrade-1-2-argocd-health)=
-
-## Upgrading to 1.2: Argo CD health check
-
-The chart no longer renders the ConfigMap `cloud-vinyl-argocd-health`.
-Argo CD never read it, so the VinylCache health check never took effect (#189).
-Add the check to `argocd-cm` instead, see {ref}`argocd-health`.
-`argocd.resourceCustomizations.enabled` and `argocd.namespace` no longer do anything.
-They stay in the values schema, so existing values files still pass the schema check.
-
-(upgrade-1-2-cache-rules)=
-
-## Upgrading to 1.2: built-in cache rules
-
-1.2 keeps the cache-safety rules of Varnish's built-in VCL, which the generated VCL skipped before (#184), see {ref}`vcl-lifecycle-cache-rules`.
-The cache no longer stores these responses:
-
-- responses that set a cookie (`Set-Cookie`),
-- responses whose `Cache-Control` contains `private`, `no-cache` or `no-store`,
-- responses whose `Surrogate-Control` contains `no-store`,
-- responses with `Vary: *`.
-
-Requests with an `Authorization` header now pass the cache.
-A `Cookie` header alone still does not.
-
-Expect a lower hit ratio if a backend sent such headers on pages that the cache stored before.
-To keep caching such a resource on purpose, decide in a snippet: unset the header in `vclBackendResponse`, or `return(hash)` in `vclRecv` for public resources requested with credentials.
-
-(upgrade-1-2-allpods-alert)=
-
-## Upgrading to 1.2: `VinylCacheAllPodsUnreachable`
-
-The alert used to fire on every rolling restart, including the one each operator release causes (#190).
-It now fires when no pod of a cache is ready while the cache asks for at least one, for two minutes.
-A rolling restart keeps the other pods ready, and a single replica comes back within that time.
-
-`vinyl_vcl_push_total` gets a third `result`, `refused`, for pushes to an agent that was not listening yet.
-These no longer count as `error`, so `VinylCacheVCLSyncFailed` stays quiet during restarts too.
-Dashboards that sum `result="error"` show fewer errors.
 
 (upgrade-1-1-crd-first)=
 
