@@ -15,6 +15,27 @@ When the operator reconciles a `VinylCache`, it feeds the spec into the VCL gene
    The program consists of `main.vcl` plus subroutines for `vcl_init`, `vcl_recv`, `vcl_hash`, `vcl_hit`, `vcl_miss`, `vcl_pass`, `vcl_purge`, `vcl_pipe`, `vcl_synth`, `vcl_backend_fetch`, `vcl_backend_response`, `vcl_backend_error`, `vcl_deliver`, and `vcl_fini`.
 4. **Hash**: the SHA-256 of the rendered VCL serves as a content-addressable identifier.
 
+(vcl-lifecycle-cache-rules)=
+
+### Cache rules
+
+Varnish appends its built-in VCL to every program and runs it when a subroutine ends without a `return`.
+Every generated subroutine ends with an explicit `return`, so the built-in VCL never runs.
+The generator writes out the cache-safety rules of the built-in VCL instead:
+
+- `vcl_recv` passes requests with an `Authorization` header.
+- `vcl_backend_response` turns a response into a hit-for-miss object when it sets a cookie (`Set-Cookie`), when `Cache-Control` contains `private`, `no-cache` or `no-store`, when `Surrogate-Control` contains `no-store`, or when it carries `Vary: *`.
+  A `Surrogate-Control` header takes precedence over `Cache-Control`, as in the built-in VCL.
+
+Both rules run after the `vclRecv` and `vclBackendResponse` snippets, so a snippet decides first.
+A `return(hash)` in `vclRecv` caches a request with credentials for a resource known to be public.
+Removing `Set-Cookie` in `vclBackendResponse` lets the cache store such a response again.
+
+Unlike the built-in VCL, a `Cookie` header alone does not make a request pass.
+Most sites send analytics or consent cookies with every request, and passing them would leave little to cache.
+The response rules still keep personal responses out of the cache.
+To pass on any cookie, add `if (req.http.Cookie) { return(pass); }` to `vclRecv`.
+
 (cluster-snippets)=
 
 ## Custom snippets in cluster mode

@@ -43,6 +43,24 @@ A workaround that repeats the rewrite on `bereq.url` in `vclBackendFetch` can go
 Leave cache decisions in `vclRecv`.
 A `return(hash)` in `vclRecvRouting` would apply to writes as well.
 
+(upgrade-1-2-cache-rules)=
+
+## Upgrading to 1.2: built-in cache rules
+
+1.2 keeps the cache-safety rules of Varnish's built-in VCL, which the generated VCL skipped before (#184), see {ref}`vcl-lifecycle-cache-rules`.
+The cache no longer stores these responses:
+
+- responses that set a cookie (`Set-Cookie`),
+- responses whose `Cache-Control` contains `private`, `no-cache` or `no-store`,
+- responses whose `Surrogate-Control` contains `no-store`,
+- responses with `Vary: *`.
+
+Requests with an `Authorization` header now pass the cache.
+A `Cookie` header alone still does not.
+
+Expect a lower hit ratio if a backend sent such headers on pages that the cache stored before.
+To keep caching such a resource on purpose, decide in a snippet: unset the header in `vclBackendResponse`, or `return(hash)` in `vclRecv` for public resources requested with credentials.
+
 (upgrade-1-1-crd-first)=
 
 ## Upgrading to 1.1: apply the CRD before `helm upgrade`

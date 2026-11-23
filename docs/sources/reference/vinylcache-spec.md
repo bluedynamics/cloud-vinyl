@@ -169,6 +169,10 @@ Two snippets go into `vcl_recv`:
 | `vclRecvRouting` | Every method except PURGE and BAN, after the cluster hop and the default backend hint | Choosing the backend and rewriting the URL |
 | `vclRecv` | `GET` and `HEAD` only, before `return(hash)` | Cache decisions, such as `return(pass)` for requests with a session cookie |
 
+After `vclRecv`, the generated VCL passes requests with an `Authorization` header.
+After `vclBackendResponse`, it keeps responses out of the cache that set a cookie, that `Cache-Control` or `Surrogate-Control` forbids storing, or that carry `Vary: *`.
+See {ref}`vcl-lifecycle-cache-rules`.
+
 The admission webhook admits snippets that reference a per-pod backend name such as `plone_0`.
 It returns a warning for each snippet field and backend involved, because the operator renumbers per-pod names whenever the endpoints change.
 Use `<backend>.backend()` instead, see [Route requests to backends](../how-to/route-requests.md).
