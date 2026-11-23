@@ -181,6 +181,7 @@ func (r *VinylCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	r.recordPodMetrics(vc, obs)
 	peers := obs.ready
 
 	r.updateProxy(vc, peers)

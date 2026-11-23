@@ -156,3 +156,20 @@ tests:
       - equal:
           path: spec.endpoints[0].port
           value: metrics
+
+  # #190: compare ready pods with the desired count; push and reconcile errors
+  # happen on every rolling restart.
+  - it: VinylCacheAllPodsUnreachable fires when no pod is ready
+    template: prometheusrule.yaml
+    set:
+      monitoring.prometheusRules.enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[2].alert
+          value: VinylCacheAllPodsUnreachable
+      - equal:
+          path: spec.groups[0].rules[2].expr
+          value: vinyl_cache_ready_pods == 0 and vinyl_cache_desired_pods > 0
+      - equal:
+          path: spec.groups[0].rules[2].for
+          value: 2m

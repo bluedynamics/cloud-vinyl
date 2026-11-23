@@ -123,12 +123,17 @@ func TestGeneratePrometheusRule_SelectsOnlyTheCache(t *testing.T) {
 	}
 }
 
-func TestGeneratePrometheusRule_AllPodsUnreachableFiltersBothSides(t *testing.T) {
-	expr, ok := findAlertExpr(monitoring.GeneratePrometheusRule("my-cache", "shop", monitoring.Options{}), "VinylCacheAllPodsUnreachable")
-	require.True(t, ok)
+// #190: the alert compares ready pods with the desired replica count. Push
+// errors happen on every rolling restart, and a raw reconcile error counter
+// stays above zero until the operator restarts, so neither says that all
+// pods are unreachable.
+func TestGeneratePrometheusRule_AllPodsUnreachableComparesReadyWithDesired(t *testing.T) {
+	alert := findAlert(t, monitoring.GeneratePrometheusRule("my-cache", "shop", monitoring.Options{}), "VinylCacheAllPodsUnreachable")
 	assert.Equal(t,
-		`rate(vinyl_vcl_push_total{result="error",cache="my-cache",cache_namespace="shop"}[5m]) > 0 and vinyl_reconcile_total{result="error",cache="my-cache",cache_namespace="shop"} > 0`,
-		expr)
+		`vinyl_cache_ready_pods{cache="my-cache",cache_namespace="shop"} == 0 and vinyl_cache_desired_pods{cache="my-cache",cache_namespace="shop"} > 0`,
+		alert.Expr.String())
+	assert.Equal(t, "2m", alert.For)
+	assert.Equal(t, "critical", alert.Labels["severity"])
 }
 
 // The exporter knows nothing about VinylCaches, so the alerts derive the cache

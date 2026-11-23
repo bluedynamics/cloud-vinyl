@@ -71,6 +71,18 @@ A `Cookie` header alone still does not.
 Expect a lower hit ratio if a backend sent such headers on pages that the cache stored before.
 To keep caching such a resource on purpose, decide in a snippet: unset the header in `vclBackendResponse`, or `return(hash)` in `vclRecv` for public resources requested with credentials.
 
+(upgrade-1-2-allpods-alert)=
+
+## Upgrading to 1.2: `VinylCacheAllPodsUnreachable`
+
+The alert used to fire on every rolling restart, including the one each operator release causes (#190).
+It now fires when no pod of a cache is ready while the cache asks for at least one, for two minutes.
+A rolling restart keeps the other pods ready, and a single replica comes back within that time.
+
+`vinyl_vcl_push_total` gets a third `result`, `refused`, for pushes to an agent that was not listening yet.
+These no longer count as `error`, so `VinylCacheVCLSyncFailed` stays quiet during restarts too.
+Dashboards that sum `result="error"` show fewer errors.
+
 (upgrade-1-1-crd-first)=
 
 ## Upgrading to 1.1: apply the CRD before `helm upgrade`

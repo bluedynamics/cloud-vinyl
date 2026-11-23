@@ -104,13 +104,16 @@ func (r *VinylCacheReconciler) pushVCL(
 	for _, pr := range results {
 		res := "success"
 		if pr.err != nil {
-			res = "error"
 			failCount++
 			if errors.Is(pr.err, syscall.ECONNREFUSED) {
 				// The agent restarted after its startup probe passed; the
-				// next reconcile pushes again (#136).
+				// next reconcile pushes again (#136). Every rolling restart
+				// produces some of these, so they are not counted as errors
+				// (#190).
+				res = "refused"
 				log.Info("agent not listening yet, will retry", "pod", pr.peer.Name)
 			} else {
+				res = "error"
 				log.Error(pr.err, "VCL push failed for pod", "pod", pr.peer.Name)
 			}
 		} else {

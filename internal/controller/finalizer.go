@@ -61,6 +61,9 @@ func (r *VinylCacheReconciler) handleDeletion(ctx context.Context, vc *vinylv1.V
 	if r.ProxyPodMap != nil {
 		r.ProxyPodMap.Delete(vc.Namespace, vc.Name)
 	}
+	if r.Metrics != nil {
+		r.Metrics.ForgetCache(vc.Name, vc.Namespace)
+	}
 
 	// Remove finalizer — OwnerRef-controlled resources (StatefulSet, headless service,
 	// traffic service, secret) will be garbage-collected by Kubernetes automatically.

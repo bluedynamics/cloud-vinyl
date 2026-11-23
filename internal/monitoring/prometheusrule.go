@@ -196,13 +196,16 @@ func allAlerts(cacheSel, podSel string, opts Options) []Rule {
 			},
 		},
 		{
+			// No pod of the cache is ready although it asks for some (#190).
+			// A rolling restart keeps at least one pod ready, and a single
+			// replica is back well within the two minutes.
 			Alert:  "VinylCacheAllPodsUnreachable",
-			Expr:   intstr.FromString(fmt.Sprintf(`rate(vinyl_vcl_push_total{%[1]s}[5m]) > 0 and vinyl_reconcile_total{%[1]s} > 0`, join(`result="error"`, cacheSel))),
-			For:    "1m",
+			Expr:   intstr.FromString(fmt.Sprintf(`vinyl_cache_ready_pods%[1]s == 0 and vinyl_cache_desired_pods%[1]s > 0`, braces(cacheSel))),
+			For:    "2m",
 			Labels: map[string]string{labelSeverity: "critical"},
 			Annotations: map[string]string{
-				annotationSummary:     "All Varnish pods unreachable for {{ $labels.cache }}",
-				annotationDescription: "Cannot reach any Varnish pod in cache {{ $labels.cache }}. Cache is not serving requests correctly.",
+				annotationSummary:     "No Varnish pod ready for {{ $labels.cache }}",
+				annotationDescription: "No pod of cache {{ $labels.cache }} in namespace {{ $labels.cache_namespace }} is ready to take traffic. The cache does not serve requests.",
 			},
 		},
 		{
