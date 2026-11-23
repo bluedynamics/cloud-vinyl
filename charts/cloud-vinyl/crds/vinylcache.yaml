@@ -4176,8 +4176,19 @@ spec:
                         description: vclPurge is inserted into vcl_purge.
                         type: string
                       vclRecv:
-                        description: vclRecv is inserted into vcl_recv after generated
-                          routing logic, before return().
+                        description: |-
+                          vclRecv is inserted into vcl_recv after methods other than GET and HEAD
+                          have been passed, before return(hash). It only sees GET and HEAD
+                          requests; route all methods in vclRecvRouting.
+                        type: string
+                      vclRecvRouting:
+                        description: |-
+                          vclRecvRouting is inserted into vcl_recv after PURGE/BAN handling, the
+                          cluster hop and the default backend hint, and before methods other than
+                          GET and HEAD are passed, so it sees requests of every method except
+                          PURGE and BAN. Use it to choose the backend and rewrite the URL, so that
+                          writes are routed like reads. In cluster mode it runs on the owner hop
+                          only.
                         type: string
                       vclSynth:
                         description: vclSynth is inserted into vcl_synth.
@@ -8984,8 +8995,19 @@ spec:
                         description: vclPurge is inserted into vcl_purge.
                         type: string
                       vclRecv:
-                        description: vclRecv is inserted into vcl_recv after generated
-                          routing logic, before return().
+                        description: |-
+                          vclRecv is inserted into vcl_recv after methods other than GET and HEAD
+                          have been passed, before return(hash). It only sees GET and HEAD
+                          requests; route all methods in vclRecvRouting.
+                        type: string
+                      vclRecvRouting:
+                        description: |-
+                          vclRecvRouting is inserted into vcl_recv after PURGE/BAN handling, the
+                          cluster hop and the default backend hint, and before methods other than
+                          GET and HEAD are passed, so it sees requests of every method except
+                          PURGE and BAN. Use it to choose the backend and rewrite the URL, so that
+                          writes are routed like reads. In cluster mode it runs on the owner hop
+                          only.
                         type: string
                       vclSynth:
                         description: vclSynth is inserted into vcl_synth.

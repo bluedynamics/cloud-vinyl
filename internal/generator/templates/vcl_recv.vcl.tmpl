@@ -101,8 +101,9 @@ sub vcl_recv {
 {{- if .DefaultBackendHint }}
 
     # Default route: the first backend's director, so un-snippeted traffic
-    # spreads across its pods. A vclRecv snippet may still override it. Runs
-    # after the cluster block so the owner hop and ESI fragments get it too.
+    # spreads across its pods. A vclRecvRouting or vclRecv snippet may still
+    # override it. Runs after the cluster block so the owner hop and ESI
+    # fragments get it too.
     set req.backend_hint = {{ .DefaultBackendHint }};
 {{- end }}
 {{- if .HasProxyProtocol }}
@@ -111,6 +112,15 @@ sub vcl_recv {
     if (req.http.X-Forwarded-For) {
         set req.http.X-Real-IP = regsub(req.http.X-Forwarded-For, ",.*$", "");
     }
+{{- end }}
+{{- if .Spec.VCL.Snippets.VCLRecvRouting }}
+
+    # Routing snippet (#195): runs for every method, so a backend choice or
+    # URL rewrite here applies to writes as well as reads. In cluster mode
+    # only the owner hop gets here; the relay hop has returned above.
+    # --- custom vcl_recv routing snippet ---
+    {{ .Spec.VCL.Snippets.VCLRecvRouting }}
+    # --- end custom vcl_recv routing snippet ---
 {{- end }}
 
     # Only handle GET and HEAD for caching (pass everything else)

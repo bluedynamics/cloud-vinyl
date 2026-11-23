@@ -1,6 +1,7 @@
 package generator_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1908,4 +1909,85 @@ func TestGenerate_DefaultHint_FullOverrideUntouched(t *testing.T) {
 	r, err := g.Generate(in)
 	require.NoError(t, err)
 	assert.NotContains(t, r.VCL, "backend_hint")
+}
+
+// vclRecvRouting (#195) is the vcl_recv snippet that sees every method. It
+// must render before the GET/HEAD check, which passes everything else, and
+// after the PURGE handling, the default backend hint it may override, and the
+// PROXY-protocol X-Real-IP extraction it may read. vclRecv keeps its place
+// after the check, so existing snippets still see only GET and HEAD.
+func TestGenerate_VCLRecvRouting_BeforeMethodCheck(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	input.Spec.ProxyProtocol.Enabled = true
+	input.Spec.VCL.Snippets.VCLRecvRouting = "# s routing"
+	input.Spec.VCL.Snippets.VCLRecv = "# s recv"
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+
+	body := subBody(t, r.VCL, "vcl_recv")
+	order := []string{
+		`if (req.method == "PURGE")`,
+		"set req.backend_hint = ",
+		"set req.http.X-Real-IP = ",
+		"    # --- custom vcl_recv routing snippet ---\n    # s routing\n    # --- end custom vcl_recv routing snippet ---\n",
+		`if (req.method != "GET" && req.method != "HEAD")`,
+		"# s recv",
+	}
+	last := -1
+	for _, s := range order {
+		i := strings.Index(body, s)
+		require.GreaterOrEqual(t, i, 0, "vcl_recv must contain %q", s)
+		require.Greater(t, i, last, "%q is out of order", s)
+		last = i
+	}
+}
+
+// In cluster mode the relay hop leaves vcl_recv with return(pass) in the
+// cluster block, so only the owner hop reaches the routing snippet. It needs
+// no guard of its own, and a URL rewrite in it happens exactly once.
+func TestGenerate_Cluster_VCLRecvRouting_AfterClusterBlock(t *testing.T) {
+	g := newGenerator(t)
+	input := clusterInput()
+	input.Spec.VCL.Snippets.VCLRecvRouting = "# s routing"
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+
+	body := subBody(t, r.VCL, "vcl_recv")
+	ownerHop := strings.LastIndex(body, "unset req.http.X-Vinyl-Shard;")
+	routing := strings.Index(body, "# s routing")
+	check := strings.Index(body, `if (req.method != "GET" && req.method != "HEAD")`)
+	require.GreaterOrEqual(t, ownerHop, 0)
+	require.Greater(t, routing, ownerHop, "the routing snippet must come after the cluster block")
+	require.Greater(t, check, routing, "the routing snippet must come before the GET/HEAD check")
+	assert.NotContains(t, body[ownerHop+len("unset req.http.X-Vinyl-Shard;"):routing], "X-Vinyl-Shard",
+		"the routing snippet must not be guarded")
+}
+
+func TestGenerate_VCLRecvRouting_EmptyRendersNothing(t *testing.T) {
+	g := newGenerator(t)
+	r, err := g.Generate(makeMinimalInput())
+	require.NoError(t, err)
+	assert.NotContains(t, r.VCL, "routing snippet")
+}
+
+// Every spec.vcl.snippets field must be rendered somewhere. #116 was a field
+// the CRD accepted and no template rendered; this sets every string field of
+// VCLSnippets by reflection, so a field added later cannot be dropped the
+// same way.
+func TestGenerate_EverySnippetFieldIsRendered(t *testing.T) {
+	g := newGenerator(t)
+	input := makeMinimalInput()
+	v := reflect.ValueOf(&input.Spec.VCL.Snippets).Elem()
+	markers := map[string]string{}
+	for f, fv := range v.Fields() {
+		require.Equal(t, reflect.String, f.Type.Kind(), "VCLSnippets is expected to hold strings only")
+		markers[f.Name] = "# snippet marker " + f.Name
+		fv.SetString(markers[f.Name])
+	}
+	r, err := g.Generate(input)
+	require.NoError(t, err)
+	for field, marker := range markers {
+		assert.Contains(t, r.VCL, marker+"\n", "spec.vcl.snippets field %s is not rendered", field)
+	}
 }

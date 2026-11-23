@@ -346,6 +346,7 @@ func snippetFields(s vinylv1.VCLSnippets) []snippetField {
 	return []snippetField{
 		{p + "header", s.Header},
 		{p + "vclInit", s.VCLInit},
+		{p + "vclRecvRouting", s.VCLRecvRouting},
 		{p + "vclRecv", s.VCLRecv},
 		{p + "vclHash", s.VCLHash},
 		{p + "vclHit", s.VCLHit},

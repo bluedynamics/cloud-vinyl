@@ -17,6 +17,7 @@ limitations under the License.
 package webhook_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -986,4 +987,35 @@ func TestValidate_HashHeader(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidate_LegacyBackendReferences_RoutingSnippet(t *testing.T) {
+	vc := minimalValidVC()
+	name := vc.Spec.Backends[0].Name
+	vc.Spec.VCL.Snippets.VCLRecvRouting = "set req.backend_hint = " + name + "_0;"
+	warnings, err := webhook.ValidateVinylCache(vc)
+	require.NoError(t, err)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "spec.vcl.snippets.vclRecvRouting")
+}
+
+// Every spec.vcl.snippets field must be checked for per-pod backend names. A
+// field added to VCLSnippets but not to snippetFields would silently escape
+// the #35 warning, so this sets every string field by reflection.
+func TestValidate_LegacyBackendReferences_CoversEverySnippetField(t *testing.T) {
+	vc := minimalValidVC()
+	name := vc.Spec.Backends[0].Name
+	v := reflect.ValueOf(&vc.Spec.VCL.Snippets).Elem()
+	fields := 0
+	for _, fv := range v.Fields() {
+		if fv.Kind() == reflect.String {
+			fv.SetString("# " + name + "_0")
+			fields++
+		}
+	}
+	require.Equal(t, v.NumField(), fields, "VCLSnippets is expected to hold strings only")
+
+	warnings, err := webhook.ValidateVinylCache(vc)
+	require.NoError(t, err)
+	assert.Len(t, warnings, fields, "one warning per snippet field")
 }

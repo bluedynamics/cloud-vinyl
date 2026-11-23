@@ -137,8 +137,15 @@ func (h headers) Get(name string) string { return h[strings.ToLower(name)] }
 
 func curlHeaders(t *testing.T, id, url string) headers {
 	t.Helper()
-	out, err := docker("exec", id, "curl", "-s", "-o", "/dev/null", "-D", "-", url).Output()
-	require.NoError(t, err, "curl %s: %s", url, stderrText(err))
+	return curlRequest(t, id, "GET", url)
+}
+
+// curlRequest sends one request with the given method from inside the
+// container and returns the response headers.
+func curlRequest(t *testing.T, id, method, url string) headers {
+	t.Helper()
+	out, err := docker("exec", id, "curl", "-s", "-o", "/dev/null", "-D", "-", "-X", method, url).Output()
+	require.NoError(t, err, "curl -X %s %s: %s", method, url, stderrText(err))
 	h := headers{}
 	for _, line := range strings.Split(string(out), "\n") {
 		name, value, ok := strings.Cut(strings.TrimSpace(line), ":")
