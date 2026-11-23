@@ -161,7 +161,8 @@ A purge of one key removes the objects tagged with it on all three pods, and an 
 That second object is what tells a key purge apart from a full flush.
 Every purge asserts the exact count, including `0` for a key no object carries, with one exception.
 For one request that names both keys of a single object, the test asserts only that the cache no longer serves the object.
-The proxy sends one `PURGE` per key, and the second can arrive while the object is still in the xkey index, so that count could include the object twice.
+The proxy sends one `PURGE` per key, and the second can arrive while the object is still in the xkey index, so that count can include the object twice (#194).
+CI measured both 3 and 4 for the three copies.
 The test also covers one key on two URLs, an object with two keys removed by a purge of either, and one request naming two keys.
 Objects cached under two different site hosts that share a key go away with one request that names no host.
 A URL purge needs the site host (#134), a key purge does not.
