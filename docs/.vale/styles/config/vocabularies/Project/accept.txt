@@ -6,6 +6,7 @@ Vinyl Cache
 Alertmanager
 Grafana
 Plone
+Volto
 kubectl
 envtest
 

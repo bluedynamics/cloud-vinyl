@@ -28,6 +28,21 @@ Plan upgrades for a quiet period.
 Pinning `image.agent.tag` avoids the roll but leaves the agent on a different version than the operator.
 That combination is not supported.
 
+(upgrade-1-2-recv-routing)=
+
+## Upgrading to 1.2: route writes in `vclRecvRouting`
+
+1.2 adds `spec.vcl.snippets.vclRecvRouting` (#195).
+Apply the new CRD (see {ref}`upgrade-crd`) before you set it.
+Until you apply the CRD, the API server prunes the field, and the snippet never reaches the VCL.
+
+`vclRecv` behaves as before and sees `GET` and `HEAD` only.
+If a `vclRecv` snippet picks the backend or rewrites the URL, move that part to `vclRecvRouting`.
+`POST`, `PUT`, `PATCH`, `DELETE` and `OPTIONS` then take the same route.
+A workaround that repeats the rewrite on `bereq.url` in `vclBackendFetch` can go.
+Leave cache decisions in `vclRecv`.
+A `return(hash)` in `vclRecvRouting` would apply to writes as well.
+
 (upgrade-1-1-crd-first)=
 
 ## Upgrading to 1.1: apply the CRD before `helm upgrade`

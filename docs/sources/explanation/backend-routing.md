@@ -29,12 +29,15 @@ If `spec.backends[].director` is unset, the generator emits a `shard` director f
 The same URL consistently lands on the same backend pod, which maximizes origin cache-hit rate.
 This is the right default for any application with cache locality.
 
-Requests that no `vclRecv` snippet routes go to the **first** entry of `spec.backends`, through that backend's director.
+Requests that no snippet routes go to the **first** entry of `spec.backends`, through that backend's director.
 The generated `vcl_recv` sets the backend hint before your snippet runs.
 A snippet's own `set req.backend_hint = ...` still wins.
 With clustering, the hint also applies to the owner hop and to {term}`ESI` fragments.
 
 Other backends are reachable only through a snippet.
+Route in `vclRecvRouting`, which runs for requests of every method except PURGE and BAN.
+`vclRecv` runs for `GET` and `HEAD` only: the generated `vcl_recv` passes every other method before it.
+A `POST`, `PUT` or `DELETE` never reaches a routing decision made in `vclRecv` and goes to the first backend with its URL unchanged (#195).
 A cache with a single backend needs no snippet at all.
 The reference lists which key each director type gets on the default route.
 

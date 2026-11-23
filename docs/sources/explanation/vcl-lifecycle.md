@@ -27,7 +27,7 @@ The generator decides which custom snippets run on which hop:
 
 | Snippet | Relay hop | Owner hop |
 |---|---|---|
-| `vclRecv` | no | yes |
+| `vclRecvRouting`, `vclRecv` | no | yes |
 | `vclHash`, `vclPass`, `vclDeliver` | no | yes |
 | `vclBackendFetch`, `vclBackendResponse` | no | yes |
 | `vclHit`, `vclMiss`, `vclPurge` | never reached | yes |
