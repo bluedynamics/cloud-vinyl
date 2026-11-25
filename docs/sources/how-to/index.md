@@ -11,6 +11,7 @@ run-vinyl-cache
 replace-an-image
 ssd-backed-storage
 size-memory
+resource-quota
 spread-pods
 switch-off-a-cache
 route-requests

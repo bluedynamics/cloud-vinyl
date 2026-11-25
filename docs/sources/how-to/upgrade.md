@@ -28,7 +28,18 @@ Plan upgrades for a quiet period.
 Pinning `image.agent.tag` avoids the roll but leaves the agent on a different version than the operator.
 That combination is not supported.
 
-(upgrade-1-2-1-cache-rules)=
+(upgrade-1-3-sidecar-resources)=
+
+## Upgrading to 1.3: sidecar resources
+
+The `vinyl-agent` sidecar, and the `vinyl-exporter` sidecar when enabled, now carry CPU and memory requests and limits by default (#205).
+Without them, a namespace with a `ResourceQuota` rejected the cache pods.
+The new pod template rolls the cache pods once, together with the roll every operator release causes.
+The requests count against a quota, see {ref}`resource-quota` for the values.
+
+`spec.agent.resources` is new.
+Apply the new CRD (see {ref}`upgrade-crd`) before you set it, or the API server prunes it.
+
 
 ## Upgrading to 1.2.1: built-in cache rules
 

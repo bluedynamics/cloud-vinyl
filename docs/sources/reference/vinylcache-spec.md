@@ -47,6 +47,8 @@ Move manifests to `v1` by changing `apiVersion` only.
 | `pod.volumeMounts` | list | no | Extra mounts on the varnish container. Each `name` must reference a `spec.pod.volumes` entry or a `spec.volumeClaimTemplates` claim name. Reserved mount paths rejected by webhook. |
 | `pod.env` | list | no | Environment variables on the varnish container (`value` or `valueFrom`). An entry named like an operator default replaces it. `MALLOC_CONF` replaces the operator's jemalloc tuning. An empty value restores jemalloc's defaults. See [Size memory for malloc storage](../how-to/size-memory.md). |
 | `monitoring` | object | no | Metrics scraping and alerting. See the `monitoring` section below. |
+| `resources` | object | no | Resource requests and limits of the `varnish` container, as on a Kubernetes container. No default. See {ref}`size-memory-budget` and {ref}`resource-quota`. |
+| `agent.resources` | object | no | Resource requests and limits of the `vinyl-agent` sidecar. Without requests and limits, the operator uses requests of `10m` CPU and `16Mi` memory and limits of `100m` CPU and `64Mi` memory. The operator uses a set block unchanged. See {ref}`resource-quota`. |
 | `volumeClaimTemplates` | list | no | StatefulSet-native per-replica PVC templates. Reference the claim `name` from `spec.pod.volumeMounts`. Immutable after creation. |
 
 (reference-flavor)=
@@ -270,6 +272,8 @@ curl -X BAN -H 'X-Vinyl-Ban: obj.http.x-url ~ "^/news/"' http://varnish.svc/
 | `serviceMonitor.enabled` | boolean | `false` | Creates a `ServiceMonitor` for this cache. |
 | `prometheusRules.enabled` | boolean | `false` | Creates a `PrometheusRule` named `<cache>-alerts` with the alerts for this cache. |
 | `prometheusRules.lowHitRatio.threshold` | float | `0.5` | Hit ratio of a pod below which `VinylCacheLowHitRatio` fires. Greater than `0` and at most `1`. |
+| `exporter.enabled` | boolean | `false` | Adds the `vinyl-exporter` sidecar to each cache pod. |
+| `exporter.resources` | object | see description | Resource requests and limits of the exporter sidecar. Without requests and limits, the operator uses requests of `10m` CPU and `32Mi` memory and limits of `200m` CPU and `128Mi` memory. The operator uses a set block unchanged. See {ref}`resource-quota`. |
 | `prometheusRules.lowHitRatio.for` | string | `15m` | How long the ratio must stay below the threshold. A Prometheus duration such as `30s`, `15m`, `1h30m` or `1d`. Go-style fractions like `1.5h` fail validation. |
 
 See [Set up monitoring](../how-to/setup-monitoring.md) for the alerts.
