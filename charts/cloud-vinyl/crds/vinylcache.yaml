@@ -69,6 +69,75 @@ spec:
           spec:
             description: spec defines the desired state of the VinylCache cluster.
             properties:
+              agent:
+                description: |-
+                  agent configures the vinyl-agent sidecar, which receives the VCL from
+                  the operator and loads it into the cache.
+                properties:
+                  resources:
+                    description: |-
+                      resources are the agent container's resource requirements. When neither
+                      requests nor limits are set, the operator uses requests of 10m CPU and
+                      16Mi memory and limits of 100m CPU and 64Mi memory, so that the pod is
+                      admitted in a namespace with a ResourceQuota.
+                    properties:
+                      claims:
+                        description: |-
+                          Claims lists the names of resources, defined in spec.resourceClaims,
+                          that are used by this container.
+
+                          This field depends on the
+                          DynamicResourceAllocation feature gate.
+
+                          This field is immutable. It can only be set for containers.
+                        items:
+                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          properties:
+                            name:
+                              description: |-
+                                Name must match the name of one entry in pod.spec.resourceClaims of
+                                the Pod where this field is used. It makes that resource available
+                                inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Limits describes the maximum amount of compute resources allowed.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Requests describes the minimum amount of compute resources required.
+                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                    type: object
+                type: object
               backends:
                 description: |-
                   backends defines the upstream services Varnish will proxy to.
@@ -544,8 +613,10 @@ spec:
                         format: int32
                         type: integer
                       resources:
-                        description: resources sets the exporter container resource
-                          requirements.
+                        description: |-
+                          resources sets the exporter container resource requirements. When
+                          neither requests nor limits are set, the operator uses requests of 10m
+                          CPU and 32Mi memory and limits of 200m CPU and 128Mi memory.
                         properties:
                           claims:
                             description: |-
@@ -4888,6 +4959,75 @@ spec:
           spec:
             description: spec defines the desired state of the VinylCache cluster.
             properties:
+              agent:
+                description: |-
+                  agent configures the vinyl-agent sidecar, which receives the VCL from
+                  the operator and loads it into the cache.
+                properties:
+                  resources:
+                    description: |-
+                      resources are the agent container's resource requirements. When neither
+                      requests nor limits are set, the operator uses requests of 10m CPU and
+                      16Mi memory and limits of 100m CPU and 64Mi memory, so that the pod is
+                      admitted in a namespace with a ResourceQuota.
+                    properties:
+                      claims:
+                        description: |-
+                          Claims lists the names of resources, defined in spec.resourceClaims,
+                          that are used by this container.
+
+                          This field depends on the
+                          DynamicResourceAllocation feature gate.
+
+                          This field is immutable. It can only be set for containers.
+                        items:
+                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          properties:
+                            name:
+                              description: |-
+                                Name must match the name of one entry in pod.spec.resourceClaims of
+                                the Pod where this field is used. It makes that resource available
+                                inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Limits describes the maximum amount of compute resources allowed.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Requests describes the minimum amount of compute resources required.
+                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                    type: object
+                type: object
               backends:
                 description: |-
                   backends defines the upstream services Varnish will proxy to.
@@ -5363,8 +5503,10 @@ spec:
                         format: int32
                         type: integer
                       resources:
-                        description: resources sets the exporter container resource
-                          requirements.
+                        description: |-
+                          resources sets the exporter container resource requirements. When
+                          neither requests nor limits are set, the operator uses requests of 10m
+                          CPU and 32Mi memory and limits of 200m CPU and 128Mi memory.
                         properties:
                           claims:
                             description: |-

@@ -26,6 +26,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -213,8 +214,9 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vin
 			agentImage = rt.Daemon
 		}
 		agentContainer := corev1.Container{
-			Name:  agentContainerName,
-			Image: agentImage,
+			Name:      agentContainerName,
+			Image:     agentImage,
+			Resources: sidecarResources(vc.Spec.Agent.Resources, defaultAgentResources),
 			Ports: []corev1.ContainerPort{
 				{Name: "agent", ContainerPort: agentPort, Protocol: corev1.ProtocolTCP},
 			},
@@ -368,6 +370,32 @@ func (r *VinylCacheReconciler) reconcileStatefulSet(ctx context.Context, vc *vin
 
 // buildExporterContainer returns the prometheus_varnish_exporter sidecar. It
 // shares the varnish-workdir volume read-only to read the VSM (varnishstat) data.
+// Default resources of the sidecars, used when the spec sets neither requests
+// nor limits (#205). A namespace with a ResourceQuota on CPU or memory rejects
+// a pod with a container that lacks them. Measured in production (2026-11):
+// the agent peaks at about 9Mi and the exporter at about 21Mi, both near 1m
+// CPU. The tracer gets no default: its load follows the traffic.
+var (
+	defaultAgentResources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("10m"), corev1.ResourceMemory: resource.MustParse("16Mi")},
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("64Mi")},
+	}
+	defaultExporterResources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("10m"), corev1.ResourceMemory: resource.MustParse("32Mi")},
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m"), corev1.ResourceMemory: resource.MustParse("128Mi")},
+	}
+)
+
+// sidecarResources returns the resources set in the spec, or the default when
+// the spec sets nothing. A partly set block is used as is: whoever sets
+// resources decides all of them.
+func sidecarResources(set, def corev1.ResourceRequirements) corev1.ResourceRequirements {
+	if len(set.Requests) > 0 || len(set.Limits) > 0 || len(set.Claims) > 0 {
+		return *set.DeepCopy()
+	}
+	return *def.DeepCopy()
+}
+
 func buildExporterContainer(exp *vinylv1.ExporterSpec, image string, t flavorTraits) corev1.Container {
 	port := exporterPort
 	if exp.Port != 0 {
@@ -395,7 +423,7 @@ func buildExporterContainer(exp *vinylv1.ExporterSpec, image string, t flavorTra
 			ReadOnlyRootFilesystem:   new(true),
 			AllowPrivilegeEscalation: new(false),
 		},
-		Resources: exp.Resources,
+		Resources: sidecarResources(exp.Resources, defaultExporterResources),
 	}
 }
 
