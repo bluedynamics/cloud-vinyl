@@ -31,7 +31,7 @@ The chart still accepts and ignores it until 2.0.
 | `image.agent.repository` | string | `ghcr.io/bluedynamics/cloud-vinyl-agent` | vinyl-agent sidecar image repository. |
 | `image.agent.tag` | string | `""` | Agent image tag. Defaults to Chart `appVersion`. |
 | `image.agent.pullPolicy` | string | `IfNotPresent` | Image pull policy. |
-| `image.tracer.repository` | string | `""` | **Deprecated**, planned for removal in 1.2. Use `runtimes.<flavor>.versions."<version>".tracer`. While set, it overrides the tracer of the `varnish` entries only (the `vinyl` tracer is not affected), repository defaulting to `ghcr.io/bluedynamics/cloud-vinyl-tracer`. `helm install` and `helm upgrade` print a deprecation note. |
+| `image.tracer.repository` | string | `""` | **Deprecated**, planned for removal in a later release. Use `runtimes.<flavor>.versions."<version>".tracer`. While set, it overrides the tracer of the `varnish` entries only (the `vinyl` tracer is not affected), repository defaulting to `ghcr.io/bluedynamics/cloud-vinyl-tracer`. `helm install` and `helm upgrade` print a deprecation note. |
 | `image.tracer.tag` | string | `""` | **Deprecated**, see above. Defaults to the chart `appVersion`. |
 
 (helm-values-runtimes)=
