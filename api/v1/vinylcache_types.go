@@ -198,6 +198,11 @@ type VinylCacheSpec struct {
 	// +optional
 	Tracing TracingSpec `json:"tracing,omitempty"`
 
+	// agent configures the vinyl-agent sidecar, which receives the VCL from
+	// the operator and loads it into the cache.
+	// +optional
+	Agent AgentSpec `json:"agent,omitempty"`
+
 	// esi configures Edge Side Includes (ESI) processing.
 	// +optional
 	ESI ESISpec `json:"esi,omitempty"`
@@ -814,6 +819,16 @@ type MonitoringSpec struct {
 	Exporter *ExporterSpec `json:"exporter,omitempty"`
 }
 
+// AgentSpec configures the vinyl-agent sidecar.
+type AgentSpec struct {
+	// resources are the agent container's resource requirements. When neither
+	// requests nor limits are set, the operator uses requests of 10m CPU and
+	// 16Mi memory and limits of 100m CPU and 64Mi memory, so that the pod is
+	// admitted in a namespace with a ResourceQuota.
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
 // TracingSpec configures OpenTelemetry trace export for the Varnish cluster.
 type TracingSpec struct {
 	// enabled activates the vinyl-tracer sidecar.
@@ -866,7 +881,9 @@ type ExporterSpec struct {
 	// +optional
 	Port int32 `json:"port,omitempty"`
 
-	// resources sets the exporter container resource requirements.
+	// resources sets the exporter container resource requirements. When
+	// neither requests nor limits are set, the operator uses requests of 10m
+	// CPU and 32Mi memory and limits of 200m CPU and 128Mi memory.
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 }

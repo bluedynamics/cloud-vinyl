@@ -743,3 +743,65 @@ func TestStatefulSet_AgentImageFallsBackToDaemon(t *testing.T) {
 	ss := getStatefulSetFor(t, exporterBaseVC(), rt)
 	assert.Equal(t, rt.Daemon, containerByName(t, ss, agentContainerName).Image)
 }
+
+// #205: in a namespace with a ResourceQuota on CPU and memory, Kubernetes
+// rejects a pod whose containers lack requests or limits. The sidecars get
+// defaults when the spec sets none. Measured in production (2026-11): the
+// agent peaks at about 9Mi, the exporter at about 21Mi, both near 1m CPU.
+func TestStatefulSet_AgentDefaultResources(t *testing.T) {
+	agent := containerByName(t, getStatefulSet(t, exporterBaseVC()), agentContainerName)
+	assert.Equal(t, "10m", agent.Resources.Requests.Cpu().String())
+	assert.Equal(t, "16Mi", agent.Resources.Requests.Memory().String())
+	assert.Equal(t, "100m", agent.Resources.Limits.Cpu().String())
+	assert.Equal(t, "64Mi", agent.Resources.Limits.Memory().String())
+}
+
+func TestStatefulSet_AgentResourcesFromSpec(t *testing.T) {
+	vc := exporterBaseVC()
+	vc.Spec.Agent.Resources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("20Mi")},
+	}
+	agent := containerByName(t, getStatefulSet(t, vc), agentContainerName)
+	assert.Equal(t, vc.Spec.Agent.Resources, agent.Resources, "a set spec.agent.resources is used as is")
+}
+
+func TestStatefulSet_ExporterDefaultResources(t *testing.T) {
+	vc := exporterBaseVC()
+	vc.Spec.Monitoring.Exporter = &vinylv1.ExporterSpec{Enabled: true}
+	exporter := containerByName(t, getStatefulSet(t, vc), "vinyl-exporter")
+	assert.Equal(t, "10m", exporter.Resources.Requests.Cpu().String())
+	assert.Equal(t, "32Mi", exporter.Resources.Requests.Memory().String())
+	assert.Equal(t, "200m", exporter.Resources.Limits.Cpu().String())
+	assert.Equal(t, "128Mi", exporter.Resources.Limits.Memory().String())
+}
+
+func TestStatefulSet_ExporterResourcesFromSpec(t *testing.T) {
+	vc := exporterBaseVC()
+	set := corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")},
+	}
+	vc.Spec.Monitoring.Exporter = &vinylv1.ExporterSpec{Enabled: true, Resources: set}
+	exporter := containerByName(t, getStatefulSet(t, vc), "vinyl-exporter")
+	assert.Equal(t, set, exporter.Resources, "a set exporter resources block is used as is")
+}
+
+// With spec.resources set for varnish, every container of the pod has CPU and
+// memory requests and limits, so a namespace ResourceQuota admits the pod.
+func TestStatefulSet_EveryContainerFitsAResourceQuota(t *testing.T) {
+	vc := exporterBaseVC()
+	vc.Spec.Monitoring.Exporter = &vinylv1.ExporterSpec{Enabled: true}
+	vc.Spec.Resources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("256Mi")},
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("512Mi")},
+	}
+	pod := getStatefulSet(t, vc).Spec.Template.Spec
+	require.Empty(t, pod.InitContainers, "init containers would need resources too")
+	for _, c := range pod.Containers {
+		for _, name := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+			_, req := c.Resources.Requests[name]
+			_, lim := c.Resources.Limits[name]
+			assert.True(t, req, "%s: %s request missing", c.Name, name)
+			assert.True(t, lim, "%s: %s limit missing", c.Name, name)
+		}
+	}
+}
