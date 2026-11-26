@@ -134,7 +134,7 @@ Pin `version` to stay put.
 The operator restarts when the catalog in the chart values changes, and then reconciles all caches.
 Each StatefulSet rolls one pod at a time, as on every operator upgrade, with no throttling across caches.
 
-**The chart deprecates `image.tracer`** and plans to remove it in 1.2.
+**The chart deprecates `image.tracer`** and plans to remove it in a later release. 1.2 still accepts it.
 While set, it overrides the tracer of the `varnish` entries only, wins over an explicit `runtimes.varnish.versions."9.1.0".tracer`, and drops the release's tracer digest.
 Move the value to `runtimes…tracer` and unset `image.tracer.repository` and `image.tracer.tag`.
 Do this in a values file, or with the escaped `--set` form shown in {ref}`replace-an-image`.
